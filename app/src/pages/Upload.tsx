@@ -36,19 +36,6 @@ const STATUS_LABELS: Record<string, string> = {
   error: "Errore",
 };
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(",")[1];
-      resolve(base64);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 export default function UploadPage() {
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -75,12 +62,12 @@ export default function UploadPage() {
     setMessage(null);
 
     try {
-      const base64 = await fileToBase64(file);
+      const formData = new FormData();
+      formData.append("file", file);
 
-      // Send directly to Edge Function (creates its own record)
       const { data: result, error: funcError } = await supabase.functions.invoke(
         "process-excel-upload",
-        { body: { file: base64, filename: file.name } }
+        { body: formData }
       );
 
       if (funcError) throw funcError;
