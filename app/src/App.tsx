@@ -6,6 +6,7 @@ import PlayersPage from './pages/Players'
 import AnalyticsPage from './pages/Analytics'
 import CopilotPage from './pages/Copilot'
 import SettingsPage from './pages/Settings'
+import UploadPage from './pages/Upload'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/network" element={<NetworkPage />} />
         <Route path="/players" element={<PlayersPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/upload" element={<UploadPage />} />
         <Route path="/copilot" element={<CopilotPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

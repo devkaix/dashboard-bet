@@ -9,6 +9,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  Upload,
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -18,6 +19,7 @@ const navItems = [
   { to: '/network', icon: Network, label: 'Rete' },
   { to: '/players', icon: Users, label: 'Giocatori' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
+  { to: '/upload', icon: Upload, label: 'Importa Dati' },
   { to: '/copilot', icon: Sparkles, label: 'AI Copilot' },
   { to: '/settings', icon: Settings, label: 'Impostazioni' },
 ]
