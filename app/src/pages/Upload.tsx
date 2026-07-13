@@ -65,12 +65,23 @@ export default function UploadPage() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const { data: result, error: funcError } = await supabase.functions.invoke(
-        "process-excel-upload",
-        { body: formData }
+      const { data: { session } } = await supabase.auth.getSession();
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      const res = await fetch(
+        "https://sktclykuktqaufaaoqui.supabase.co/functions/v1/process-excel-upload",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${anonKey}`,
+          },
+          body: formData,
+        }
       );
 
-      if (funcError) throw funcError;
+      const result = await res.json();
+
+      if (!res.ok) throw new Error(result.error || `Errore ${res.status}`);
 
       if (result?.success) {
           setMessage({
