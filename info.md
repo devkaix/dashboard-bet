@@ -71,3 +71,6 @@ Build an AI-powered Business Intelligence Decision Platform for DAZN Bet that si
 - Data-dense layout with information hierarchy
 - Real-time feel with sparklines and mini-charts
 - Italian language for all UI text
+
+---
+*Updated: July 2026*
