@@ -66,7 +66,7 @@ export default function UploadPage() {
     <div className="p-6 space-y-6">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <h1 className="text-2xl font-bold text-white">Importa Dati</h1>
-        <p className="text-text-secondary mt-1">Carica i file Excel esportati da Exalogic. I dati vengono elaborati e popolano il database.</p>
+        <p className="text-text-secondary mt-1">Trascina qui i file .xlsx/.xls/.csv — elaborazione automatica.</p>
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
