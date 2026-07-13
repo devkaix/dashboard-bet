@@ -13,8 +13,6 @@ const STATUS_ICONS: Record<string, typeof CheckCircle2> = { completed: CheckCirc
 const STATUS_COLORS: Record<string, string> = { completed: "text-emerald-400", processing: "text-amber-400", pending: "text-slate-400", error: "text-red-400" };
 const STATUS_LABELS: Record<string, string> = { completed: "Completato", processing: "In elaborazione...", pending: "In attesa...", error: "Errore" };
 
-const FN_URL = "https://sktclykuktqaufaaoqui.supabase.co/functions/v1/process-excel-upload";
-
 export default function UploadPage() {
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -36,15 +34,20 @@ export default function UploadPage() {
     setUploading(true);
     setMessage(null);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
 
-      const res = await fetch(FN_URL, { method: "POST", body: fd });
-      const result = await res.json();
+      const { data, error } = await supabase.functions.invoke("process-excel-upload", {
+        body: { file: base64, filename: file.name },
+      });
 
-      if (!res.ok) throw new Error(result.error || `Errore server (${res.status})`);
+      if (error) throw new Error(error.message || "Errore funzione");
 
-      setMessage({ type: "success", text: `"${file.name}" elaborato: ${result.rowsProcessed} righe (${result.fileType})` });
+      setMessage({ type: "success", text: `"${file.name}" elaborato: ${data.rowsProcessed} righe (${data.fileType})` });
     } catch (err: unknown) {
       setMessage({ type: "error", text: err instanceof Error ? err.message : String(err) });
     } finally {
