@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Upload, FileSpreadsheet, CheckCircle2, XCircle, Loader2, Trash2, RefreshCw } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, XCircle, Loader2, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +36,19 @@ const STATUS_LABELS: Record<string, string> = {
   error: "Errore",
 };
 
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(",")[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function UploadPage() {
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -62,53 +75,39 @@ export default function UploadPage() {
     setMessage(null);
 
     try {
-      // 1. Create upload record in DB
-      const { data: uploadRecord, error: dbError } = await supabase
-        .from("excel_uploads")
-        .insert({
-          filename: file.name,
-          status: "pending",
-        } as any)
+      // Convert file to base64
+      const base64 = await fileToBase64(file);
+
+      // Create upload record
+      const { data: record } = await (supabase.from("excel_uploads") as any)
+        .insert({ filename: file.name, status: "processing" })
         .select("*")
         .single();
+      const recordId = (record as UploadRecord)?.id;
 
-      if (dbError) throw dbError;
-
-      const uploadId = (uploadRecord as UploadRecord).id;
-
-      // 2. Upload file to Storage
-      const filePath = `${uploadId}/${file.name}`;
-      const { error: storageError } = await supabase.storage
-        .from("excel-uploads")
-        .upload(filePath, file);
-
-      if (storageError) throw storageError;
-
-      // 3. Update record with storage path
-      await (supabase.from("excel_uploads") as any)
-        .update({ storage_path: filePath, status: "processing" })
-        .eq("id", uploadId);
-
-      // 4. Call Edge Function to process
-      const { data: funcData, error: funcError } = await supabase.functions.invoke(
+      // Send directly to Edge Function (no storage needed)
+      const { data: result, error: funcError } = await supabase.functions.invoke(
         "process-excel-upload",
-        { body: { filePath, uploadId } }
+        { body: { file: base64, filename: file.name } }
       );
 
       if (funcError) throw funcError;
 
-      const result = funcData as { success: boolean; fileType: string; rowsProcessed: number; error?: string };
-
       if (result?.success) {
         setMessage({
           type: "success",
-          text: `File "${file.name}" elaborato: ${result.rowsProcessed} righe (tipo: ${result.fileType})`,
+          text: `"${file.name}" elaborato: ${result.rowsProcessed} righe (${result.fileType})`,
         });
       } else {
         setMessage({ type: "error", text: result?.error || "Errore sconosciuto" });
+        if (recordId) {
+          await (supabase.from("excel_uploads") as any)
+            .update({ status: "error", error_message: result?.error })
+            .eq("id", recordId);
+        }
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Errore durante l'upload";
+      const msg = err instanceof Error ? err.message : "Errore durante l'elaborazione";
       setMessage({ type: "error", text: msg });
     } finally {
       setUploading(false);
@@ -127,9 +126,7 @@ export default function UploadPage() {
           f.name.endsWith(".xls") ||
           f.name.endsWith(".csv")
       );
-      if (excelFiles.length > 0) {
-        excelFiles.forEach(processFile);
-      }
+      excelFiles.forEach(processFile);
     },
     []
   );
@@ -142,11 +139,10 @@ export default function UploadPage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <h1 className="text-2xl font-bold text-white">Importa Dati</h1>
         <p className="text-text-secondary mt-1">
-          Carica i file Excel esportati da Exalogic per popolare il database
+          Carica i file Excel esportati da Exalogic. I dati vengono elaborati e popolano automaticamente il database.
         </p>
       </motion.div>
 
@@ -161,10 +157,7 @@ export default function UploadPage() {
             ? "border-accent-purple bg-accent-purple/5"
             : "border-border-subtle hover:border-text-secondary/40 bg-bg-surface-elevated/50"
         )}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragOver(true);
-        }}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
         onClick={() => document.getElementById("file-input")?.click()}
@@ -181,7 +174,7 @@ export default function UploadPage() {
         {uploading ? (
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-10 h-10 text-accent-purple animate-spin" />
-            <p className="text-text-secondary">Caricamento in corso...</p>
+            <p className="text-text-secondary">Elaborazione in corso...</p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">
@@ -189,12 +182,8 @@ export default function UploadPage() {
               <Upload className="w-7 h-7 text-accent-purple" />
             </div>
             <div>
-              <p className="text-white font-medium">
-                Trascina i file Excel qui
-              </p>
-              <p className="text-text-secondary text-sm mt-1">
-                oppure clicca per selezionare · .xlsx, .xls, .csv
-              </p>
+              <p className="text-white font-medium">Trascina i file Excel qui</p>
+              <p className="text-text-secondary text-sm mt-1">oppure clicca per selezionare · .xlsx, .xls, .csv</p>
             </div>
           </div>
         )}
@@ -214,16 +203,9 @@ export default function UploadPage() {
                 : "bg-red-500/10 border border-red-500/20 text-red-400"
             )}
           >
-            {message.type === "success" ? (
-              <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
-            ) : (
-              <XCircle className="w-5 h-5 flex-shrink-0" />
-            )}
+            {message.type === "success" ? <CheckCircle2 className="w-5 h-5 flex-shrink-0" /> : <XCircle className="w-5 h-5 flex-shrink-0" />}
             <span className="text-sm">{message.text}</span>
-            <button
-              onClick={() => setMessage(null)}
-              className="ml-auto text-current opacity-60 hover:opacity-100"
-            >
+            <button onClick={() => setMessage(null)} className="ml-auto text-current opacity-60 hover:opacity-100">
               <XCircle className="w-4 h-4" />
             </button>
           </motion.div>
@@ -239,10 +221,7 @@ export default function UploadPage() {
       >
         <div className="px-5 py-3 border-b border-border-subtle flex items-center justify-between">
           <h2 className="text-sm font-semibold text-white">Storico Upload</h2>
-          <button
-            onClick={fetchUploads}
-            className="p-1.5 rounded-lg hover:bg-white/5 text-text-secondary hover:text-white transition-colors"
-          >
+          <button onClick={fetchUploads} className="p-1.5 rounded-lg hover:bg-white/5 text-text-secondary hover:text-white transition-colors">
             <RefreshCw className="w-4 h-4" />
           </button>
         </div>
@@ -257,43 +236,22 @@ export default function UploadPage() {
             {uploads.map((upload) => {
               const Icon = STATUS_ICONS[upload.status] || FileSpreadsheet;
               return (
-                <div
-                  key={upload.id}
-                  className="px-5 py-3 flex items-center gap-3 hover:bg-white/[0.02] transition-colors"
-                >
-                  <Icon
-                    className={cn(
-                      "w-5 h-5 flex-shrink-0",
-                      STATUS_COLORS[upload.status] || "text-slate-400",
-                      upload.status === "processing" || upload.status === "pending"
-                        ? "animate-spin"
-                        : ""
-                    )}
-                  />
+                <div key={upload.id} className="px-5 py-3 flex items-center gap-3 hover:bg-white/[0.02] transition-colors">
+                  <Icon className={cn("w-5 h-5 flex-shrink-0", STATUS_COLORS[upload.status] || "text-slate-400", (upload.status === "processing" || upload.status === "pending") ? "animate-spin" : "")} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-white truncate">{upload.filename}</p>
                     <p className="text-xs text-text-secondary">
                       {upload.file_type && `${upload.file_type} · `}
                       {upload.rows_processed > 0 && `${upload.rows_processed} righe · `}
-                      {new Date(upload.uploaded_at).toLocaleDateString("it-IT", {
-                        day: "numeric",
-                        month: "short",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {new Date(upload.uploaded_at).toLocaleDateString("it-IT", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
                     </p>
                   </div>
-                  <span
-                    className={cn(
-                      "text-xs px-2 py-0.5 rounded-full font-medium",
-                      upload.status === "completed" && "bg-emerald-500/10 text-emerald-400",
-                      upload.status === "processing" && "bg-amber-500/10 text-amber-400",
-                      upload.status === "pending" && "bg-slate-500/10 text-slate-400",
-                      upload.status === "error" && "bg-red-500/10 text-red-400"
-                    )}
-                  >
-                    {STATUS_LABELS[upload.status] || upload.status}
-                  </span>
+                  <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium",
+                    upload.status === "completed" && "bg-emerald-500/10 text-emerald-400",
+                    upload.status === "processing" && "bg-amber-500/10 text-amber-400",
+                    upload.status === "pending" && "bg-slate-500/10 text-slate-400",
+                    upload.status === "error" && "bg-red-500/10 text-red-400"
+                  )}>{STATUS_LABELS[upload.status] || upload.status}</span>
                 </div>
               );
             })}
