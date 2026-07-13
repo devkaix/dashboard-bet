@@ -1,0 +1,6 @@
+node_modules
+dist
+.DS_Store
+.pw_user_data
+downloads
+*.bak
