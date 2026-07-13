@@ -75,17 +75,9 @@ export default function UploadPage() {
     setMessage(null);
 
     try {
-      // Convert file to base64
       const base64 = await fileToBase64(file);
 
-      // Create upload record
-      const { data: record } = await (supabase.from("excel_uploads") as any)
-        .insert({ filename: file.name, status: "processing" })
-        .select("*")
-        .single();
-      const recordId = (record as UploadRecord)?.id;
-
-      // Send directly to Edge Function (no storage needed)
+      // Send directly to Edge Function (creates its own record)
       const { data: result, error: funcError } = await supabase.functions.invoke(
         "process-excel-upload",
         { body: { file: base64, filename: file.name } }
@@ -94,18 +86,13 @@ export default function UploadPage() {
       if (funcError) throw funcError;
 
       if (result?.success) {
-        setMessage({
-          type: "success",
-          text: `"${file.name}" elaborato: ${result.rowsProcessed} righe (${result.fileType})`,
-        });
-      } else {
-        setMessage({ type: "error", text: result?.error || "Errore sconosciuto" });
-        if (recordId) {
-          await (supabase.from("excel_uploads") as any)
-            .update({ status: "error", error_message: result?.error })
-            .eq("id", recordId);
+          setMessage({
+            type: "success",
+            text: `"${file.name}" elaborato: ${result.rowsProcessed} righe (${result.fileType})`,
+          });
+        } else {
+          setMessage({ type: "error", text: result?.error || "Errore sconosciuto" });
         }
-      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Errore durante l'elaborazione";
       setMessage({ type: "error", text: msg });
