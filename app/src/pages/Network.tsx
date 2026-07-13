@@ -30,7 +30,7 @@ import type {
 type EntityType = 'region' | 'area_manager' | 'pvr' | 'agent' | 'player'
 
 interface TreeNode {
-  id: number
+  id: string | number
   type: EntityType
   data: Region | AreaManager | PVR | Agent | Player
   children: TreeNode[]

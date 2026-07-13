@@ -150,8 +150,8 @@ export default function Dashboard() {
         setTopPlayers(dataStore.rankings.top_players_by_rake.slice(0, 10))
         setTotalRake(dataStore.monthly_aggregates.rake)
         setTotalBet(dataStore.monthly_aggregates.bet)
-        setAvgPayout(dk.length > 0 ? dk.reduce((s, d) => s + d.avg_payout, 0) / dk.length : 0)
-        setAvgActivePerDay(dk.length > 0 ? dk.reduce((s, d) => s + d.active_players, 0) / dk.length : 0)
+        setAvgPayout(dk.length > 0 ? dk.reduce((s: number, d: { avg_payout: number }) => s + d.avg_payout, 0) / dk.length : 0)
+        setAvgActivePerDay(dk.length > 0 ? dk.reduce((s: number, d: { active_players: number }) => s + d.active_players, 0) / dk.length : 0)
         setLoading(false)
       })
       .catch((err: Error) => {

@@ -447,13 +447,14 @@ export default function AnalyticsPage() {
   // PVR distribution
   const pvrDist = useMemo(() => {
     if (!data) return []
-    const map = new Map<number, { name: string; rake: number; bet: number }>()
+    const map = new Map<string, { name: string; rake: number; bet: number }>()
     data.players.forEach((p) => {
+      const pvrId = p.pvr_id || "";
       const pvr = data.pvrs.find((v) => v.id === p.pvr_id)
-      const existing = map.get(p.pvr_id) || { name: pvr?.name || `PVR ${p.pvr_id}`, rake: 0, bet: 0 }
+      const existing = map.get(pvrId) || { name: pvr?.name || `PVR ${pvrId}`, rake: 0, bet: 0 }
       existing.rake += p.total_rake
       existing.bet += p.total_bet
-      map.set(p.pvr_id, existing)
+      map.set(pvrId, existing)
     })
     return Array.from(map.values())
       .sort((a, b) => b.rake - a.rake)
