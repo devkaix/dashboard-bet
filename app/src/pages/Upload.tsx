@@ -16,10 +16,41 @@ const LABS: Record<string, string> = { completed: "Completato", processing: "In 
 
 function num(v: unknown): number {
   if (v === null || v === undefined) return 0;
+  if (typeof v === "number") return v;
   const s = String(v).trim();
   if (s === "" || s === "None") return 0;
-  const n = parseFloat(s.replace(/\./g, "").replace(",", "."));
+  const commaCount = (s.match(/,/g) || []).length;
+  const dotCount = (s.match(/\./g) || []).length;
+  let clean = s;
+  if (commaCount > 0 && dotCount > 0) {
+    clean = s.replace(/\./g, "").replace(",", ".");
+  } else if (commaCount > 1) {
+    clean = s.replace(/,/g, "");
+  } else if (commaCount === 1) {
+    clean = s.replace(",", ".");
+  } else if (dotCount > 1) {
+    clean = s.replace(/\./g, "").replace(",", ".");
+  }
+  const n = parseFloat(clean);
   return (isNaN(n) || !isFinite(n)) ? 0 : n;
+}
+
+function fixSheetRange(ws: any) {
+  const keys = Object.keys(ws).filter((k) => !k.startsWith("!"));
+  if (!keys.length) return;
+  let minRow = Infinity, maxRow = -Infinity, minCol = Infinity, maxCol = -Infinity;
+  keys.forEach((addr) => {
+    const cell = XLSX.utils.decode_cell(addr);
+    minRow = Math.min(minRow, cell.r);
+    maxRow = Math.max(maxRow, cell.r);
+    minCol = Math.min(minCol, cell.c);
+    maxCol = Math.max(maxCol, cell.c);
+  });
+  ws["!ref"] = XLSX.utils.encode_range({ s: { r: minRow, c: minCol }, e: { r: maxRow, c: maxCol } });
+}
+
+function check(label: string, res: { data?: any; error?: any }) {
+  if (res.error) throw new Error(`${label}: ${res.error.message || JSON.stringify(res.error)}`);
 }
 function pDate(v: unknown): string | null {
   if (!v) return null;
@@ -48,15 +79,22 @@ function det(hdr: string[]): string {
 
 async function upPlayer(u: string): Promise<string|null> {
   if (!u) return null;
-  const { data: ex } = await supabase.from("players").select("id").eq("username", u).maybeSingle();
+  const { data: ex, error: e1 } = await supabase.from("players").select("id").eq("username", u).maybeSingle();
+  if (e1) throw new Error(`lookup player: ${e1.message}`);
   if (ex) return (ex as any).id;
-  const { data: cr } = await (supabase.from("players") as any).insert({ username: u }).select("id").single();
+  const { data: cr, error: e2 } = await (supabase.from("players") as any).insert({ username: u }).select("id").single();
+  if (e2) throw new Error(`insert player: ${e2.message}`);
   return (cr as any)?.id || null;
 }
 async function upPvr(eid: string, nm: string): Promise<string|null> {
-  const { data: ex } = await supabase.from("pvrs").select("id").eq("exalogic_id", eid).maybeSingle();
-  if (ex) { await (supabase.from("pvrs") as any).update({ name: nm }).eq("id", (ex as any).id); return (ex as any).id; }
-  const { data: cr } = await (supabase.from("pvrs") as any).insert({ exalogic_id: eid, name: nm }).select("id").single();
+  const { data: ex, error: e1 } = await supabase.from("pvrs").select("id").eq("exalogic_id", eid).maybeSingle();
+  if (e1) throw new Error(`lookup pvr: ${e1.message}`);
+  if (ex) {
+    check("update pvr", await (supabase.from("pvrs") as any).update({ name: nm }).eq("id", (ex as any).id));
+    return (ex as any).id;
+  }
+  const { data: cr, error: e2 } = await (supabase.from("pvrs") as any).insert({ exalogic_id: eid, name: nm }).select("id").single();
+  if (e2) throw new Error(`insert pvr: ${e2.message}`);
   return (cr as any)?.id || null;
 }
 
@@ -80,7 +118,9 @@ export default function UploadPage() {
       const wb = XLSX.read(new Uint8Array(buf), { type: "array" });
       const sn = wb.SheetNames[0];
       if (!sn) throw new Error("Nessun foglio Excel trovato");
-      const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1 }) as unknown[][];
+      const ws = wb.Sheets[sn];
+      fixSheetRange(ws);
+      const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false }) as unknown[][];
       if (aoa.length < 2) throw new Error("File vuoto: nessun dato");
       setProgress(`Trovate ${aoa.length - 1} righe...`);
 
@@ -108,30 +148,30 @@ export default function UploadPage() {
         if (ft === "tickets") {
           const tc = String(row["Ticket"] || ""); if (!tc) continue;
           const pid = await upPlayer(uname);
-          await (supabase.from("tickets") as any).upsert({
+          check("upsert tickets", await (supabase.from("tickets") as any).upsert({
             ticket_code: tc, player_id: pid, pvr_code: String(row["Codice Padre"] || ""),
             emission_date: pDt(row["Data Emissione"]), status: String(row["Stato"] || "").trim(),
             competition_date: pDate(row["Data Competenza"]), amount: num(row["Importo"]),
             win_amount: num(row["Importo vincita"]), events_count: parseInt(String(row["Eventi"] || "0")) || 0,
             payment_date: pDt(row["Data Pagamento"]),
-          }, { onConflict: "ticket_code" });
+          }, { onConflict: "ticket_code" }));
           cnt++; continue;
         }
         if (ft === "daily_pvr") {
           const eid = String(row["ID Liv 1"] || ""), nm = String(row["Liv 1"] || "");
           if (!eid || !nm || !date) continue;
           const pid = await upPvr(eid, nm);
-          if (pid) await (supabase.from("daily_pvr_stats") as any).upsert({ pvr_id: pid, date, ...stats }, { onConflict: "pvr_id,date" });
+          if (pid) check("upsert daily_pvr_stats", await (supabase.from("daily_pvr_stats") as any).upsert({ pvr_id: pid, date, ...stats }, { onConflict: "pvr_id,date" }));
           cnt++; continue;
         }
         if (ft === "daily_network") {
           if (!date) continue;
-          await (supabase.from("daily_network_stats") as any).upsert({ date, ...stats }, { onConflict: "date" });
+          check("upsert daily_network_stats", await (supabase.from("daily_network_stats") as any).upsert({ date, ...stats }, { onConflict: "date" }));
           cnt++; continue;
         }
         if (ft === "player_summary") {
           const pid = await upPlayer(uname);
-          if (pid) await (supabase.from("daily_player_stats") as any).upsert({ player_id: pid, date: "2026-06-30", ...stats }, { onConflict: "player_id,date" });
+          if (pid) check("upsert player_summary", await (supabase.from("daily_player_stats") as any).upsert({ player_id: pid, date: "2026-06-30", ...stats }, { onConflict: "player_id,date" }));
           cnt++; continue;
         }
         if (!uname || !date) continue;
@@ -139,18 +179,18 @@ export default function UploadPage() {
         if (ft === "daily_player_game") {
           const prov = String(row["Provider"] || "").trim(), gn = String(row["GameName"] || "").trim();
           if (prov && gn) {
-            await (supabase.from("game_types") as any).upsert({ provider: prov, game_name: gn }, { onConflict: "provider,game_name" });
-            await (supabase.from("daily_player_game_stats") as any).upsert({ player_id: pid, provider: prov, game_name: gn, date, ...stats }, { onConflict: "player_id,provider,game_name,date" });
+            check("upsert game_types", await (supabase.from("game_types") as any).upsert({ provider: prov, game_name: gn }, { onConflict: "provider,game_name" }));
+            check("upsert daily_player_game_stats", await (supabase.from("daily_player_game_stats") as any).upsert({ player_id: pid, provider: prov, game_name: gn, date, ...stats }, { onConflict: "player_id,provider,game_name,date" }));
           }
         } else {
-          await (supabase.from("daily_player_stats") as any).upsert({ player_id: pid, date, ...stats }, { onConflict: "player_id,date" });
+          check("upsert daily_player_stats", await (supabase.from("daily_player_stats") as any).upsert({ player_id: pid, date, ...stats }, { onConflict: "player_id,date" }));
         }
-        await (supabase.from("players") as any).update({ last_seen_date: date }).eq("id", pid);
+        check("update player last_seen", await (supabase.from("players") as any).update({ last_seen_date: date }).eq("id", pid));
         cnt++;
         if (cnt % 100 === 0) setProgress(`${cnt} righe...`);
       }
 
-      await (supabase.from("excel_uploads") as any).insert({ filename: file.name, status: "completed", rows_processed: cnt, file_type: ft });
+      check("insert excel_uploads", await (supabase.from("excel_uploads") as any).insert({ filename: file.name, status: "completed", rows_processed: cnt, file_type: ft }));
       setProgress("");
       setMessage({ type: "success", text: `"${file.name}" → ${cnt} righe (${ft})` });
     } catch (err: unknown) {
