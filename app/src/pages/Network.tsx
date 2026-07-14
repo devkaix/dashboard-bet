@@ -230,6 +230,23 @@ function buildTree(): TreeNode[] {
   // Fallback: if no regions/area managers are defined, show flat PVR → Players tree
   if (regions.length === 0 || areaManagers.length === 0) {
     const pvrNodes = pvrs.map(buildPvrNode)
+
+    const unassignedPlayers = players.filter((pl) => !pl.pvr_id)
+    if (unassignedPlayers.length > 0) {
+      const unassignedNode: TreeNode = {
+        id: '__unassigned__',
+        type: 'pvr',
+        data: { id: '__unassigned__', code: '', name: 'Non assegnati', area_manager_id: 0, region_id: 0 } as PVR,
+        children: unassignedPlayers.map((pl) => ({
+          id: pl.id,
+          type: 'player' as EntityType,
+          data: pl,
+          children: [],
+        })),
+      }
+      pvrNodes.push(unassignedNode)
+    }
+
     return [{
       id: 'network',
       type: 'region',

@@ -63,34 +63,37 @@ async function loadPlayerAliases(): Promise<Map<string, string>> {
   return map;
 }
 
-async function lookupPlayerIds(usernames: string[]): Promise<Map<string, string>> {
+async function lookupPlayerIds(usernames: string[]): Promise<Map<string, { id: string; pvr_id: string | null }>> {
   const normalized = usernames.map(normalizeUsername);
   const unique = [...new Set(normalized)].filter(Boolean);
-  const map = new Map<string, string>();
+  const map = new Map<string, { id: string; pvr_id: string | null }>();
   if (unique.length === 0) return map;
 
-  const { data, error } = await supabase.from("players").select("id, username_normalized").in("username_normalized", unique);
+  const { data, error } = await supabase
+    .from("players")
+    .select("id, username_normalized, pvr_id")
+    .in("username_normalized", unique);
   if (error) throw new Error(`lookup players: ${error.message}`);
-  for (const p of data || []) map.set(p.username_normalized!, p.id);
+  for (const p of data || []) map.set(p.username_normalized!, { id: p.id, pvr_id: p.pvr_id || null });
 
   const aliases = await loadPlayerAliases();
   for (const u of unique) {
     if (map.has(u)) continue;
     const pid = aliases.get(u);
-    if (pid) map.set(u, pid);
+    if (pid) map.set(u, { id: pid, pvr_id: null });
   }
 
   return map;
 }
 
-async function resolvePlayerIds(usernames: string[]): Promise<Map<string, string>> {
+async function resolvePlayerIds(usernames: string[]): Promise<Map<string, { id: string; pvr_id: string | null }>> {
   const map = await lookupPlayerIds(usernames);
   const remaining = new Set(usernames.map(normalizeUsername).filter((u) => !map.has(u) && u));
   if (remaining.size > 0) {
     const inserts = [...remaining].map((u) => ({ username: u, username_normalized: u }));
-    const { data, error } = await supabase.from("players").insert(inserts).select("id, username_normalized");
+    const { data, error } = await supabase.from("players").insert(inserts).select("id, username_normalized, pvr_id");
     if (error) throw new Error(`insert players: ${error.message}`);
-    for (const p of data || []) map.set(p.username_normalized!, p.id);
+    for (const p of data || []) map.set(p.username_normalized!, { id: p.id, pvr_id: p.pvr_id || null });
   }
   return map;
 }
@@ -211,9 +214,11 @@ export default function UploadPage() {
 
         const playerMap = await resolvePlayerIds(masterRows.map((r) => r.username));
         const upserts = masterRows.map((r) => {
-          const id = playerMap.get(r.username_normalized);
-          if (!id) report.unmatched_players.push(r.username);
-          return { id, ...r };
+          const resolved = playerMap.get(r.username_normalized);
+          if (!resolved) report.unmatched_players.push(r.username);
+          // Preserve an existing PVR assignment when the new file cannot verify it.
+          const pvr_id = r.pvr_id ?? resolved?.pvr_id ?? null;
+          return { id: resolved?.id, ...r, pvr_id };
         }).filter((r) => r.id);
 
         if (upserts.length > 0) {
@@ -253,7 +258,7 @@ export default function UploadPage() {
         report.target_month = targetMonth;
 
         const playerMap = await lookupPlayerIds(summaryRows.map((r) => r.username));
-        const playerIds = [...new Set([...playerMap.values()])].filter(Boolean);
+        const playerIds = [...new Set([...playerMap.values()].map((p) => p.id))].filter(Boolean);
 
         let dbTotals: any[] = [];
         if (playerIds.length > 0 && targetMonth) {
@@ -268,7 +273,7 @@ export default function UploadPage() {
 
         const mismatches: string[] = [];
         for (const r of summaryRows) {
-          const pid = playerMap.get(r.username_normalized);
+          const pid = playerMap.get(r.username_normalized)?.id;
           if (!pid) {
             report.unmatched_players.push(r.username);
             continue;
@@ -373,7 +378,7 @@ export default function UploadPage() {
       // Resolve players in one batch
       const playerMap = await resolvePlayerIds(usernames);
 
-      // Resolve PVRs for daily_pvr
+      // Resolve PVRs for daily_pvr and auto-populate unverified pvr_reference_map entries
       const pvrMap = new Map<string, string>();
       if (pvrKeys.length > 0) {
         const uniqueEids = [...new Set(pvrKeys.map((k) => k.eid))];
@@ -391,12 +396,31 @@ export default function UploadPage() {
           if (createErr) throw new Error(`insert pvrs: ${createErr.message}`);
           for (const p of created || []) pvrMap.set(p.exalogic_id, p.id);
         }
+
+        // Auto-create unverified mappings from exalogic_id -> pvr_id
+        const { data: existingMaps, error: mapErr } = await supabase.from("pvr_reference_map").select("pvr_ref_code").in("pvr_ref_code", uniqueEids);
+        if (mapErr) throw new Error(`lookup pvr_reference_map: ${mapErr.message}`);
+        const existingCodes = new Set((existingMaps || []).map((m) => m.pvr_ref_code));
+        const mapInserts = uniqueEids
+          .filter((eid) => !existingCodes.has(eid))
+          .map((eid) => ({
+            pvr_ref_code: eid,
+            pvr_id: pvrMap.get(eid),
+            mapping_source: "daily_pvr_stats",
+            confidence: 1,
+            verified: false,
+            notes: "Auto-created from daily_pvr_stats import",
+          }))
+          .filter((r) => r.pvr_id);
+        if (mapInserts.length > 0) {
+          check("insert pvr_reference_map", await (supabase.from("pvr_reference_map") as any).insert(mapInserts));
+        }
       }
 
       // Upsert tickets
       if (ticketRows.length > 0) {
         const upserts = ticketRows.map((r) => {
-          const player_id = playerMap.get(r.username_normalized);
+          const player_id = playerMap.get(r.username_normalized)?.id;
           if (!player_id) report.unmatched_players.push(r.username_normalized);
           return { ...r, player_id: player_id || null };
         });
@@ -423,7 +447,7 @@ export default function UploadPage() {
         const gameTypes = [...new Map(dailyGameRows.map((r) => [`${r.provider}|${r.game_name}`, { provider: r.provider, game_name: r.game_name }])).values()];
         await batchUpsert("game_types", gameTypes, "provider,game_name", 500);
         const upserts = dailyGameRows.map((r) => {
-          const player_id = playerMap.get(r.username_normalized);
+          const player_id = playerMap.get(r.username_normalized)?.id;
           if (!player_id) report.unmatched_players.push(r.username_normalized);
           return { player_id: player_id || "", provider: r.provider, game_name: r.game_name, date: r.date, ...getStats(r) };
         }).filter((r) => r.player_id);
@@ -433,7 +457,7 @@ export default function UploadPage() {
       // Upsert daily_player_stats and update last_seen_date
       if (dailyPlayerRows.length > 0) {
         const upserts = dailyPlayerRows.map((r) => {
-          const player_id = playerMap.get(r.username_normalized);
+          const player_id = playerMap.get(r.username_normalized)?.id;
           if (!player_id) report.unmatched_players.push(r.username_normalized);
           return { player_id: player_id || "", date: r.date, ...getStats(r) };
         }).filter((r) => r.player_id);
@@ -441,7 +465,7 @@ export default function UploadPage() {
 
         const seenMap = new Map<string, string>();
         for (const r of dailyPlayerRows) {
-          const pid = playerMap.get(r.username_normalized);
+          const pid = playerMap.get(r.username_normalized)?.id;
           if (!pid) continue;
           const curr = seenMap.get(pid);
           if (!curr || r.date > curr) seenMap.set(pid, r.date);

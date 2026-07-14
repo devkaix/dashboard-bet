@@ -1,5 +1,6 @@
 // ─── Supabase-backed data layer (enterprise real-data only) ───
 import { supabase } from "./supabase";
+import { fromZonedTime, formatInTimeZone } from "date-fns-tz";
 
 // ─── Type definitions ───
 
@@ -232,6 +233,18 @@ function playerStatus(activeDays: number): string {
 
 // ─── Helpers ───
 
+function daysInMonth(y: number, m: number): number {
+  // m is 1-based
+  return new Date(y, m, 0).getDate();
+}
+
+function nextDay(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d));
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().split("T")[0];
+}
+
 async function inferLatestMonthRange(): Promise<DateRange> {
   const { data, error } = await supabase
     .from("daily_network_stats")
@@ -243,7 +256,7 @@ async function inferLatestMonthRange(): Promise<DateRange> {
   if (!maxDate) return {};
   const [y, m] = maxDate.split("-").map(Number);
   const start = `${y}-${String(m).padStart(2, "0")}-01`;
-  const end = new Date(y, m, 0).toISOString().split("T")[0];
+  const end = `${y}-${String(m).padStart(2, "0")}-${String(daysInMonth(y, m)).padStart(2, "0")}`;
   return { start, end };
 }
 
@@ -590,12 +603,17 @@ async function fetchDailyKpis(range?: DateRange): Promise<DailyKPI[]> {
     activeMap.get(row.date)!.add(row.player_id);
   }
 
-  // Real bet count from tickets when available
-  let ticketsQ = supabase
-    .from("tickets")
-    .select("emission_date");
-  if (range?.start) ticketsQ = ticketsQ.gte("emission_date", range.start);
-  if (range?.end) ticketsQ = ticketsQ.lte("emission_date", range.end);
+  // Real bet count from tickets using a half-open range anchored to Europe/Rome.
+  const ROME_TZ = "Europe/Rome";
+  let ticketsQ = supabase.from("tickets").select("emission_date");
+  if (range?.start) {
+    const lower = fromZonedTime(`${range.start}T00:00:00`, ROME_TZ).toISOString();
+    ticketsQ = ticketsQ.gte("emission_date", lower);
+  }
+  if (range?.end) {
+    const upper = fromZonedTime(`${nextDay(range.end)}T00:00:00`, ROME_TZ).toISOString();
+    ticketsQ = ticketsQ.lt("emission_date", upper);
+  }
   const { data: ticketsData, error: ticketsErr } = await ticketsQ;
   if (ticketsErr) throw ticketsErr;
 
@@ -603,8 +621,7 @@ async function fetchDailyKpis(range?: DateRange): Promise<DailyKPI[]> {
   for (const row of ticketsData || []) {
     const ts = row.emission_date;
     if (!ts) continue;
-    const date = ts.split("T")[0];
-    if (!date) continue;
+    const date = formatInTimeZone(ts, ROME_TZ, "yyyy-MM-dd");
     betsMap.set(date, (betsMap.get(date) || 0) + 1);
   }
 

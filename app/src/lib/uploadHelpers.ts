@@ -1,3 +1,13 @@
+import { fromZonedTime } from "date-fns-tz";
+
+const ROME_TZ = "Europe/Rome";
+
+function expandTwoDigitYear(y: string): string {
+  if (y.length !== 2) return y;
+  const yy = parseInt(y, 10);
+  return String(yy < 50 ? 2000 + yy : 1900 + yy);
+}
+
 export function num(v: unknown): number {
   if (v === null || v === undefined) return 0;
   if (typeof v === "number") return v;
@@ -33,7 +43,18 @@ export function pDate(v: unknown): string | null {
   const s = String(v).trim();
   if (/^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/.test(s)) return s.replace(/\//g, "-");
   const p = s.split("/");
-  if (p.length === 3) return p[0].length === 4 ? `${p[0]}-${p[1].padStart(2, "0")}-${p[2].padStart(2, "0")}` : `${p[2]}-${p[1].padStart(2, "0")}-${p[0].padStart(2, "0")}`;
+  if (p.length === 3) {
+    if (p[0].length === 4) {
+      // YYYY/MM/DD
+      const [y, m, d] = p;
+      return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+    }
+    // DD/MM/YYYY or DD/MM/YY
+    const d = p[0].padStart(2, "0");
+    const m = p[1].padStart(2, "0");
+    const y = expandTwoDigitYear(p[2]);
+    return `${y}-${m}-${d}`;
+  }
   return null;
 }
 
@@ -42,15 +63,29 @@ export function pDt(v: unknown): string | null {
   const s = String(v).trim().replace(/\/\/\s*/, "");
   if (!s) return null;
 
+  let localIso: string | null = null;
+
   // ISO-like: 2026-06-19 02:15:39
   const iso = s.match(/^(\d{4})[\-\/](\d{2})[\-\/](\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}T${iso[4]}:${iso[5]}:${iso[6]}`;
+  if (iso) {
+    localIso = `${iso[1]}-${iso[2]}-${iso[3]}T${iso[4]}:${iso[5]}:${iso[6]}`;
+  }
 
-  // Italian: 19/06/2026  03:02:02 (with double space) or 30/06/2026 14:30:00
-  const it = s.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})$/);
-  if (it) return `${it[3]}-${it[2]}-${it[1]}T${it[4]}:${it[5]}:${it[6]}`;
+  // Italian: 19/06/2026  03:02:02 (with double space) or 30/06/2026 14:30:00 or 19/06/26 14:30:00
+  const it = s.match(/^(\d{2})\/(\d{2})\/(\d{2,4})\s+(\d{2}):(\d{2}):(\d{2})$/);
+  if (it) {
+    const y = expandTwoDigitYear(it[3]);
+    localIso = `${y}-${it[2]}-${it[1]}T${it[4]}:${it[5]}:${it[6]}`;
+  }
 
-  return null;
+  if (!localIso) return null;
+
+  // Convert from Italy local time to UTC so Supabase stores the correct instant.
+  try {
+    return fromZonedTime(localIso, ROME_TZ).toISOString();
+  } catch {
+    return null;
+  }
 }
 
 export function det(hdr: string[]): string {

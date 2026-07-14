@@ -36,6 +36,7 @@ describe('pDate', () => {
 
   it('parses Italian dates', () => {
     expect(pDate('30/06/2026')).toBe('2026-06-30');
+    expect(pDate('30/06/26')).toBe('2026-06-30');
   });
 
   it('returns null for invalid input', () => {
@@ -45,16 +46,22 @@ describe('pDate', () => {
 });
 
 describe('pDt', () => {
+  // pDt now stores the instant as UTC, interpreting the input as Europe/Rome local time.
   it('parses Italian datetime', () => {
-    expect(pDt('30/06/2026 14:30:00')).toBe('2026-06-30T14:30:00');
+    expect(pDt('30/06/2026 14:30:00')).toBe('2026-06-30T12:30:00.000Z');
+    expect(pDt('30/06/26 14:30:00')).toBe('2026-06-30T12:30:00.000Z');
   });
 
   it('parses Italian datetime with double space', () => {
-    expect(pDt('19/06/2026  03:02:02')).toBe('2026-06-19T03:02:02');
+    expect(pDt('19/06/2026  03:02:02')).toBe('2026-06-19T01:02:02.000Z');
   });
 
   it('parses ISO datetime', () => {
-    expect(pDt('2026-06-19 02:15:39')).toBe('2026-06-19T02:15:39');
+    expect(pDt('2026-06-19 02:15:39')).toBe('2026-06-19T00:15:39.000Z');
+  });
+
+  it('applies winter time offset for January dates', () => {
+    expect(pDt('15/01/2026 14:30:00')).toBe('2026-01-15T13:30:00.000Z');
   });
 
   it('returns null for invalid input', () => {
