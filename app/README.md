@@ -1,73 +1,61 @@
-# React + TypeScript + Vite
+# DAZN Bet AI Decision Platform — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend React + Vite + TypeScript della piattaforma di Business Intelligence per la rete commerciale DAZN Bet.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **React 19** + **Vite**
+- **TypeScript**
+- **Tailwind CSS** + shadcn/ui components
+- **Supabase** (`@supabase/supabase-js`) per lettura/scrittura dati
+- **`xlsx`** per il parsing browser-side dei file Excel
 
-## React Compiler
+## Variabili d'ambiente
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Copia `.env` (non committato) con:
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```env
+VITE_SUPABASE_URL=https://<ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=<anon-key>
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Script
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev      # sviluppo locale
+npm run build    # build di produzione
+npm run lint     # lint
 ```
+
+## Struttura
+
+```
+src/
+├── components/     # Componenti UI condivisi
+├── pages/          # Route dell'app
+│   ├── Dashboard.tsx
+│   ├── Network.tsx
+│   ├── Players.tsx
+│   ├── Analytics.tsx
+│   ├── Copilot.tsx
+│   ├── Settings.tsx
+│   └── Upload.tsx  # Import Excel in Supabase
+└── lib/
+    ├── supabase.ts     # Client Supabase
+    ├── data.ts         # Data layer (KPI, ranking, alert, briefing)
+    ├── database.types.ts # Tipi TypeScript generati da Supabase
+    └── utils.ts
+```
+
+## Caricamento dati
+
+L'import avviene interamente nel browser dalla pagina `/upload`:
+
+1. L'utente trascina uno o più file `.xlsx`/`.xls`/`.csv`.
+2. Viene parsato il primo foglio con `xlsx`.
+3. L'app ricalcola il range del foglio per gestire export Exalogic con `!ref` errato.
+4. Vengono riconosciuti 6 tipi di report e normalizzate date e numeri.
+5. I dati vengono inseriti/aggiornati in Supabase tramite `upsert`.
+
+Vedi la [GUIDA_DASHBOARD.md](../GUIDA_DASHBOARD.md) per la documentazione completa.

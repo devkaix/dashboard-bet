@@ -41,3 +41,7 @@ Output:
 - file scaricato in `automation\\downloads\\`
 - in caso di errore: screenshot `automation\\downloads\\error_*.png`
 
+## Note sull'export Excel
+
+Alcuni export del portale DAZN Bet dichiarano un range foglio errato (`A1:C1`) anche se i dati sono presenti. Il frontend in `app/src/pages/Upload.tsx` ricalcola automaticamente il range dalle celle effettive, quindi l'import in Supabase funziona correttamente.
+

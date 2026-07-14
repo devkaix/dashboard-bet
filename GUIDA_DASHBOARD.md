@@ -66,13 +66,14 @@ I dati caricati nell'applicazione coprono **Giugno 2026** (30 giorni: 1–30 giu
 ### Come funziona tecnicamente
 
 ```
-Excel Exalogic  →  Elaborazione offline  →  daznbet_data.json  →  App React (browser)
+Excel Exalogic  →  Pagina /upload (browser)  →  Supabase (PostgreSQL)  →  App React (browser)
 ```
 
 - L'app è un **frontend React + Vite** che gira nel browser.
-- **Non c'è database live**: tutti i dati sono caricati da un file JSON statico (`app/public/data/daznbet_data.json`).
-- Il file viene letto all'avvio tramite `loadData()` e tenuto in **cache in memoria** per tutta la sessione.
-- I dati dei giocatori provengono da un export reale Exalogic; la gerarchia rete (regioni, area manager, PVR, agenti) è **generata per la demo** ma coerente con la struttura operativa.
+- I dati sono persistenti su **Supabase** (PostgreSQL). L'app usa `@supabase/supabase-js` per leggere e scrivere.
+- L'import dei file Excel avviene **nel browser**: la pagina `/upload` parsa il file con `xlsx`, normalizza date/numeri e inserisce/aggiorna le righe direttamente in Supabase.
+- Le tabelle principali sono: `players`, `pvrs`, `daily_player_stats`, `daily_network_stats`, `daily_pvr_stats`, `daily_player_game_stats`, `game_types`, `tickets`, `excel_uploads`.
+- I dati dei giocatori e delle statistiche provengono da export reali Exalogic; la gerarchia rete (regioni, area manager, PVR, agenti) è **generata per la demo** ma coerente con la struttura operativa.
 
 ### Colonne originali Excel (Exalogic)
 
@@ -89,24 +90,35 @@ Excel Exalogic  →  Elaborazione offline  →  daznbet_data.json  →  App Reac
 | Payout | Rapporto vincite/scommesse (%) |
 | Bet Bonus, Jackpot, ecc. | Metriche accessorie |
 
-### Struttura del file JSON
+### Come importare i dati
 
-Il file contiene queste sezioni principali:
+1. Esporta i report dalla dashboard **Exalogic** come file `.xlsx`.
+2. Vai su **Importa Dati** (`/upload`) e trascina i file nella drop-zone.
+3. L'app riconosce automaticamente il tipo di report:
+   - `daily_player` — giocate giornaliere per giocatore
+   - `daily_network` — totali di rete per giorno
+   - `daily_pvr` — giocate giornaliere per PVR
+   - `daily_player_game` — giocate giornaliere per giocatore e tipologia di gioco
+   - `player_summary` — totali mensili per giocatore
+   - `tickets` — ticket scommesse
+4. Ogni riga viene inserita o aggiornata in Supabase con `upsert` sulle chiavi naturali (es. `player_id,date`).
+5. Lo storico degli upload è visibile nella stessa pagina.
 
-| Sezione | Contenuto |
+> Nota: alcuni export Exalogic dichiarano un range Excel errato (`A1:C1`). L'app lo ricalcola automaticamente dalle celle effettivamente scritte.
+
+### Struttura del database
+
+| Tabella | Contenuto |
 |---------|-----------|
-| `metadata` | Periodo, conteggi, distribuzione Pareto |
-| `regions` | Regioni geografiche |
-| `area_managers` | Responsabili di area |
-| `pvrs` | Punti Vendita Raccolta |
-| `agents` | Agenti commerciali |
-| `players` | Anagrafica e totali per giocatore |
-| `daily_kpis` | KPI aggregati per ogni giorno del mese |
-| `daily_stats` | Dettaglio giornaliero per giocatore |
-| `monthly_aggregates` | Totali mensili |
-| `rankings` | Classifiche top giocatori e PVR |
-| `alerts` | Elenco allerte generate |
-| `briefing` | Briefing AI (criticità, opportunità, suggerimenti) |
+| `players` | Anagrafica giocatori (`username`, `first_seen_date`, `last_seen_date`) |
+| `pvrs` | Anagrafica PVR (`exalogic_id`, `name`, `area_manager`, `region`) |
+| `daily_player_stats` | Statistiche giornaliere per giocatore |
+| `daily_network_stats` | Statistiche giornaliere di rete (una riga per giorno) |
+| `daily_pvr_stats` | Statistiche giornaliere per PVR |
+| `daily_player_game_stats` | Statistiche giornaliere per giocatore + gioco |
+| `game_types` | Catalogo giochi (`provider`, `game_name`) |
+| `tickets` | Ticket scommesse con codice, stato, importi, date |
+| `excel_uploads` | Storico upload (`filename`, `file_type`, `status`, `rows_processed`, `error_message`) |
 
 ---
 
@@ -114,7 +126,7 @@ Il file contiene queste sezioni principali:
 
 ### Barra laterale (Sidebar)
 
-Menu fisso a sinistra con 6 voci:
+Menu fisso a sinistra con 7 voci:
 
 | Voce | Percorso | Funzione |
 |------|----------|----------|
@@ -123,6 +135,7 @@ Menu fisso a sinistra con 6 voci:
 | **Giocatori** | `/players` | Tabella completa giocatori |
 | **Analytics** | `/analytics` | Analisi avanzata e confronti |
 | **AI Copilot** | `/copilot` | Chat assistente intelligente |
+| **Importa Dati** | `/upload` | Caricamento file Excel in Supabase |
 | **Impostazioni** | `/settings` | Configurazione alert e preferenze |
 
 La sidebar può essere **compressa** (icona in basso) per risparmiare spazio.
@@ -668,15 +681,16 @@ Barra inferiore: **Annulla Modifiche** / **Salva Impostazioni**.
 
 ## 11. Servizi e funzionalità trasversali
 
-### 11.1 Servizio caricamento dati (`loadData`)
+### 11.1 Servizio caricamento dati
 
-- Carica `daznbet_data.json` via HTTP
-- Cache in memoria per tutta la sessione
-- Funzioni helper: `formatCurrency`, `formatPercent`, `getPvrName`, `getPlayerStatus`
+- `app/src/lib/supabase.ts` — client Supabase inizializzato con `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
+- `app/src/lib/data.ts` — data layer che legge le tabelle Supabase (`daily_player_stats`, `daily_network_stats`, `daily_pvr_stats`, `players`, `pvrs`) e calcola KPI, ranking, alert e briefing.
+- `app/src/pages/Upload.tsx` — pagina di upload che parsa Excel e scrive in Supabase.
+- I dati sono persistenti in PostgreSQL e aggiornati in tempo reale dopo ogni upload.
 
 ### 11.2 Servizio KPI
 
-Aggregazioni automatiche da `daily_kpis` e `monthly_aggregates`:
+Aggregazioni calcolate in tempo reale dalle tabelle Supabase (`daily_player_stats`, `daily_network_stats`, `daily_pvr_stats`):
 - Rake, bet, won totali
 - Media giocatori attivi/giorno
 - Media payout
@@ -684,22 +698,20 @@ Aggregazioni automatiche da `daily_kpis` e `monthly_aggregates`:
 
 ### 11.3 Servizio Ranking
 
-Da `rankings`:
-- `top_players_by_rake` — classifica giocatori per rake
-- `top_players_by_bet` — classifica per volume bet
-- `top_pvrs` — classifica PVR per performance
+Classifiche calcolate sui dati Supabase:
+- Top giocatori per rake e bet
+- Top PVR per performance
 
 ### 11.4 Servizio Alert
 
-Da `alerts`:
+Alert generati dal data layer sui dati Supabase:
 - Filtro per severità (high, medium, low)
 - Categorie: rake negativo, fido, payout, churn
 - Ogni alert: titolo, descrizione, data, valore metrica
 
 ### 11.5 Servizio Briefing AI
 
-Da `briefing`:
-- Generato automaticamente dai dati
+Generato automaticamente dai dati Supabase:
 - Tre liste: `criticals`, `opportunities`, `suggestions`
 - Ogni item: titolo, descrizione, metrica, valore
 
@@ -782,8 +794,8 @@ Questa versione è un **MVP dimostrativo**. È importante conoscere questi limit
 
 | Aspetto | Stato attuale |
 |---------|---------------|
-| **Database** | Nessuno — solo file JSON statico |
-| **Aggiornamento dati** | Manuale (sostituire il JSON) |
+| **Database** | Supabase PostgreSQL con RLS abilitato (policy permissive per anon, da stringere in produzione) |
+| **Aggiornamento dati** | Upload manuale di file Excel da `/upload`; i dati vengono scritti in Supabase |
 | **Dati maggio 2026** | Simulati per il confronto periodo |
 | **Distribuzione Sport/Casino** | Simulata |
 | **AI Copilot** | Rule-based, non LLM reale |
@@ -796,9 +808,9 @@ Questa versione è un **MVP dimostrativo**. È importante conoscere questi limit
 
 ### Prossimi passi previsti (da piano progetto)
 
-1. Connessione a database proprietario
-2. Import automatico da Excel Exalogic
-3. API backend per KPI, alert, briefing in tempo reale
+1. Rinforzare sicurezza RLS su Supabase (policy per utenti autenticati, non anon)
+2. Automatizzare il download da Exalogic e l'import in Supabase
+3. API backend/Edge Functions per KPI, alert, briefing in tempo reale
 4. Copilot con LLM reale
 5. Deploy su hosting di produzione
 6. Notifiche email/webhook funzionanti
@@ -818,6 +830,7 @@ Questa versione è un **MVP dimostrativo**. È importante conoscere questi limit
 | Esportare lista giocatori | **Giocatori** → Esporta CSV |
 | Vedere dettaglio giornaliero di un giocatore | **Giocatori** → icona occhio |
 | Confrontare maggio vs giugno | **Analytics** |
+| Caricare nuovi file Excel | **Importa Dati** |
 | Trovare anomalie nel rake | **Analytics** → Rilevazione Anomalie |
 | Simulare scenari futuri | **Analytics** → Simulatore What-If |
 | Fare una domanda in linguaggio naturale | **AI Copilot** |

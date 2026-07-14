@@ -1,7 +1,9 @@
 # DAZN Bet AI Decision Platform — Context & Data Analysis
 
 ## Project Overview
-Build an AI-powered Business Intelligence Decision Platform for DAZN Bet that sits on top of the Exalogic dashboard. The platform ingests exported Excel data, stores it in a proprietary database, and transforms it into insights, alerts, and actionable suggestions for the commercial network management.
+Build an AI-powered Business Intelligence Decision Platform for DAZN Bet that sits on top of the Exalogic dashboard. The platform ingests exported Excel data via a browser-side upload page, stores it in Supabase (PostgreSQL), and transforms it into insights, alerts, and actionable suggestions for the commercial network management.
+
+Current stack: React + Vite + TypeScript frontend, Supabase backend, browser-side Excel parsing with `xlsx`.
 
 ## Real Data Analysis (from uploaded Excel)
 - **File**: export_grid_stat_all (4).xlsx — exported from Exalogic dashboard

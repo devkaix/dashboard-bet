@@ -2,45 +2,26 @@
 
 ## Obiettivo
 Costruire un MVP funzionante della piattaforma AI Decision Intelligence per DAZN Bet che:
-- Usa i **dati reali** dal file Excel Exalogic caricato (133 giocatori, 689 record, 30 giorni)
+- Usa i **dati reali** dagli export Excel Exalogic caricati via `/upload` (133 giocatori, ~690 record, 30 giorni)
+- Persiste i dati su **Supabase** (PostgreSQL)
 - Mostra una **Executive Dashboard** completa con KPI reali, trend, ranking
 - Include **AI Briefing Panel** con criticita, opportunita, suggerimenti generati dai dati
 - Ha **Player Grid** virtuale con ricerca/filtri
 - Mostra **Health Score** per PVR e giocatori
 - Include **AI Copilot Chat** per interrogazione linguaggio naturale
-- Funziona **senza database** — tutto in-memory dal file reale
 
-## Architettura MVP
+## Architettura MVP (implementata)
 ```
-Next.js 14+ (App Router) Fullstack
-├── app/                    # Frontend + API Routes
-│   ├── api/               # Backend API (Next.js API Routes)
-│   │   ├── kpi/           # KPI aggregati
-│   │   ├── players/       # Player grid, dettagli
-│   │   ├── trends/        # Serie temporali
-│   │   ├── rankings/      # Classifiche
-│   │   ├── alerts/        # Alert e anomalie
-│   │   ├── briefing/      # AI Briefing mattutino
-│   │   └── copilot/       # AI Copilot chat
-│   ├── page.tsx           # Executive Dashboard (homepage)
-│   ├── network/           # Vista gerarchica rete
-│   ├── players/           # Player Grid
-│   ├── analytics/         # Strumenti analisi
-│   ├── copilot/           # Chat AI
-│   └── settings/          # Configurazione
-├── lib/
-│   ├── data.ts            # Data layer — carica e processa Excel reale
-│   ├── analytics.ts       # KPI engine, health score, anomaly detection
-│   ├── ai-engine.ts       # AI decision engine (rule-based + heuristic)
-│   └── copilot.ts         # NLU e query builder per Copilot
-├── components/
-│   ├── dashboard/         # KpiCard, TrendChart, AIBriefingPanel
-│   ├── network/           # Vista gerarchica
-│   ├── players/           # PlayerGrid virtuale
-│   ├── copilot/           # ChatInterface
-│   └── ui/                # Componenti riutilizzabili
-└── public/
-    └── data/              # Dati JSON derivati dall'Excel
+React 19 + Vite + TypeScript frontend
+Supabase (PostgreSQL) backend
+├── app/
+│   ├── src/
+│   │   ├── pages/         # Dashboard, Network, Players, Analytics, Copilot, Settings, Upload
+│   │   ├── components/    # Componenti UI
+│   │   └── lib/           # Supabase client, data layer, utilità
+│   └── public/            # Asset statici
+├── automation/            # Script Playwright per download export Exalogic
+└── supabase/              # Progetto Supabase (tabelle, RLS)
 ```
 
 ## Dati Reali (da Excel)
