@@ -21,60 +21,8 @@ interface DatasetMeta {
   label: string
   table: string
   description: string
-  totalsTable: string | null // table to query for bet/rake/won totals
-  totalsFields: string[] // ['bet','rake','won'] or ['amount','win_amount']
-}
-
-const DATASETS: Record<string, DatasetMeta> = {
-  players_master: {
-    label: 'Anagrafica Giocatori',
-    table: 'players',
-    description: 'Username, PVR, KYC, saldo',
-    totalsTable: null,
-    totalsFields: [],
-  },
-  daily_player: {
-    label: 'Statistiche Giocatore × Giorno',
-    table: 'daily_player_stats',
-    description: 'Buy-in, bet, won, rake, payout per giocatore/giorno',
-    totalsTable: 'daily_player_stats',
-    totalsFields: ['bet', 'rake', 'won'],
-  },
-  daily_network: {
-    label: 'Statistiche Rete × Giorno',
-    table: 'daily_network_stats',
-    description: 'Totali giornalieri rete — KPI ufficiale',
-    totalsTable: 'daily_network_stats',
-    totalsFields: ['bet', 'rake', 'won'],
-  },
-  daily_pvr: {
-    label: 'Statistiche PVR × Giorno',
-    table: 'daily_pvr_stats',
-    description: 'Buy-in, bet, won, rake per PVR/giorno',
-    totalsTable: 'daily_pvr_stats',
-    totalsFields: ['bet', 'rake', 'won'],
-  },
-  daily_player_game: {
-    label: 'Giocatore × Gioco × Giorno',
-    table: 'daily_player_game_stats',
-    description: 'Provider × gioco × giocatore × giorno',
-    totalsTable: 'daily_player_game_stats',
-    totalsFields: ['bet', 'rake', 'won'],
-  },
-  tickets: {
-    label: 'Ticket Scommesse',
-    table: 'tickets',
-    description: 'Ticket code, importo, vincita, stato',
-    totalsTable: 'tickets',
-    totalsFields: ['amount', 'win_amount'],
-  },
-  player_summary: {
-    label: 'Riepilogo Mensile (Validazione)',
-    table: '—',
-    description: 'Validato contro monthly_player_stats_v, mai scritto in daily_player_stats',
-    totalsTable: null,
-    totalsFields: [],
-  },
+  totalsQuery: ((periodStart: string, periodEnd: string) => Promise<{ count: number; sums: Record<string, number>; error?: string }>) | null
+  totalsFields: string[]
 }
 
 // ─── Types ───
@@ -101,6 +49,7 @@ interface DatasetRow {
   rowCount: number | null
   totals: Array<{ key: string; value: number }> | null
   anomalies: string[]
+  queryError: string | null
 }
 
 // ─── Helpers ───
@@ -111,6 +60,8 @@ function statusBadge(status: string | null | undefined) {
       return { icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: 'Validato' }
     case 'completed':
       return { icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: 'Completato' }
+    case 'mismatch':
+      return { icon: AlertTriangle, color: 'text-amber-400', bg: 'bg-amber-500/10', label: 'Mismatch' }
     case 'pending':
       return { icon: Clock, color: 'text-amber-400', bg: 'bg-amber-500/10', label: 'In attesa' }
     case 'error':
@@ -132,9 +83,109 @@ function totalsLabel(field: string): string {
   }
 }
 
-const toNumber = (v: unknown): number => {
-  const n = Number(v)
-  return Number.isFinite(n) ? n : 0
+// ─── SQL aggregation helpers (SUM in DB, not browser) ───
+
+async function sumTable(table: string, fields: string[], start: string, end: string): Promise<{ count: number; sums: Record<string, number>; error?: string }> {
+  // Build: SELECT SUM(f1), SUM(f2), COUNT(*) FROM table WHERE date BETWEEN start AND end
+  const selectParts = fields.map(f => `sum(${f})`).join(', ')
+  const query = `${selectParts}, count(*)`
+  
+  let q = (supabase as any).from(table).select(query)
+  if (start) q = q.gte('date', start)
+  if (end) q = q.lte('date', end)
+  
+  const { data, error, count } = await q
+  
+  if (error) return { count: 0, sums: {}, error: error.message }
+  
+  const row = (data?.[0] || {}) as unknown as Record<string, unknown>
+  const sums: Record<string, number> = {}
+  for (const f of fields) {
+    sums[f] = Number(row[`sum(${f})`] ?? row[f] ?? 0) || 0
+  }
+  return { count: Number(row.count) || count || 0, sums }
+}
+
+async function sumTickets(start: string, end: string): Promise<{ count: number; sums: Record<string, number>; error?: string }> {
+  // tickets uses emission_date (timestamptz) not date
+  let q = supabase.from('tickets').select('sum(amount), sum(win_amount), count(*)')
+  if (start) q = q.gte('emission_date', `${start}T00:00:00`)
+  if (end) q = q.lte('emission_date', `${end}T23:59:59`)
+  
+  const result = await q
+  
+  if (result.error) return { count: 0, sums: {}, error: result.error.message }
+  const data = result.data
+  const count = result.count
+  
+  const row = (data?.[0] || {}) as unknown as Record<string, unknown>
+  return {
+    count: Number(row.count) || count || 0,
+    sums: {
+      amount: Number(row.sum) || 0,
+      win_amount: Number(row['sum(win_amount)'] ?? 0) || 0,
+    },
+  }
+}
+
+async function countPlayers(): Promise<{ count: number; sums: Record<string, number>; error?: string }> {
+  const { count, error } = await supabase.from('players').select('*', { count: 'exact', head: true })
+  if (error) return { count: 0, sums: {}, error: error.message }
+  return { count: count || 0, sums: {} }
+}
+
+// ─── DATASETS ───
+
+const DATASETS: Record<string, DatasetMeta> = {
+  players_master: {
+    label: 'Anagrafica Giocatori',
+    table: 'players',
+    description: 'Username, PVR, KYC, saldo',
+    totalsQuery: null, // count only, handled separately
+    totalsFields: [],
+  },
+  daily_player: {
+    label: 'Statistiche Giocatore × Giorno',
+    table: 'daily_player_stats',
+    description: 'Buy-in, bet, won, rake per giocatore/giorno',
+    totalsQuery: (s, e) => sumTable('daily_player_stats', ['bet', 'rake', 'won'], s, e),
+    totalsFields: ['bet', 'rake', 'won'],
+  },
+  daily_network: {
+    label: 'Statistiche Rete × Giorno',
+    table: 'daily_network_stats',
+    description: 'Totali giornalieri rete — KPI ufficiale',
+    totalsQuery: (s, e) => sumTable('daily_network_stats', ['bet', 'rake', 'won'], s, e),
+    totalsFields: ['bet', 'rake', 'won'],
+  },
+  daily_pvr: {
+    label: 'Statistiche PVR × Giorno',
+    table: 'daily_pvr_stats',
+    description: 'Buy-in, bet, won, rake per PVR/giorno',
+    totalsQuery: (s, e) => sumTable('daily_pvr_stats', ['bet', 'rake', 'won'], s, e),
+    totalsFields: ['bet', 'rake', 'won'],
+  },
+  daily_player_game: {
+    label: 'Giocatore × Gioco × Giorno',
+    table: 'daily_player_game_stats',
+    description: 'Provider × gioco × giocatore × giorno',
+    totalsQuery: (s, e) => sumTable('daily_player_game_stats', ['bet', 'rake', 'won'], s, e),
+    totalsFields: ['bet', 'rake', 'won'],
+  },
+  tickets: {
+    label: 'Ticket Scommesse',
+    table: 'tickets',
+    description: 'Ticket code, importo, vincita, stato',
+    totalsQuery: (s, e) => sumTickets(s, e),
+    totalsFields: ['amount', 'win_amount'],
+  },
+  player_summary: {
+    label: 'Riepilogo Mensile (Validazione)',
+    table: '\u2014',
+    description: 'Validato contro monthly_player_stats_v, mai scritto in daily_player_stats',
+    totalsQuery: null,
+    totalsFields: [],
+  },
 }
 
 // ─── Page ───
@@ -160,7 +211,7 @@ export default function DataProvenancePage() {
 
       if (uploadErr) throw uploadErr
 
-      // Deduplicate: keep the latest upload per file_type
+      // Deduplicate: keep the latest completed/validated upload per file_type
       const seen = new Set<string>()
       const latestUploads = ((allUploads || []) as UploadRecord[]).filter((u) => {
         const ft = u.file_type || 'unknown'
@@ -169,113 +220,69 @@ export default function DataProvenancePage() {
         return true
       })
 
-      // 2. Query each table: row count + aggregate sums
-      // Must use explicit table names for TypeScript type safety
+      // 2. Determine period from latest daily_network upload
+      const networkUpload = latestUploads.find(u => u.file_type === 'daily_network')
+      const periodStart = networkUpload?.period_start || null
+      const periodEnd = networkUpload?.period_end || null
 
-      const [playersRes, dpsRes, dnsRes, dpvrRes, dpgsRes, ticketsRes] =
-        await Promise.all([
-          supabase
-            .from('players')
-            .select('*', { count: 'exact', head: true }),
-          supabase.from('daily_player_stats').select('bet, rake, won'),
-          supabase.from('daily_network_stats').select('bet, rake, won'),
-          supabase.from('daily_pvr_stats').select('bet, rake, won'),
-          supabase
-            .from('daily_player_game_stats')
-            .select('bet, rake, won'),
-          supabase.from('tickets').select('amount, win_amount'),
-        ])
+      // 3. Player count (global, not period-filtered)
+      const playerResult = await countPlayers()
 
-      const sumField = <T extends Record<string, unknown>>(
-        rows: T[],
-        field: string,
-      ): number => rows.reduce((s, r) => s + toNumber(r[field]), 0)
-
-      const dpsData = dpsRes.data || []
-      const dnsData = dnsRes.data || []
-      const dpvrData = dpvrRes.data || []
-      const dpgsData = dpgsRes.data || []
-      const ticketsData = ticketsRes.data || []
-
-      const tableData: Record<
-        string,
-        { count: number; sums: Record<string, number> }
-      > = {
-        players: { count: playersRes.count || 0, sums: {} },
-        daily_player_stats: {
-          count: dpsData.length,
-          sums: {
-            bet: sumField(dpsData, 'bet'),
-            rake: sumField(dpsData, 'rake'),
-            won: sumField(dpsData, 'won'),
-          },
-        },
-        daily_network_stats: {
-          count: dnsData.length,
-          sums: {
-            bet: sumField(dnsData, 'bet'),
-            rake: sumField(dnsData, 'rake'),
-            won: sumField(dnsData, 'won'),
-          },
-        },
-        daily_pvr_stats: {
-          count: dpvrData.length,
-          sums: {
-            bet: sumField(dpvrData, 'bet'),
-            rake: sumField(dpvrData, 'rake'),
-            won: sumField(dpvrData, 'won'),
-          },
-        },
-        daily_player_game_stats: {
-          count: dpgsData.length,
-          sums: {
-            bet: sumField(dpgsData, 'bet'),
-            rake: sumField(dpgsData, 'rake'),
-            won: sumField(dpgsData, 'won'),
-          },
-        },
-        tickets: {
-          count: ticketsData.length,
-          sums: {
-            amount: sumField(ticketsData, 'amount'),
-            win_amount: sumField(ticketsData, 'win_amount'),
-          },
-        },
-      }
-
-      // 4. Build dataset rows
-      const datasetRows: DatasetRow[] = Object.entries(DATASETS).map(
-        ([fileType, meta]) => {
-          const upload =
-            latestUploads.find((u) => u.file_type === fileType) || null
-
-          const td = meta.table !== '—' ? tableData[meta.table] : null
-          const tdTotals = meta.totalsTable
-            ? tableData[meta.totalsTable]
-            : null
-
+      // 4. Build dataset rows with period-filtered SQL aggregation
+      const datasetRows: DatasetRow[] = await Promise.all(
+        Object.entries(DATASETS).map(async ([fileType, meta]) => {
+          const upload = latestUploads.find((u) => u.file_type === fileType) || null
           const anomalies: string[] = []
+          let rowCount: number | null = null
+          let totals: Array<{ key: string; value: number }> | null = null
+          let queryError: string | null = null
 
+          // Get totals via SQL aggregation (filtered by period where applicable)
+          if (fileType === 'players_master') {
+            rowCount = playerResult.count
+            if (playerResult.error) {
+              anomalies.push(`Errore query players: ${playerResult.error}`)
+              queryError = playerResult.error
+            }
+          } else if (meta.totalsQuery && periodStart && periodEnd) {
+            try {
+              const result = await meta.totalsQuery(periodStart, periodEnd)
+              if (result.error) {
+                anomalies.push(`Errore query ${meta.table}: ${result.error}`)
+                queryError = result.error
+              } else {
+                rowCount = result.count
+                totals = meta.totalsFields.map((f) => ({
+                  key: f,
+                  value: result.sums[f] || 0,
+                }))
+              }
+            } catch (e: unknown) {
+              const msg = e instanceof Error ? e.message : String(e)
+              anomalies.push(`Errore query ${meta.table}: ${msg}`)
+              queryError = msg
+            }
+          } else if (fileType === 'player_summary') {
+            // Validation-only dataset, no query needed
+            rowCount = null
+          } else if (!periodStart || !periodEnd) {
+            anomalies.push('Nessun periodo di riferimento (importa daily_network)')
+          }
+
+          // Upload status anomalies
           if (upload?.status === 'error' || upload?.status === 'failed') {
-            anomalies.push(
-              upload.error_message || 'Errore durante l\'elaborazione',
-            )
+            anomalies.push(upload.error_message || 'Errore durante l\'elaborazione')
           }
-          if (upload && upload.validation_status === 'failed') {
-            anomalies.push('Validazione fallita')
+          if (upload && (upload.validation_status === 'failed' || upload.validation_status === 'mismatch')) {
+            anomalies.push(`Validazione: ${upload.validation_status}`)
           }
 
-          // Check row count mismatch (>10% difference)
-          if (
-            upload &&
-            upload.rows_processed != null &&
-            td &&
-            td.count > 0
-          ) {
-            const diff = Math.abs(upload.rows_processed - td.count)
+          // Row count mismatch vs upload (compare against same-period rows)
+          if (upload && upload.rows_processed != null && rowCount != null && rowCount > 0) {
+            const diff = Math.abs(upload.rows_processed - rowCount)
             if (diff > upload.rows_processed * 0.1) {
               anomalies.push(
-                `Differenza righe: importate ${upload.rows_processed.toLocaleString('it-IT')}, presenti ${td.count.toLocaleString('it-IT')}`,
+                `Differenza righe: importate ${upload.rows_processed.toLocaleString('it-IT')}, presenti nel periodo ${rowCount.toLocaleString('it-IT')}`,
               )
             }
           }
@@ -285,32 +292,23 @@ export default function DataProvenancePage() {
             anomalies.push('Nessun upload registrato')
           }
 
-          // Build totals array
-          const totals =
-            tdTotals && meta.totalsFields.length > 0
-              ? meta.totalsFields.map((f) => ({
-                  key: f,
-                  value: tdTotals.sums[f] || 0,
-                }))
-              : null
-
           return {
             file_type: fileType,
             label: meta.label,
             table: meta.table,
             description: meta.description,
             upload,
-            rowCount: td?.count ?? null,
+            rowCount,
             totals,
             anomalies,
+            queryError,
           }
-        },
+        }),
       )
 
       setRows(datasetRows)
     } catch (e: unknown) {
-      const msg =
-        e instanceof Error ? e.message : 'Errore caricamento dati'
+      const msg = e instanceof Error ? e.message : 'Errore caricamento dati'
       console.error('DataProvenance load error:', e)
       setError(msg)
     } finally {
@@ -330,6 +328,7 @@ export default function DataProvenancePage() {
       r.upload?.validation_status === 'validated',
   ).length
   const withAnomalies = rows.filter((r) => r.anomalies.length > 0).length
+  const withErrors = rows.filter((r) => r.queryError !== null).length
   const totalRowsProcessed = rows.reduce(
     (sum, r) => sum + (r.rowCount || 0),
     0,
@@ -350,354 +349,158 @@ export default function DataProvenancePage() {
           Diagnostica Dati
         </h1>
         <p className="text-text-secondary mt-1">
-          Provenienza e stato dei dataset importati — tracciamento file →
-          tabella
+          {rows.length > 0
+            ? `Stato dataset — ${rows.filter(r => r.upload).length} file importati`
+            : 'Caricamento in corso...'}
         </p>
       </motion.div>
 
-      {/* Error banner */}
-      {error && (
-        <div className="rounded-lg px-4 py-3 text-sm bg-red-500/10 text-red-400 border border-red-500/20">
-          {error}
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <RefreshCw className="w-8 h-8 text-accent-purple animate-spin" />
         </div>
-      )}
-
-      {/* Summary cards */}
-      {!loading && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {[
-            {
-              label: 'Dataset',
-              value: totalUploads,
-              icon: Database,
-              color: 'text-accent-blue',
-              bg: 'bg-accent-blue/10',
-            },
-            {
-              label: 'Validati',
-              value: validatedCount,
-              icon: CheckCircle2,
-              color: 'text-emerald-400',
-              bg: 'bg-emerald-500/10',
-            },
-            {
-              label: 'Completati',
-              value: completedCount,
-              icon: FileSpreadsheet,
-              color: 'text-accent-purple',
-              bg: 'bg-accent-purple/10',
-            },
-            {
-              label: 'Righe Totali',
-              value: totalRowsProcessed.toLocaleString('it-IT'),
-              icon: Hash,
-              color: 'text-accent-cyan',
-              bg: 'bg-accent-cyan/10',
-              isString: true,
-            },
-            {
-              label: 'Anomalie',
-              value: withAnomalies,
-              icon: AlertTriangle,
-              color:
-                withAnomalies > 0 ? 'text-amber-400' : 'text-text-muted',
-              bg:
-                withAnomalies > 0 ? 'bg-amber-500/10' : 'bg-bg-surface',
-            },
-          ].map((card, i) => (
-            <motion.div
-              key={card.label}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.05 + i * 0.05, duration: 0.3 }}
-              className={cn(
-                'rounded-xl border border-border-subtle p-4',
-                card.bg,
-              )}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <card.icon size={14} className={card.color} />
-                <span className="text-[12px] text-text-secondary">
-                  {card.label}
-                </span>
-              </div>
-              <div className={cn('text-xl font-bold', card.color)}>
-                {'isString' in card && card.isString
-                  ? String(card.value)
-                  : String(card.value)}
-              </div>
-            </motion.div>
-          ))}
+      ) : error ? (
+        <div className="bg-negative/10 border border-negative/30 rounded-xl p-6 text-center">
+          <XCircle size={32} className="text-negative mx-auto mb-3" />
+          <h3 className="text-lg font-semibold text-negative mb-2">Errore</h3>
+          <p className="text-sm text-text-secondary">{error}</p>
         </div>
-      )}
-
-      {/* Loading skeletons */}
-      {loading && (
-        <div className="space-y-3">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div
-              key={i}
-              className="bg-bg-surface rounded-xl border border-border-subtle p-4 animate-pulse"
-            >
-              <div className="h-4 w-40 bg-bg-surface-elevated rounded mb-2" />
-              <div className="h-3 w-64 bg-bg-surface-elevated rounded" />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Main table */}
-      {!loading && rows.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2, duration: 0.35 }}
-          className="bg-bg-surface rounded-xl border border-border-subtle overflow-hidden"
-        >
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border-subtle text-text-secondary">
-                  <th className="text-left py-3 px-4 font-medium">
-                    Dataset
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium">
-                    Ultimo file importato
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium">
-                    Periodo
-                  </th>
-                  <th className="text-right py-3 px-4 font-medium">
-                    Righe
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium">
-                    Tabella compilata
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium">
-                    Stato
-                  </th>
-                  <th className="text-right py-3 px-4 font-medium">
-                    Totali principali
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium">
-                    Anomalie
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, i) => {
-                  const sb = statusBadge(
-                    row.upload?.validation_status || row.upload?.status,
-                  )
-                  const StatusIcon = sb.icon
-
-                  return (
-                    <motion.tr
-                      key={row.file_type}
-                      initial={{ opacity: 0, x: -12 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{
-                        delay: 0.25 + i * 0.04,
-                        duration: 0.3,
-                      }}
-                      className={cn(
-                        'border-b border-border-subtle/50 hover:bg-bg-surface-elevated/30 transition-colors',
-                        row.anomalies.length > 0 &&
-                          'bg-amber-500/[0.03]',
-                      )}
-                    >
-                      {/* Dataset */}
-                      <td className="py-3 px-4">
-                        <div className="flex flex-col">
-                          <span className="font-medium text-text-primary text-[13px]">
-                            {row.label}
-                          </span>
-                          <span className="text-[11px] text-text-muted leading-tight mt-0.5">
-                            {row.description}
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Ultimo file */}
-                      <td className="py-3 px-4">
-                        {row.upload ? (
-                          <div className="flex flex-col">
-                            <span
-                              className="text-text-primary text-[13px] truncate max-w-[220px]"
-                              title={row.upload.filename}
-                            >
-                              {row.upload.filename}
-                            </span>
-                            <span className="text-[11px] text-text-muted mt-0.5">
-                              {row.upload.uploaded_at
-                                ? new Date(
-                                    row.upload.uploaded_at,
-                                  ).toLocaleDateString('it-IT', {
-                                    day: '2-digit',
-                                    month: 'short',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })
-                                : '—'}
-                            </span>
-                          </div>
-                        ) : (
-                          <span className="text-text-muted text-[13px]">
-                            —
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Periodo */}
-                      <td className="py-3 px-4">
-                        {row.upload?.period_start &&
-                        row.upload?.period_end ? (
-                          <span className="text-text-primary text-[13px] whitespace-nowrap">
-                            {new Date(
-                              row.upload.period_start,
-                            ).toLocaleDateString('it-IT', {
-                              day: 'numeric',
-                              month: 'short',
-                            })}
-                            {' → '}
-                            {new Date(
-                              row.upload.period_end,
-                            ).toLocaleDateString('it-IT', {
-                              day: 'numeric',
-                              month: 'short',
-                            })}
-                          </span>
-                        ) : (
-                          <span className="text-text-muted text-[13px]">
-                            —
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Righe */}
-                      <td className="py-3 px-4 text-right">
-                        <span className="font-mono text-[13px] text-text-primary">
-                          {row.upload?.rows_processed != null
-                            ? row.upload.rows_processed.toLocaleString(
-                                'it-IT',
-                              )
-                            : '—'}
-                        </span>
-                      </td>
-
-                      {/* Tabella compilata */}
-                      <td className="py-3 px-4">
-                        <code className="text-[12px] bg-bg-surface-elevated px-1.5 py-0.5 rounded text-accent-cyan font-mono whitespace-nowrap">
-                          {row.table}
-                        </code>
-                        {row.rowCount != null && (
-                          <span className="text-[11px] text-text-muted ml-1.5 whitespace-nowrap">
-                            ({row.rowCount.toLocaleString('it-IT')}{' '}
-                            righe)
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Stato */}
-                      <td className="py-3 px-4">
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[12px] font-medium whitespace-nowrap',
-                            sb.bg,
-                            sb.color,
-                          )}
-                        >
-                          <StatusIcon size={12} />
-                          {sb.label}
-                        </span>
-                      </td>
-
-                      {/* Totali principali */}
-                      <td className="py-3 px-4 text-right">
-                        {row.totals && row.totals.length > 0 ? (
-                          <div className="flex flex-col gap-0.5">
-                            {row.totals.map((t) => (
-                              <span
-                                key={t.key}
-                                className="text-[12px] text-text-primary font-mono"
-                              >
-                                <span className="text-text-muted font-sans">
-                                  {totalsLabel(t.key)}{' '}
-                                </span>
-                                {t.key === 'amount' ||
-                                t.key === 'win_amount'
-                                  ? formatCurrency(t.value)
-                                  : formatCurrency(t.value)}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-[12px] text-text-muted">
-                            —
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Anomalie */}
-                      <td className="py-3 px-4">
-                        {row.anomalies.length > 0 ? (
-                          <div className="flex flex-col gap-1">
-                            {row.anomalies.map((a, ai) => (
-                              <span
-                                key={ai}
-                                className="inline-flex items-center gap-1 text-[12px] text-amber-400"
-                              >
-                                <AlertTriangle
-                                  size={11}
-                                  className="flex-shrink-0"
-                                />
-                                {a}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-[12px] text-text-muted">
-                            —
-                          </span>
-                        )}
-                      </td>
-                    </motion.tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Empty state */}
-      {!loading && rows.length === 0 && !error && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="text-center py-16"
-        >
-          <Database className="w-12 h-12 mx-auto mb-3 text-text-muted" />
-          <p className="text-text-secondary">
-            Nessun dato disponibile. Importa dei file Excel dalla pagina
-            Importa Dati.
-          </p>
-        </motion.div>
-      )}
-
-      {/* Refresh button */}
-      {!loading && (
-        <div className="flex justify-end">
-          <button
-            onClick={loadData}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] text-text-secondary hover:text-text-primary hover:bg-bg-surface-elevated transition-colors border border-border-subtle"
+      ) : (
+        <>
+          {/* Summary Cards */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="grid grid-cols-6 gap-4"
           >
-            <RefreshCw size={14} />
-            Aggiorna dati
-          </button>
-        </div>
+            <SummaryCard icon={Database} label="Dataset" value={totalUploads} color="text-accent-blue" />
+            <SummaryCard icon={CheckCircle2} label="Validati" value={validatedCount} color="text-emerald-400" />
+            <SummaryCard icon={FileSpreadsheet} label="Completati" value={completedCount} color="text-accent-purple" />
+            <SummaryCard icon={Hash} label="Righe Totali" value={totalRowsProcessed} color="text-accent-cyan" />
+            <SummaryCard icon={AlertTriangle} label="Anomalie" value={withAnomalies} color="text-amber-400" />
+            <SummaryCard icon={XCircle} label="Errori" value={withErrors} color="text-red-400" />
+          </motion.div>
+
+          {/* Dataset Table */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-bg-surface rounded-xl border border-border-subtle overflow-hidden"
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-bg-surface-elevated">
+                    <th className="text-left text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Dataset</th>
+                    <th className="text-left text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Ultimo File</th>
+                    <th className="text-left text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Periodo</th>
+                    <th className="text-right text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Righe</th>
+                    <th className="text-left text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Tabella</th>
+                    <th className="text-center text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Stato</th>
+                    <th className="text-right text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Totali</th>
+                    <th className="text-left text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Anomalie</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, i) => {
+                    const badge = statusBadge(row.upload?.validation_status || row.upload?.status)
+                    const Icon = badge.icon
+                    return (
+                      <motion.tr
+                        key={row.file_type}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.25 + i * 0.03 }}
+                        className={cn(
+                          'border-t border-border-subtle hover:bg-bg-surface-elevated transition-colors',
+                          row.anomalies.length > 0 && 'bg-amber-500/5',
+                        )}
+                      >
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <Database size={14} className="text-text-muted flex-shrink-0" />
+                            <div>
+                              <p className="text-[14px] font-medium text-text-primary">{row.label}</p>
+                              <p className="text-[11px] text-text-muted">{row.description}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-[13px] text-text-secondary max-w-[180px] truncate">
+                          {row.upload?.filename || '\u2014'}
+                        </td>
+                        <td className="px-4 py-3 text-[13px] text-text-secondary whitespace-nowrap">
+                          {row.upload?.period_start && row.upload?.period_end
+                            ? `${row.upload.period_start} \u2192 ${row.upload.period_end}`
+                            : '\u2014'}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-[13px] text-text-primary">
+                          {row.rowCount != null ? row.rowCount.toLocaleString('it-IT') : '\u2014'}
+                        </td>
+                        <td className="px-4 py-3 text-[13px] font-mono text-text-secondary">
+                          {row.table}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium', badge.bg, badge.color)}>
+                            <Icon size={12} />
+                            {badge.label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {row.totals && row.totals.length > 0 ? (
+                            <div className="space-y-0.5">
+                              {row.totals.map((t) => (
+                                <p key={t.key} className="text-[12px] font-mono text-text-primary">
+                                  <span className="text-text-muted">{totalsLabel(t.key)}:</span>{' '}
+                                  {t.key === 'amount' || t.key === 'win_amount' || t.key === 'bet' || t.key === 'rake' || t.key === 'won'
+                                    ? formatCurrency(t.value)
+                                    : t.value.toLocaleString('it-IT')}
+                                </p>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[12px] text-text-muted">\u2014</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {row.anomalies.length > 0 ? (
+                            <div className="space-y-1">
+                              {row.anomalies.map((a, ai) => (
+                                <p key={ai} className="text-[12px] text-amber-400 flex items-start gap-1">
+                                  <AlertTriangle size={11} className="mt-0.5 flex-shrink-0" />
+                                  {a}
+                                </p>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[12px] text-emerald-400 flex items-center gap-1">
+                              <CheckCircle2 size={11} />
+                              Nessuna anomalia
+                            </span>
+                          )}
+                        </td>
+                      </motion.tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </motion.div>
+        </>
       )}
+    </div>
+  )
+}
+
+function SummaryCard({ icon: Icon, label, value, color }: { icon: React.ComponentType<{ size?: number; className?: string }>; label: string; value: number; color: string }) {
+  return (
+    <div className="bg-bg-surface rounded-xl border border-border-subtle p-4 flex items-center gap-3">
+      <Icon size={20} className={cn(color, 'flex-shrink-0')} />
+      <div>
+        <p className="text-[11px] text-text-muted uppercase tracking-wide">{label}</p>
+        <p className={cn('text-[20px] font-bold font-mono', color)}>{value.toLocaleString('it-IT')}</p>
+      </div>
     </div>
   )
 }

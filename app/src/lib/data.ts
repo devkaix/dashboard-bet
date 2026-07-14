@@ -914,11 +914,20 @@ async function fetchBriefing(range?: DateRange): Promise<Briefing> {
     });
   }
 
-  suggestions.push({
-    id: 1,
-    title: "Monitora i giorni con rake negativo",
-    description: "Investiga i pattern di rake negativo per ridurre le perdite",
-  });
+  const negCount = negDays?.length || 0;
+  if (negCount > 0) {
+    suggestions.push({
+      id: 1,
+      title: `${negCount} giorni con rake negativo`,
+      description: `Analizza i pattern del ${negDays?.[0]?.date || 'periodo'} per identificare le cause`,
+    });
+  } else {
+    suggestions.push({
+      id: 1,
+      title: "Rake stabile nel periodo",
+      description: "Nessun giorno con rake negativo. Continua a monitorare.",
+    });
+  }
 
   return {
     date: today,
@@ -1023,10 +1032,9 @@ export function getPvrName(pvrId: string | null): string {
   return pvr ? pvr.name : `PVR ${pvrId}`;
 }
 
+/** @deprecated Use playerStatus(activeDays) instead. Health score formula not yet approved. */
 export function getPlayerStatus(_healthScore: number | null): { label: string; color: string } {
-  // Kept for compatibility; health_score is no longer generated.
-  // Default to active/positive until an approved scoring formula is implemented.
-  return { label: "Attivo", color: "positive" };
+  return { label: "N/D", color: "positive" };
 }
 
 // ─── Singleton exports for compatibility ───

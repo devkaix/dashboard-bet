@@ -139,6 +139,8 @@ export default function Dashboard() {
   const [avgActivePerDay, setAvgActivePerDay] = useState(0)
   const [prevMonthAggs, setPrevMonthAggs] = useState<MonthlyAggregates | null>(null)
   const [prevMonthLabel, setPrevMonthLabel] = useState('')
+  const [periodLabel, setPeriodLabel] = useState('')
+  const [chartSubtitle, setChartSubtitle] = useState('')
 
   const [alertFilter, setAlertFilter] = useState<'all' | 'high' | 'medium'>('all')
   const [refreshing, setRefreshing] = useState(false)
@@ -156,6 +158,26 @@ export default function Dashboard() {
         setTotalWon(dataStore.monthly_aggregates.won)
         setAvgPayout(dk.length > 0 ? dk.reduce((s: number, d: { avg_payout: number }) => s + d.avg_payout, 0) / dk.length : 0)
         setAvgActivePerDay(dk.length > 0 ? dk.reduce((s: number, d: { active_players: number }) => s + d.active_players, 0) / dk.length : 0)
+
+        // Dynamic period labels from real data
+        const meta = dataStore.metadata
+        if (meta.period_end) {
+          const end = new Date(meta.period_end)
+          const monthLabel = end.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
+          setPeriodLabel(monthLabel)
+          if (meta.period_start) {
+            const start = new Date(meta.period_start)
+            setChartSubtitle('Rake vs Bet — ' + start.getDate() + '-' + end.getDate() + ' ' + monthLabel)
+          } else {
+            setChartSubtitle('Rake vs Bet — ' + monthLabel)
+          }
+        } else if (dk.length > 0) {
+          const first = new Date(dk[0].date)
+          const last = new Date(dk[dk.length - 1].date)
+          const m = last.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
+          setPeriodLabel(m)
+          setChartSubtitle('Rake vs Bet — ' + first.getDate() + '-' + last.getDate() + ' ' + m)
+        }
 
         // Fetch previous month for delta computation
         if (dk.length > 0) {
@@ -319,7 +341,7 @@ export default function Dashboard() {
             Dashboard
           </h1>
           <p className="text-[15px] text-text-secondary mt-0.5">
-            Panoramica rete — Giugno 2026
+            {periodLabel ? `Panoramica rete — ${periodLabel}` : "Caricamento dati..."}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -423,7 +445,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-[20px] font-semibold text-text-primary">Andamento Giornaliero</h2>
-              <p className="text-[13px] text-text-muted mt-0.5">Rake vs Bet — 1-30 Giugno 2026</p>
+              <p className="text-[13px] text-text-muted mt-0.5">{chartSubtitle || "Caricamento dati..."}</p>
             </div>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">

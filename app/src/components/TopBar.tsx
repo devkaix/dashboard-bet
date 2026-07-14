@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Search, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -9,18 +9,28 @@ interface TopBarProps {
   subtitle?: string
 }
 
+function formatPeriodLabel(meta: { period_end?: string; period_start?: string }): string {
+  if (!meta.period_end) return 'Nessun dato'
+  const d = new Date(meta.period_end)
+  return d.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
+}
+
 export default function TopBar({ title, subtitle }: TopBarProps) {
   const [searchFocused, setSearchFocused] = useState(false)
+  const [periodLabel, setPeriodLabel] = useState(() => formatPeriodLabel(dataStore.metadata))
 
-  const periodLabel = useMemo(() => {
-    try {
-      const meta = dataStore.metadata
-      if (meta.period_end) {
-        const d = new Date(meta.period_end)
-        return d.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
+  // Poll dataStore until period becomes available, then stop
+  useEffect(() => {
+    let attempts = 0
+    const maxAttempts = 60 // 60 × 500ms = 30s max wait
+    const interval = setInterval(() => {
+      const label = formatPeriodLabel(dataStore.metadata)
+      if (label !== 'Nessun dato' || ++attempts >= maxAttempts) {
+        setPeriodLabel(label)
+        if (label !== 'Nessun dato') clearInterval(interval)
       }
-    } catch {}
-    return 'Nessun dato'
+    }, 500)
+    return () => clearInterval(interval)
   }, [])
 
   return (
