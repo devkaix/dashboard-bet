@@ -35,6 +35,7 @@ import {
   getBriefing,
   getPvrs,
   formatPercent,
+  loadData,
 } from '@/lib/data'
 
 /* ─── Types ─── */
@@ -878,6 +879,12 @@ export default function CopilotPage() {
     scrollToBottom()
   }, [messages, isTyping, scrollToBottom])
 
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    loadData().then(() => setReady(true)).catch(() => setReady(true))
+  }, [])
+
   const handleSendMessage = useCallback(
     (text: string) => {
       const userMsg: ChatMessage = {
@@ -891,16 +898,27 @@ export default function CopilotPage() {
 
       // Simulate AI thinking delay
       setTimeout(() => {
-        const response = getAIResponse(text)
-        const aiMsg: ChatMessage = {
-          id: `ai-${Date.now()}`,
-          role: 'ai',
-          content: response.content,
-          timestamp: Date.now(),
-          dataComponent: response.dataComponent,
+        try {
+          const response = getAIResponse(text)
+          const aiMsg: ChatMessage = {
+            id: `ai-${Date.now()}`,
+            role: 'ai',
+            content: response.content,
+            timestamp: Date.now(),
+            dataComponent: response.dataComponent,
+          }
+          setIsTyping(false)
+          setMessages((prev) => [...prev, aiMsg])
+        } catch (err) {
+          const aiMsg: ChatMessage = {
+            id: `ai-${Date.now()}`,
+            role: 'ai',
+            content: err instanceof Error ? err.message : 'Errore nel caricamento dei dati. Riprova.',
+            timestamp: Date.now(),
+          }
+          setIsTyping(false)
+          setMessages((prev) => [...prev, aiMsg])
         }
-        setIsTyping(false)
-        setMessages((prev) => [...prev, aiMsg])
       }, 1200)
     },
     [],

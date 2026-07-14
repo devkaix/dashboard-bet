@@ -48,6 +48,27 @@ const tabs: TabConfig[] = [
   { id: 'account', label: 'Account', icon: User },
 ]
 
+function useLocalStorage<T>(key: string, initial: T): [T, (v: T | ((prev: T) => T)) => void] {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const item = localStorage.getItem(key)
+      return item ? (JSON.parse(item) as T) : initial
+    } catch {
+      return initial
+    }
+  })
+  const setStoredValue = useCallback((val: T | ((prev: T) => T)) => {
+    setValue((prev) => {
+      const next = typeof val === 'function' ? (val as (prev: T) => T)(prev) : val
+      try {
+        localStorage.setItem(key, JSON.stringify(next))
+      } catch {}
+      return next
+    })
+  }, [key])
+  return [value, setStoredValue]
+}
+
 /* ─── Toast ─── */
 function Toast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
   return (
@@ -181,7 +202,7 @@ function SeverityPill({
 
 /* ─── Tab 1: Soglie Alert ─── */
 function SoglieAlertTab() {
-  const [thresholds, setThresholds] = useState({
+  const [thresholds, setThresholds] = useLocalStorage('dazn-thresholds', {
     fidoWarning: 85,
     fidoCritical: 95,
     rakeDrop: -20,
@@ -436,7 +457,7 @@ function ThresholdRow({
 
 /* ─── Tab 2: Preferenze ─── */
 function PreferenzeTab() {
-  const [settings, setSettings] = useState({
+  const [settings, setSettings] = useLocalStorage('dazn-preferences', {
     pushNotifications: true,
     alertSounds: true,
     autoRefresh: true,
@@ -601,10 +622,10 @@ function ToggleRow({
 
 /* ─── Tab 3: Tema ─── */
 function TemaTab() {
-  const [accentColor, setAccentColor] = useState('blue')
-  const [theme, setTheme] = useState('dark')
-  const [density, setDensity] = useState('standard')
-  const [effects, setEffects] = useState({
+  const [accentColor, setAccentColor] = useLocalStorage('dazn-theme-accent', 'blue')
+  const [theme, setTheme] = useLocalStorage('dazn-theme-mode', 'dark')
+  const [density, setDensity] = useLocalStorage('dazn-theme-density', 'standard')
+  const [effects, setEffects] = useLocalStorage('dazn-theme-effects', {
     animations: true,
     glassmorphism: true,
     sparklines: true,

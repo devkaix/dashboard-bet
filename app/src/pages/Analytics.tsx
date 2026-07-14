@@ -243,6 +243,24 @@ function WhatIfSimulator({
   )
 }
 
+function linearRegression(values: number[]): { slope: number; r2: number } {
+  const n = values.length;
+  if (n === 0) return { slope: 0, r2: 0 };
+  const x = Array.from({ length: n }, (_, i) => i);
+  const sumX = x.reduce((a, b) => a + b, 0);
+  const sumY = values.reduce((a, b) => a + b, 0);
+  const sumXY = x.reduce((s, xi, i) => s + xi * values[i], 0);
+  const sumXX = x.reduce((s, xi) => s + xi * xi, 0);
+  const denom = n * sumXX - sumX * sumX;
+  const slope = denom !== 0 ? (n * sumXY - sumX * sumY) / denom : 0;
+  const intercept = (sumY - slope * sumX) / n;
+  const yMean = sumY / n;
+  const ssTot = values.reduce((s, y) => s + (y - yMean) ** 2, 0);
+  const ssRes = values.reduce((s, y, i) => s + (y - (slope * i + intercept)) ** 2, 0);
+  const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+  return { slope, r2 };
+}
+
 // ─── Main Analytics Page ───
 export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true)
@@ -263,29 +281,29 @@ export default function AnalyticsPage() {
     }
   }, [loading])
 
-  // May 2026 data (period A) - simulated based on June with variation
+  // May 2026 data (period A) - simulated based on June with deterministic variation
   const periodA = useMemo(() => {
     if (!data) return { rake: 0, bet: 0, won: 0, activePlayers: 0, daily: [] as any[] }
-    const monthlyRake = data.monthly.rake as unknown as Record<string, number>
-    const monthlyBet = data.monthly.bet as unknown as Record<string, number>
-    const monthlyActive = data.monthly.active_players as unknown as Record<string, number>
-    const juneRake = monthlyRake['2026-06'] || 61964.77
-    const juneBet = monthlyBet['2026-06'] || 536118.18
+    const juneRake = data.monthly.rake || 61964.77
+    const juneBet = data.monthly.bet || 536118.18
     const factor = 0.88 // May is ~88% of June
     const mayRake = juneRake * factor
     const mayBet = juneBet * factor
     const mayWon = mayBet - mayRake
-    const mayActive = Math.round((monthlyActive['2026-06'] || 133) * 0.92)
+    const mayActive = Math.round((data.monthly.active_players || 133) * 0.92)
 
-    // Generate May daily data (31 days)
-    const daily = Array.from({ length: 31 }, (_, i) => ({
-      day: `${i + 1} Mag`,
-      dayNum: i + 1,
-      rake: (mayRake / 31) * (0.7 + Math.random() * 0.6),
-      bet: (mayBet / 31) * (0.7 + Math.random() * 0.6),
-      won: 0,
-      activePlayers: Math.round(mayActive * (0.8 + Math.random() * 0.4)),
-    }))
+    // Generate May daily data (31 days) deterministically
+    const daily = Array.from({ length: 31 }, (_, i) => {
+      const variation = 1 + 0.2 * Math.sin(((i + 1) / 31) * Math.PI * 2)
+      return {
+        day: `${i + 1} Mag`,
+        dayNum: i + 1,
+        rake: (mayRake / 31) * variation,
+        bet: (mayBet / 31) * variation,
+        won: 0,
+        activePlayers: Math.round(mayActive * (0.9 + 0.1 * Math.cos(((i + 1) / 31) * Math.PI * 2))),
+      }
+    })
     daily.forEach((d) => {
       d.won = d.bet - d.rake
     })
@@ -296,11 +314,8 @@ export default function AnalyticsPage() {
   // June 2026 data (period B)
   const periodB = useMemo(() => {
     if (!data) return { rake: 0, bet: 0, won: 0, activePlayers: 0, daily: [] as any[] }
-    const monthlyRake = data.monthly.rake as unknown as Record<string, number>
-    const monthlyBet = data.monthly.bet as unknown as Record<string, number>
-    const monthlyActive = data.monthly.active_players as unknown as Record<string, number>
-    const juneRake = monthlyRake['2026-06'] || 61964.77
-    const juneBet = monthlyBet['2026-06'] || 536118.18
+    const juneRake = data.monthly.rake || 61964.77
+    const juneBet = data.monthly.bet || 536118.18
 
     const daily = data.dailyKpis.map((k, i) => ({
       day: `${i + 1} Giu`,
@@ -315,7 +330,7 @@ export default function AnalyticsPage() {
       rake: juneRake,
       bet: juneBet,
       won: juneBet - juneRake,
-      activePlayers: monthlyActive['2026-06'] || 133,
+      activePlayers: Math.round(data.monthly.active_players || 133),
       daily,
     }
   }, [data])
@@ -425,6 +440,16 @@ export default function AnalyticsPage() {
     }))
 
     return { points, list: [...negativeDays, ...list].slice(0, 6) }
+  }, [data])
+
+  // Trend statistics
+  const trendStats = useMemo(() => {
+    if (!data) return { slope: 0, r2: 0, forecast: 0 }
+    const rakes = data.dailyKpis.map((k) => k.total_rake)
+    const { slope, r2 } = linearRegression(rakes)
+    const currentTotal = rakes.reduce((a, b) => a + b, 0)
+    const forecast = currentTotal + slope * rakes.length
+    return { slope, r2, forecast }
   }, [data])
 
   // Pareto data
@@ -716,11 +741,12 @@ export default function AnalyticsPage() {
           </div>
 
           <div className="flex items-center gap-6 pt-2 border-t border-border-subtle">
-            <span className="flex items-center gap-1.5 text-[12px] text-positive">
-              <TrendingUp size={13} /> Trend: +€145/giorno
+            <span className={cn("flex items-center gap-1.5 text-[12px]", trendStats.slope >= 0 ? "text-positive" : "text-negative")}>
+              {trendStats.slope >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+              Trend: {trendStats.slope >= 0 ? '+' : ''}{formatCurrency(trendStats.slope)}/giorno
             </span>
-            <span className="text-[12px] text-text-muted">R² = 0.72</span>
-            <span className="text-[12px] text-accent-purple">Previsione prossimo mese: €62,300</span>
+            <span className="text-[12px] text-text-muted">R² = {trendStats.r2.toFixed(2)}</span>
+            <span className="text-[12px] text-accent-purple">Previsione prossimo mese: {formatCurrency(trendStats.forecast)}</span>
           </div>
         </motion.div>
 

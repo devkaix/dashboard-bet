@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronRight,
@@ -17,7 +17,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { dataStore, formatCurrency } from '@/lib/data'
+import { dataStore, formatCurrency, loadData } from '@/lib/data'
 import type {
   Region,
   AreaManager,
@@ -764,8 +764,13 @@ export default function NetworkPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selected, setSelected] = useState<SelectedEntity | null>(null)
   const [regionFilter, setRegionFilter] = useState('all')
+  const [ready, setReady] = useState(false)
 
-  const tree = useMemo(() => buildTree(), [])
+  useEffect(() => {
+    loadData().then(() => setReady(true))
+  }, [])
+
+  const tree = useMemo(() => buildTree(), [ready])
 
   const toggleExpanded = useCallback((key: string) => {
     setExpanded((prev) => {
