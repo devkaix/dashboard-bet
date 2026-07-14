@@ -36,8 +36,9 @@ import {
   formatPercent,
   getPvrName,
   getPlayerStatus,
+  fetchPreviousMonthAggregates,
 } from '@/lib/data'
-import type { BriefingItem, DailyKPI, Alert as AlertType, RankingPlayer } from '@/lib/data'
+import type { BriefingItem, DailyKPI, Alert as AlertType, RankingPlayer, MonthlyAggregates } from '@/lib/data'
 import { cn } from '@/lib/utils'
 
 // ─── Custom chart tooltip ───
@@ -137,6 +138,8 @@ export default function Dashboard() {
   const [totalWon, setTotalWon] = useState(0)
   const [avgPayout, setAvgPayout] = useState(0)
   const [avgActivePerDay, setAvgActivePerDay] = useState(0)
+  const [prevMonthAggs, setPrevMonthAggs] = useState<MonthlyAggregates | null>(null)
+  const [prevMonthLabel, setPrevMonthLabel] = useState('')
 
   const [alertFilter, setAlertFilter] = useState<'all' | 'high' | 'medium'>('all')
   const [refreshing, setRefreshing] = useState(false)
@@ -154,6 +157,23 @@ export default function Dashboard() {
         setTotalWon(dataStore.monthly_aggregates.won)
         setAvgPayout(dk.length > 0 ? dk.reduce((s: number, d: { avg_payout: number }) => s + d.avg_payout, 0) / dk.length : 0)
         setAvgActivePerDay(dk.length > 0 ? dk.reduce((s: number, d: { active_players: number }) => s + d.active_players, 0) / dk.length : 0)
+
+        // Fetch previous month for delta computation
+        if (dk.length > 0) {
+          const firstDate = dk[0].date
+          const lastDate = dk[dk.length - 1].date
+          fetchPreviousMonthAggregates({ start: firstDate, end: lastDate }).then((prev) => {
+            if (prev) {
+              setPrevMonthAggs(prev)
+              const [y, m] = firstDate.split('-').map(Number)
+              const prevM = m === 1 ? 12 : m - 1
+              const prevY = m === 1 ? y - 1 : y
+              const prevLabel = new Date(prevY, prevM - 1, 1).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
+              setPrevMonthLabel(prevLabel)
+            }
+          })
+        }
+
         setLoading(false)
       })
       .catch((err: Error) => {
@@ -219,6 +239,40 @@ export default function Dashboard() {
     setRefreshing(true)
     setTimeout(() => setRefreshing(false), 1000)
   }
+
+  // ─── Computed deltas: current vs previous month ───
+  const deltas = useMemo(() => {
+    const prev = prevMonthAggs
+    if (!prev) return { rake: 'N/D', bet: 'N/D', won: 'N/D', active: 'N/D', rakePositive: true, betPositive: true, wonPositive: true, activePositive: true }
+
+    const computeDelta = (curr: number, prevVal: number): { value: string; positive: boolean } => {
+      if (prevVal === 0) return { value: 'N/D', positive: true }
+      const pct = ((curr - prevVal) / Math.abs(prevVal)) * 100
+      const sign = pct >= 0 ? '+' : ''
+      return { value: `${sign}${pct.toFixed(1)}%`, positive: pct >= 0 }
+    }
+
+    const rakeDelta = computeDelta(totalRake, prev.rake)
+    const betDelta = computeDelta(totalBet, prev.bet)
+    const wonDelta = computeDelta(totalWon, prev.won)
+    const activeDelta = computeDelta(avgActivePerDay, prev.active_players)
+
+    return {
+      rake: rakeDelta.value,
+      rakePositive: rakeDelta.positive,
+      bet: betDelta.value,
+      betPositive: betDelta.positive,
+      won: wonDelta.value,
+      wonPositive: wonDelta.positive,
+      active: activeDelta.value,
+      activePositive: activeDelta.positive,
+    }
+  }, [prevMonthAggs, totalRake, totalBet, totalWon, avgActivePerDay])
+
+  const comparisonLabel = useMemo(() => {
+    if (!prevMonthLabel) return 'nessun periodo precedente'
+    return `vs ${prevMonthLabel}`
+  }, [prevMonthLabel])
 
   if (loading) {
     return (
@@ -291,12 +345,12 @@ export default function Dashboard() {
           iconColor="text-positive"
           label="Rake Totale"
           value={formatCurrency(totalRake)}
-          delta="12.4%"
-          deltaPositive={true}
+          delta={deltas.rake}
+          deltaPositive={deltas.rakePositive}
           sparklineData={sparkData.rakeData}
           sparklineColor="#10b981"
           sparklineFillColor="#10b981"
-          bottomNote="vs maggio 2026"
+          bottomNote={comparisonLabel}
           index={0}
         />
         <KpiCard
@@ -304,12 +358,12 @@ export default function Dashboard() {
           iconColor="text-accent-blue"
           label="Bet Totale"
           value={formatCurrency(totalBet)}
-          delta="8.7%"
-          deltaPositive={true}
+          delta={deltas.bet}
+          deltaPositive={deltas.betPositive}
           sparklineData={sparkData.betData}
           sparklineColor="#3b82f6"
           sparklineFillColor="#3b82f6"
-          bottomNote="vs maggio 2026"
+          bottomNote={comparisonLabel}
           index={1}
         />
         <KpiCard
@@ -317,8 +371,8 @@ export default function Dashboard() {
           iconColor="text-warning"
           label="Won Totale"
           value={formatCurrency(totalWon)}
-          delta="6.2%"
-          deltaPositive={true}
+          delta={deltas.won}
+          deltaPositive={deltas.wonPositive}
           sparklineData={sparkData.wonData}
           sparklineColor="#f59e0b"
           sparklineFillColor="#f59e0b"
@@ -330,8 +384,8 @@ export default function Dashboard() {
           iconColor="text-accent-cyan"
           label="Giocatori Attivi"
           value={avgActivePerDay.toFixed(1)}
-          delta="3.2%"
-          deltaPositive={false}
+          delta={deltas.active}
+          deltaPositive={deltas.activePositive}
           sparklineData={sparkData.activeData}
           sparklineColor="#06b6d4"
           sparklineFillColor="#06b6d4"

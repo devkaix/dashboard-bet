@@ -8,6 +8,7 @@ import CopilotPage from './pages/Copilot'
 import SettingsPage from './pages/Settings'
 import UploadPage from './pages/Upload'
 import PvrMappingPage from './pages/PvrMapping'
+import DataProvenancePage from './pages/DataProvenance'
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/upload" element={<UploadPage />} />
         <Route path="/pvr-mapping" element={<PvrMappingPage />} />
+        <Route path="/data-provenance" element={<DataProvenancePage />} />
         <Route path="/copilot" element={<CopilotPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

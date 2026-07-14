@@ -676,6 +676,24 @@ async function fetchMonthlyAggregates(range?: DateRange): Promise<MonthlyAggrega
   return { rake: totalRake, bet: totalBet, won: totalWon, active_players: avgActive };
 }
 
+export async function fetchPreviousMonthAggregates(range: DateRange): Promise<MonthlyAggregates | null> {
+  if (!range.start) return null;
+  const [y, m] = range.start.split("-").map(Number);
+  // Compute previous month
+  const prevM = m === 1 ? 12 : m - 1;
+  const prevY = m === 1 ? y - 1 : y;
+  const prevStart = `${prevY}-${String(prevM).padStart(2, "0")}-01`;
+  const prevEnd = `${prevY}-${String(prevM).padStart(2, "0")}-${String(daysInMonth(prevY, prevM)).padStart(2, "0")}`;
+
+  try {
+    const aggs = await fetchMonthlyAggregates({ start: prevStart, end: prevEnd });
+    if (aggs.rake === 0 && aggs.bet === 0 && aggs.won === 0 && aggs.active_players === 0) return null;
+    return aggs;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchRankings(range?: DateRange): Promise<Rankings> {
   // Player rankings
   let playerQ = supabase

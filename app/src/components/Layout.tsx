@@ -9,6 +9,7 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/analytics': { title: 'Analytics', subtitle: 'Analisi trend e confronti periodo' },
   '/upload': { title: 'Importa Dati', subtitle: 'Caricamento Excel e validazioni' },
   '/pvr-mapping': { title: 'Riconciliazione PVR', subtitle: 'Associa codici commerciali ai PVR numerici' },
+  '/data-provenance': { title: 'Diagnostica Dati', subtitle: 'Provenienza e stato dei dataset importati' },
   '/copilot': { title: 'AI Copilot', subtitle: 'Assistente intelligente per query dati' },
   '/settings': { title: 'Impostazioni', subtitle: 'Preferenze e soglie allerte' },
 }
