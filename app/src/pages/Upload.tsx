@@ -63,42 +63,35 @@ async function loadPlayerAliases(): Promise<Map<string, string>> {
   return map;
 }
 
-async function resolvePlayerIds(usernames: string[]): Promise<Map<string, string>> {
+async function lookupPlayerIds(usernames: string[]): Promise<Map<string, string>> {
   const normalized = usernames.map(normalizeUsername);
   const unique = [...new Set(normalized)].filter(Boolean);
   const map = new Map<string, string>();
-  const remaining = new Set(unique);
+  if (unique.length === 0) return map;
 
-  // Existing players by normalized username
-  if (remaining.size > 0) {
-    const { data, error } = await supabase.from("players").select("id, username_normalized").in("username_normalized", [...remaining]);
-    if (error) throw new Error(`lookup players: ${error.message}`);
-    for (const p of data || []) {
-      map.set(p.username_normalized!, p.id);
-      remaining.delete(p.username_normalized!);
-    }
+  const { data, error } = await supabase.from("players").select("id, username_normalized").in("username_normalized", unique);
+  if (error) throw new Error(`lookup players: ${error.message}`);
+  for (const p of data || []) map.set(p.username_normalized!, p.id);
+
+  const aliases = await loadPlayerAliases();
+  for (const u of unique) {
+    if (map.has(u)) continue;
+    const pid = aliases.get(u);
+    if (pid) map.set(u, pid);
   }
 
-  // Aliases
-  if (remaining.size > 0) {
-    const aliases = await loadPlayerAliases();
-    for (const u of remaining) {
-      const pid = aliases.get(u);
-      if (pid) {
-        map.set(u, pid);
-        remaining.delete(u);
-      }
-    }
-  }
+  return map;
+}
 
-  // Create missing players
+async function resolvePlayerIds(usernames: string[]): Promise<Map<string, string>> {
+  const map = await lookupPlayerIds(usernames);
+  const remaining = new Set(usernames.map(normalizeUsername).filter((u) => !map.has(u) && u));
   if (remaining.size > 0) {
     const inserts = [...remaining].map((u) => ({ username: u, username_normalized: u }));
     const { data, error } = await supabase.from("players").insert(inserts).select("id, username_normalized");
     if (error) throw new Error(`insert players: ${error.message}`);
     for (const p of data || []) map.set(p.username_normalized!, p.id);
   }
-
   return map;
 }
 
@@ -201,18 +194,18 @@ export default function UploadPage() {
       if (fileType === "players_master") {
         const pvrMap = await loadPvrMap();
         const masterRows = rows.map((row) => {
-          const uname = String(col(row, ["Username", "username", "User"]) || "").trim();
-          const refCode = String(col(row, ["Pvr Ref Code", "pvr_ref_code", "PVR", "pvr", "Codice PVR", "Codice Padre"]) || "").trim();
+          const uname = String(col(row, ["user", "Username", "username", "User"]) || "").trim();
+          const refCode = String(col(row, ["PVR rif.", "PVR", "pvr_ref_code", "Pvr Ref Code", "Codice PVR", "Codice Padre"]) || "").trim();
           return {
             username: uname,
             username_normalized: normalizeUsername(uname),
             email: String(col(row, ["Email", "email", "E-mail"]) || "").trim() || null,
             pvr_ref_code: refCode || null,
             pvr_id: refCode ? pvrMap.get(refCode.toLowerCase()) || null : null,
-            kyc_status: String(col(row, ["Kyc Status", "kyc_status", "KYC", "kyc", "Stato KYC"]) || "").trim() || null,
-            balance: num(col(row, ["Balance", "balance", "Saldo"])),
-            withdrawable_balance: num(col(row, ["Withdrawable Balance", "withdrawable_balance", "Saldo Prelevabile"])),
-            registration_date: pDt(col(row, ["Registration Date", "registration_date", "Data Registrazione"])) || pDate(col(row, ["Registration Date", "registration_date", "Data Registrazione"])),
+            kyc_status: String(col(row, ["stato", "Kyc Status", "kyc_status", "KYC", "Stato KYC"]) || "").trim() || null,
+            balance: num(col(row, ["saldo", "Balance", "balance"])),
+            withdrawable_balance: num(col(row, ["saldo prel", "Withdrawable Balance", "withdrawable_balance"])),
+            registration_date: pDt(col(row, ["creato", "Registration Date", "registration_date", "Data Registrazione"])) || pDate(col(row, ["creato", "Registration Date", "registration_date", "Data Registrazione"])),
           };
         }).filter((r) => r.username);
 
@@ -241,19 +234,34 @@ export default function UploadPage() {
         // Validate only: never write to daily_player_stats.
         const summaryRows = rows.map((row) => {
           const uname = String(col(row, ["Username", "username", "User"]) || "").trim();
+          const month = pDate(col(row, ["mese", "month", "periodo", "period"]));
           return {
             username: uname,
             username_normalized: normalizeUsername(uname),
+            month,
             ...getStats(row),
           };
         }).filter((r) => r.username);
 
-        const playerMap = await resolvePlayerIds(summaryRows.map((r) => r.username));
+        // Determine target month: explicit column wins, otherwise latest month in daily stats
+        let targetMonth = summaryRows.find((r) => r.month)?.month;
+        if (!targetMonth) {
+          const { data: maxDateRow, error: maxDateErr } = await supabase.from("daily_player_stats").select("date").order("date", { ascending: false }).limit(1);
+          if (maxDateErr) throw new Error(`max date: ${maxDateErr.message}`);
+          targetMonth = (maxDateRow?.[0] as any)?.date?.slice(0, 7) || null;
+        }
+        report.target_month = targetMonth;
+
+        const playerMap = await lookupPlayerIds(summaryRows.map((r) => r.username));
         const playerIds = [...new Set([...playerMap.values()])].filter(Boolean);
 
         let dbTotals: any[] = [];
-        if (playerIds.length > 0) {
-          const { data, error } = await supabase.from("monthly_player_stats_v").select("*").in("player_id", playerIds);
+        if (playerIds.length > 0 && targetMonth) {
+          const { data, error } = await supabase
+            .from("monthly_player_stats_v")
+            .select("*")
+            .in("player_id", playerIds)
+            .eq("month", targetMonth);
           if (error) throw new Error(`monthly_player_stats_v: ${error.message}`);
           dbTotals = data || [];
         }
@@ -271,17 +279,20 @@ export default function UploadPage() {
             if (Math.abs(num(db.rake) - r.rake) > eps || Math.abs(num(db.bet) - r.bet) > eps || Math.abs(num(db.won) - r.won) > eps) {
               mismatches.push(r.username);
             }
+          } else {
+            mismatches.push(r.username);
           }
         }
 
         report.mismatches = mismatches;
         report.validated_rows = summaryRows.length - mismatches.length - report.unmatched_players.length;
-        await insertUploadRecord(file, fileHash, fileType, summaryRows.length, "completed", mismatches.length === 0 ? "validated" : "mismatch", report);
+        const validationStatus = mismatches.length === 0 ? "validated" : "mismatch";
+        await insertUploadRecord(file, fileHash, fileType, summaryRows.length, "completed", validationStatus, report);
         setProgress("");
         if (mismatches.length > 0) {
-          setMessage({ type: "error", text: `"${file.name}" → ${summaryRows.length} righe; ${mismatches.length} mismatch con i dati giornalieri.` });
+          setMessage({ type: "error", text: `"${file.name}" → ${summaryRows.length} righe; ${mismatches.length} mismatch con i dati giornalieri per ${targetMonth}.` });
         } else {
-          setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe validate (${fileType}, non importato)` });
+          setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe validate per ${targetMonth} (${fileType}, non importato)` });
         }
         return;
       }

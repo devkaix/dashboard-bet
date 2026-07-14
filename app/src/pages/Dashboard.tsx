@@ -179,12 +179,17 @@ export default function Dashboard() {
     return dailyKpis.reduce((s, d) => s + d.total_rake, 0) / dailyKpis.length
   }, [dailyKpis])
 
+  const chartMonthLabel = useMemo(() => {
+    if (dailyKpis.length === 0) return ''
+    return new Date(dailyKpis[0].date).toLocaleDateString('it-IT', { month: 'short' })
+  }, [dailyKpis])
+
   const chartData = useMemo(
     () =>
       dailyKpis.map((d) => {
         const day = new Date(d.date).getDate()
         return {
-          date: `${day} Giu`,
+          date: `${day} ${chartMonthLabel}`,
           fullDate: d.date,
           total_rake: d.total_rake,
           total_bet: d.total_bet,
@@ -192,7 +197,7 @@ export default function Dashboard() {
           active_players: d.active_players,
         }
       }),
-    [dailyKpis],
+    [dailyKpis, chartMonthLabel],
   )
 
   // totalWon is read from state (real 'won' column)

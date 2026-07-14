@@ -53,7 +53,7 @@ I dati caricati nell'applicazione coprono **Giugno 2026** (30 giorni: 1–30 giu
 | Record giornalieri | 688 |
 | PVR (punti vendita) | 32 (da anagrafica reale) |
 | Agenti | non visualizzati finché non disponibile fonte dati reale |
-| Area Manager | derivati dai campi reali `area_manager` sui PVR |
+| Area Manager | derivati dai campi reali `area_manager` sui PVR (se assenti, la Rete viene mostrata come elenco flat PVR → Giocatori) |
 | Regioni | derivate dai campi reali `region` sui PVR |
 | Rake totale mese | € 61.964,77 |
 | Bet totale mese | € 536.118,18 |
@@ -802,7 +802,7 @@ Questa versione è un **MVP dimostrativo**. È importante conoscere questi limit
 
 | Aspetto | Stato attuale |
 |---------|---------------|
-| **Database** | Supabase PostgreSQL con RLS abilitato (policy permissive per anon, da stringere in produzione) |
+| **Database** | Supabase PostgreSQL con RLS abilitato. `pvr_reference_map` e `player_username_aliases` sono read-only per anon; `excel_uploads` consente solo select/insert. |
 | **Aggiornamento dati** | Upload manuale di file Excel da `/upload`; i dati vengono scritti in Supabase |
 | **Periodi precedenti** | Disponibili solo se caricati dati reali di mesi precedenti |
 | **Assistente Analitico** | Rule-based, non LLM reale |

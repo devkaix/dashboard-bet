@@ -41,15 +41,35 @@ export function pDt(v: unknown): string | null {
   if (!v) return null;
   const s = String(v).trim().replace(/\/\/\s*/, "");
   if (!s) return null;
-  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2}:\d{2})$/);
-  return m ? `${m[3]}-${m[2]}-${m[1]}T${m[4]}` : null;
+
+  // ISO-like: 2026-06-19 02:15:39
+  const iso = s.match(/^(\d{4})[\-\/](\d{2})[\-\/](\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}T${iso[4]}:${iso[5]}:${iso[6]}`;
+
+  // Italian: 19/06/2026  03:02:02 (with double space) or 30/06/2026 14:30:00
+  const it = s.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})$/);
+  if (it) return `${it[3]}-${it[2]}-${it[1]}T${it[4]}:${it[5]}:${it[6]}`;
+
+  return null;
 }
 
 export function det(hdr: string[]): string {
   const h = hdr.map((x) => x.toLowerCase().trim());
   const joined = h.join("|");
-  if (h.includes("ticket") && h.includes("stato")) return "tickets";
+
+  // Real players_master export: index, user, PVR rif., stato, saldo, saldo prel, creato
+  if (
+    h.includes("user") &&
+    (h.some((x) => x.includes("pvr")) || h.includes("pvr rif.")) &&
+    (h.includes("saldo") || h.includes("stato"))
+  ) {
+    return "players_master";
+  }
+
+  // Legacy/English players_master headers
   if (joined.includes("kyc") || joined.includes("pvr ref") || joined.includes("withdrawable")) return "players_master";
+
+  if (h.includes("ticket") && h.includes("stato")) return "tickets";
   if (h.includes("gioco")) return "daily_player_game";
   if (h.some((x) => x.includes("liv 1"))) return "daily_pvr";
   if (h[0] === "username" && !h.includes("data")) return "player_summary";
@@ -62,4 +82,9 @@ export function col(row: Record<string, unknown>, names: string[]): unknown {
     if (n in row) return row[n];
   }
   return undefined;
+}
+
+export function dateFromTimestamp(ts: string | null): string | null {
+  if (!ts) return null;
+  return ts.split("T")[0];
 }

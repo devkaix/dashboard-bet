@@ -174,7 +174,8 @@ function FidoBar({ used, total }: { used: number; total: number }) {
 }
 
 /* ─── PVR Status Badge ─── */
-function PvrStatusBadge({ trend }: { trend: 'up' | 'down' | 'stable' }) {
+function PvrStatusBadge({ trend }: { trend: 'up' | 'down' | 'stable' | null }) {
+  if (!trend) return null
   const config = {
     up: { icon: TrendingUp, label: 'In Crescita', class: 'bg-positive/15 text-positive' },
     down: { icon: TrendingDown, label: 'In Calo', class: 'bg-negative/15 text-negative' },
@@ -198,6 +199,45 @@ function buildTree(): TreeNode[] {
   const agents = dataStore.agents
   const players = dataStore.players
 
+  const buildPvrNode = (pvr: PVR): TreeNode => {
+    const playerNodes: TreeNode[] = players
+      .filter((pl) => pl.pvr_id === pvr.id)
+      .map((pl) => ({
+        id: pl.id,
+        type: 'player' as EntityType,
+        data: pl,
+        children: [],
+      }))
+
+    if (agents.length > 0) {
+      const pvrAgents = agents.filter((a) => a.pvr_id === pvr.id)
+      const agentNodes: TreeNode[] = pvrAgents.map((agent) => {
+        const agentPlayers = players.filter((pl) => pl.agent_id === agent.id)
+        const agentPlayerNodes: TreeNode[] = agentPlayers.map((pl) => ({
+          id: pl.id,
+          type: 'player' as EntityType,
+          data: pl,
+          children: [],
+        }))
+        return { id: agent.id, type: 'agent' as EntityType, data: agent, children: agentPlayerNodes }
+      })
+      return { id: pvr.id, type: 'pvr' as EntityType, data: pvr, children: agentNodes }
+    }
+
+    return { id: pvr.id, type: 'pvr' as EntityType, data: pvr, children: playerNodes }
+  }
+
+  // Fallback: if no regions/area managers are defined, show flat PVR → Players tree
+  if (regions.length === 0 || areaManagers.length === 0) {
+    const pvrNodes = pvrs.map(buildPvrNode)
+    return [{
+      id: 'network',
+      type: 'region',
+      data: { id: 0, name: 'Rete', area_manager_id: 0 } as Region,
+      children: pvrNodes,
+    }]
+  }
+
   // Group regions by name (unique region names)
   const uniqueNames = Array.from(new Set(regions.map((r) => r.name)))
   const regionNodes: TreeNode[] = uniqueNames.map((name, idx) => {
@@ -207,34 +247,7 @@ function buildTree(): TreeNode[] {
 
     const amNodes: TreeNode[] = ams.map((am) => {
       const amPvrs = pvrs.filter((p) => p.area_manager_id === am.id)
-
-      const pvrNodes: TreeNode[] = amPvrs.map((pvr) => {
-        const playerNodes: TreeNode[] = players
-          .filter((pl) => pl.pvr_id === pvr.id)
-          .map((pl) => ({
-            id: pl.id,
-            type: 'player' as EntityType,
-            data: pl,
-            children: [],
-          }))
-
-        if (agents.length > 0) {
-          const pvrAgents = agents.filter((a) => a.pvr_id === pvr.id)
-          const agentNodes: TreeNode[] = pvrAgents.map((agent) => {
-            const agentPlayers = players.filter((pl) => pl.agent_id === agent.id)
-            const agentPlayerNodes: TreeNode[] = agentPlayers.map((pl) => ({
-              id: pl.id,
-              type: 'player' as EntityType,
-              data: pl,
-              children: [],
-            }))
-            return { id: agent.id, type: 'agent' as EntityType, data: agent, children: agentPlayerNodes }
-          })
-          return { id: pvr.id, type: 'pvr' as EntityType, data: pvr, children: agentNodes }
-        }
-
-        return { id: pvr.id, type: 'pvr' as EntityType, data: pvr, children: playerNodes }
-      })
+      const pvrNodes = amPvrs.map(buildPvrNode)
       return { id: am.id, type: 'area_manager' as EntityType, data: am, children: pvrNodes }
     })
 
@@ -679,12 +692,16 @@ function getNodeIcon(node: TreeNode, depth: number) {
   }
 }
 
-function getPvrTrend(node: TreeNode): 'up' | 'down' | 'stable' {
+function getPvrTrend(node: TreeNode): 'up' | 'down' | 'stable' | null {
   const hs = (node.data as PVR).health_score
-  if (hs == null) return 'stable'
+  if (hs == null) return null
   if (hs >= 75) return 'up'
   if (hs >= 50) return 'stable'
   return 'down'
+}
+
+function pvrTotal(pvrId: string): { rake: number; bet: number } {
+  return dataStore.pvr_totals[pvrId] ?? { rake: 0, bet: 0 }
 }
 
 function sumPlayerRake(node: TreeNode): number {
@@ -693,14 +710,19 @@ function sumPlayerRake(node: TreeNode): number {
 }
 
 function getRegionTotalRake(node: TreeNode): number {
-  return node.children.reduce((s, am) => s + sumPlayerRake(am), 0)
+  return node.children.reduce((s, am) => s + getAmTotalRake(am), 0)
 }
 
 function getAmTotalRake(node: TreeNode): number {
-  return node.children.reduce((s, pvr) => s + sumPlayerRake(pvr), 0)
+  return node.children.reduce((s, pvr) => s + getPvrTotalRake(pvr), 0)
 }
 
 function getPvrTotalRake(node: TreeNode): number {
+  if (node.type === 'pvr') {
+    const totals = pvrTotal(node.id as string)
+    if (totals.rake !== 0) return totals.rake
+  }
+  // Fallback to mapped players until daily_pvr_stats covers the period
   return sumPlayerRake(node)
 }
 
@@ -726,10 +748,8 @@ function getBreadcrumbPath(node: TreeNode): string[] {
 function NetworkSummary({ tree }: { tree: TreeNode[] }) {
   const totalRake = tree.reduce((s, r) => s + getRegionTotalRake(r), 0)
   const totalPlayers = dataStore.players.length
-  const avgHealth =
-    dataStore.pvrs.length > 0
-      ? dataStore.pvrs.reduce((s, p) => s + (p.health_score ?? 0), 0) / dataStore.pvrs.length
-      : 0
+  const healthScores = dataStore.pvrs.map((p) => p.health_score).filter((h): h is number => h != null)
+  const avgHealth = healthScores.length > 0 ? healthScores.reduce((s, h) => s + h, 0) / healthScores.length : null
 
   return (
     <motion.div
@@ -738,23 +758,27 @@ function NetworkSummary({ tree }: { tree: TreeNode[] }) {
       transition={{ duration: 0.4, delay: 0.5, ease: [0.4, 0, 0.2, 1] as [number, number, number, number] }}
       className="sticky bottom-0 left-0 right-0 h-12 bg-bg-surface-elevated border-t border-border-subtle flex items-center px-6 gap-8 z-20"
     >
-      <div className="flex items-center gap-3">
-        <span className="text-[12px] text-text-muted">Health Media Rete:</span>
-        <div className="flex items-center gap-2">
-          <div className="w-[200px] h-1.5 bg-bg-surface-highlight rounded-full overflow-hidden">
-            <motion.div
-              className="h-full rounded-full"
-              style={{ backgroundColor: getHealthColor(avgHealth) }}
-              initial={{ width: 0 }}
-              animate={{ width: `${avgHealth}%` }}
-              transition={{ duration: 0.8, delay: 0.6 }}
-            />
+      {avgHealth != null ? (
+        <div className="flex items-center gap-3">
+          <span className="text-[12px] text-text-muted">Health Media Rete:</span>
+          <div className="flex items-center gap-2">
+            <div className="w-[200px] h-1.5 bg-bg-surface-highlight rounded-full overflow-hidden">
+              <motion.div
+                className="h-full rounded-full"
+                style={{ backgroundColor: getHealthColor(avgHealth) }}
+                initial={{ width: 0 }}
+                animate={{ width: `${avgHealth}%` }}
+                transition={{ duration: 0.8, delay: 0.6 }}
+              />
+            </div>
+            <span className="text-[12px] text-text-primary font-mono font-medium">
+              {Math.round(avgHealth)}/100
+            </span>
           </div>
-          <span className="text-[12px] text-text-primary font-mono font-medium">
-            {Math.round(avgHealth)}/100
-          </span>
         </div>
-      </div>
+      ) : (
+        <span className="text-[12px] text-text-muted">Health Media Rete: N/D</span>
+      )}
       <div className="flex items-center gap-2">
         <span className="text-[12px] text-text-muted">Rake Totale:</span>
         <span className="text-[12px] text-text-primary font-mono font-medium">

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { num, normalizeUsername, pDate, pDt, det, col } from './uploadHelpers';
+import { num, normalizeUsername, pDate, pDt, det, col, dateFromTimestamp } from './uploadHelpers';
 
 describe('num', () => {
   it('parses plain numbers', () => {
@@ -49,6 +49,14 @@ describe('pDt', () => {
     expect(pDt('30/06/2026 14:30:00')).toBe('2026-06-30T14:30:00');
   });
 
+  it('parses Italian datetime with double space', () => {
+    expect(pDt('19/06/2026  03:02:02')).toBe('2026-06-19T03:02:02');
+  });
+
+  it('parses ISO datetime', () => {
+    expect(pDt('2026-06-19 02:15:39')).toBe('2026-06-19T02:15:39');
+  });
+
   it('returns null for invalid input', () => {
     expect(pDt('')).toBeNull();
     expect(pDt('2026-06-30')).toBeNull();
@@ -60,7 +68,11 @@ describe('det', () => {
     expect(det(['Ticket', 'Stato', 'Importo'])).toBe('tickets');
   });
 
-  it('detects players_master', () => {
+  it('detects real players_master headers', () => {
+    expect(det(['index', 'user', 'PVR rif.', 'stato', 'saldo', 'saldo prel', 'creato'])).toBe('players_master');
+  });
+
+  it('detects English players_master headers', () => {
     expect(det(['Username', 'Email', 'Kyc Status', 'Withdrawable Balance'])).toBe('players_master');
   });
 
@@ -80,6 +92,14 @@ describe('det', () => {
 describe('col', () => {
   it('returns the first matching column', () => {
     expect(col({ Username: 'marco', Rake: 10 }, ['Username', 'User'])).toBe('marco');
+    expect(col({ user: 'marco', Rake: 10 }, ['user', 'Username'])).toBe('marco');
     expect(col({ Rake: 10 }, ['Username', 'User'])).toBeUndefined();
+  });
+});
+
+describe('dateFromTimestamp', () => {
+  it('extracts the date part from ISO timestamp', () => {
+    expect(dateFromTimestamp('2026-06-19T02:15:39')).toBe('2026-06-19');
+    expect(dateFromTimestamp(null)).toBeNull();
   });
 });

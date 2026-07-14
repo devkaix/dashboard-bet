@@ -67,6 +67,14 @@ No health score is currently generated. The field is kept as `null` on both PVRs
 - `players_master` imports update player metadata and resolve PVR mapping through `pvr_reference_map`.
 - `won` is always read from the real `won` column, never computed as `bet - rake`.
 - Added Vitest test suite (`data.test.ts`, `uploadHelpers.test.ts`).
+- Real `players_export` headers supported: `index`, `user`, `PVR rif.`, `stato`, `saldo`, `saldo prel`, `creato`.
+- Ticket datetime parsing supports both ISO (`2026-06-19 02:15:39`) and Italian formats with double spaces.
+- Daily ticket count uses date-only keys aligned with `daily_network_stats`.
+- PVR `active_players` counts distinct players.
+- Network view falls back to flat `PVR → Players` when regions/area managers are missing.
+- PVR totals are sourced from `daily_pvr_stats` when available.
+- Health score hidden when `null` instead of showing 0/stable.
+- RLS tightened: mapping tables read-only for anon, `excel_uploads` insert/select only.
 
 ## Design Direction
 - Dark theme (professional, data-dense, dashboard-like)

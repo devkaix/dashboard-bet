@@ -183,6 +183,10 @@ export interface Rankings {
   top_pvrs: RankingPVR[]
 }
 
+export interface PvrTotals {
+  [pvrId: string]: { rake: number; bet: number }
+}
+
 export interface DaznBetData {
   metadata: Metadata
   regions: Region[]
@@ -194,6 +198,7 @@ export interface DaznBetData {
   daily_stats: DailyStat[]
   monthly_aggregates: MonthlyAggregates
   rankings: Rankings
+  pvr_totals: PvrTotals
   alerts: Alert[]
   briefing: Briefing
 }
@@ -225,20 +230,39 @@ function playerStatus(activeDays: number): string {
   return "inactive";
 }
 
+// ─── Helpers ───
+
+async function inferLatestMonthRange(): Promise<DateRange> {
+  const { data, error } = await supabase
+    .from("daily_network_stats")
+    .select("date")
+    .order("date", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  const maxDate = (data?.[0] as any)?.date as string | undefined;
+  if (!maxDate) return {};
+  const [y, m] = maxDate.split("-").map(Number);
+  const start = `${y}-${String(m).padStart(2, "0")}-01`;
+  const end = new Date(y, m, 0).toISOString().split("T")[0];
+  return { start, end };
+}
+
 // ─── Main loader ───
 
 export async function loadData(range?: DateRange): Promise<DaznBetData> {
-  const metadata = await fetchMetadata(range);
-  const network = await fetchNetworkHierarchy(range);
-  const [dailyKpis, dailyStats, rankings, alerts, briefing, monthlyAggs] = await Promise.all([
-    fetchDailyKpis(range),
-    fetchDailyStats(range),
-    fetchRankings(range),
-    fetchAlerts(range),
-    fetchBriefing(range),
-    fetchMonthlyAggregates(range),
+  const effectiveRange = range ?? await inferLatestMonthRange();
+  const metadata = await fetchMetadata(effectiveRange);
+  const network = await fetchNetworkHierarchy(effectiveRange);
+  const [dailyKpis, dailyStats, rankings, alerts, briefing, monthlyAggs, pvrTotals] = await Promise.all([
+    fetchDailyKpis(effectiveRange),
+    fetchDailyStats(effectiveRange),
+    fetchRankings(effectiveRange),
+    fetchAlerts(effectiveRange),
+    fetchBriefing(effectiveRange),
+    fetchMonthlyAggregates(effectiveRange),
+    fetchPvrTotals(effectiveRange),
   ]);
-  const players = await fetchPlayers(network.pvrs, range);
+  const players = await fetchPlayers(network.pvrs, effectiveRange);
 
   const totalRake = monthlyAggs.rake;
   const sortedPlayers = [...players].sort((a, b) => b.total_rake - a.total_rake);
@@ -266,6 +290,7 @@ export async function loadData(range?: DateRange): Promise<DaznBetData> {
     daily_stats: dailyStats,
     monthly_aggregates: monthlyAggs,
     rankings: rankings || emptyRankings,
+    pvr_totals: pvrTotals,
     alerts,
     briefing: briefing || emptyBriefing,
   };
@@ -576,7 +601,9 @@ async function fetchDailyKpis(range?: DateRange): Promise<DailyKPI[]> {
 
   const betsMap = new Map<string, number>();
   for (const row of ticketsData || []) {
-    const date = row.emission_date;
+    const ts = row.emission_date;
+    if (!ts) continue;
+    const date = ts.split("T")[0];
     if (!date) continue;
     betsMap.set(date, (betsMap.get(date) || 0) + 1);
   }
@@ -713,6 +740,7 @@ async function fetchRankings(range?: DateRange): Promise<Rankings> {
   let activePvrQ = supabase
     .from("daily_player_stats")
     .select(`
+      player_id,
       date,
       players!inner(pvr_id)
     `);
@@ -724,9 +752,10 @@ async function fetchRankings(range?: DateRange): Promise<Rankings> {
   const pvrActiveMap = new Map<string, Set<string>>();
   for (const row of activePvrData || []) {
     const pvrId = row.players?.pvr_id;
-    if (!pvrId) continue;
+    const playerId = row.player_id;
+    if (!pvrId || !playerId) continue;
     if (!pvrActiveMap.has(pvrId)) pvrActiveMap.set(pvrId, new Set());
-    pvrActiveMap.get(pvrId)!.add(row.date + "|" + (row as any).player_id);
+    pvrActiveMap.get(pvrId)!.add(playerId);
   }
 
   const topPvrs = Array.from(pvrAgg.entries())
@@ -747,6 +776,22 @@ async function fetchRankings(range?: DateRange): Promise<Rankings> {
     top_players_by_bet: byBet,
     top_pvrs: topPvrs,
   };
+}
+
+async function fetchPvrTotals(range?: DateRange): Promise<PvrTotals> {
+  let q = supabase.from("daily_pvr_stats").select("pvr_id, rake, bet");
+  if (range?.start) q = q.gte("date", range.start);
+  if (range?.end) q = q.lte("date", range.end);
+  const { data, error } = await q;
+  if (error) throw error;
+  const totals: PvrTotals = {};
+  for (const row of data || []) {
+    const pid = row.pvr_id;
+    if (!totals[pid]) totals[pid] = { rake: 0, bet: 0 };
+    totals[pid].rake += toNumber(row.rake);
+    totals[pid].bet += toNumber(row.bet);
+  }
+  return totals;
 }
 
 async function fetchAlerts(range?: DateRange): Promise<Alert[]> {
@@ -973,6 +1018,7 @@ export const dataStore = {
   get rankings() {
     return cachedData?.rankings ?? { top_players_by_rake: [], top_players_by_bet: [], top_pvrs: [] };
   },
+  get pvr_totals() { return cachedData?.pvr_totals ?? {}; },
   get alerts() { return cachedData?.alerts ?? []; },
   get briefing() {
     return cachedData?.briefing ?? { date: "", generated_at: "", criticals: [], opportunities: [], suggestions: [] };
