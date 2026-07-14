@@ -735,6 +735,9 @@ function getAmTotalRake(node: TreeNode): number {
 }
 
 function getPvrTotalRake(node: TreeNode): number {
+  // The virtual "unassigned" bucket is for orphan players only and must not
+  // be added to the network total (player totals are not authoritative for PVR totals).
+  if (node.id === '__unassigned__') return 0
   if (node.type === 'pvr') {
     const totals = pvrTotal(node.id as string)
     if (totals.rake !== 0) return totals.rake

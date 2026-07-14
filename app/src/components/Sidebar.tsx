@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Upload,
+  Link2,
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -20,6 +21,7 @@ const navItems = [
   { to: '/players', icon: Users, label: 'Giocatori' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/upload', icon: Upload, label: 'Importa Dati' },
+  { to: '/pvr-mapping', icon: Link2, label: 'Associazioni PVR' },
   { to: '/copilot', icon: Sparkles, label: 'AI Copilot' },
   { to: '/settings', icon: Settings, label: 'Impostazioni' },
 ]

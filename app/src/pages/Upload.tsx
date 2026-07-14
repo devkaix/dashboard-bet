@@ -48,7 +48,11 @@ async function batchUpsert(table: string, rows: any[], onConflict: string, chunk
 }
 
 async function loadPvrMap(): Promise<Map<string, string>> {
-  const { data, error } = await supabase.from("pvr_reference_map").select("pvr_ref_code, pvr_id");
+  // Only verified mappings may drive commercial associations (players ↔ PVR).
+  const { data, error } = await supabase
+    .from("pvr_reference_map")
+    .select("pvr_ref_code, pvr_id")
+    .eq("verified", true);
   if (error) throw new Error(`pvr_reference_map: ${error.message}`);
   const map = new Map<string, string>();
   for (const r of data || []) map.set(String(r.pvr_ref_code).trim().toLowerCase(), r.pvr_id);
@@ -162,16 +166,6 @@ export default function UploadPage() {
       const buf = await file.arrayBuffer();
       fileHash = await sha256(buf);
 
-      // Duplicate detection
-      const { data: dup, error: dupErr } = await supabase
-        .from("excel_uploads")
-        .select("id")
-        .eq("file_hash", fileHash)
-        .eq("status", "completed")
-        .maybeSingle();
-      if (dupErr) throw new Error(`duplicate check: ${dupErr.message}`);
-      if (dup) throw new Error("Questo file è già stato caricato (hash duplicato).");
-
       const wb = XLSX.read(new Uint8Array(buf), { type: "array" });
       const sn = wb.SheetNames[0];
       if (!sn) throw new Error("Nessun foglio Excel trovato");
@@ -183,6 +177,20 @@ export default function UploadPage() {
 
       const raw = (aoa[0] || []).map((h: unknown) => String(h || "").trim());
       fileType = det(raw);
+
+      // Duplicate detection: player_summary can be re-uploaded after DB corrections,
+      // so we only block re-uploads that were already validated.
+      const dupBase = supabase.from("excel_uploads").select("id, validation_status").eq("file_hash", fileHash).eq("status", "completed");
+      const dupQ = fileType === "player_summary" ? dupBase.eq("validation_status", "validated") : dupBase;
+      const { data: dup, error: dupErr } = await dupQ.maybeSingle();
+      if (dupErr) throw new Error(`duplicate check: ${dupErr.message}`);
+      if (dup) {
+        throw new Error(
+          fileType === "player_summary"
+            ? "Questo file player_summary è già stato validato con successo."
+            : "Questo file è già stato caricato (hash duplicato)."
+        );
+      }
       const hdr = [...raw];
       if (fileType === "daily_player_game") { hdr[1] = "Provider"; hdr[2] = "GameName"; }
       const rows = aoa.slice(1).map((r) => {
