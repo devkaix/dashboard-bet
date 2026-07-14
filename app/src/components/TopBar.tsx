@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { motion } from 'framer-motion'
-import { Search, Bell, ChevronDown } from 'lucide-react'
+import { Search, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { dataStore } from '@/lib/data'
 
 interface TopBarProps {
   title: string
@@ -10,6 +11,17 @@ interface TopBarProps {
 
 export default function TopBar({ title, subtitle }: TopBarProps) {
   const [searchFocused, setSearchFocused] = useState(false)
+
+  const periodLabel = useMemo(() => {
+    try {
+      const meta = dataStore.metadata
+      if (meta.period_end) {
+        const d = new Date(meta.period_end)
+        return d.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
+      }
+    } catch {}
+    return 'Nessun dato'
+  }, [])
 
   return (
     <header className="fixed top-0 right-0 left-[260px] h-16 bg-bg-base border-b border-border-subtle z-40 flex items-center justify-between px-6">
@@ -52,18 +64,11 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
         />
       </div>
 
-      {/* Right: period + notifications + avatar */}
+      {/* Right: period + avatar */}
       <div className="flex items-center gap-4">
-        {/* Period selector */}
         <button className="flex items-center gap-2 h-9 px-3 rounded-lg bg-bg-surface-elevated text-[14px] text-text-primary hover:bg-bg-surface-highlight transition-colors">
-          <span>Giugno 2026</span>
+          <span>{periodLabel}</span>
           <ChevronDown size={14} className="text-text-muted" />
-        </button>
-
-        {/* Notification bell */}
-        <button className="relative w-10 h-10 rounded-lg bg-bg-surface-elevated flex items-center justify-center text-text-secondary hover:bg-bg-surface-highlight hover:text-text-primary transition-colors">
-          <Bell size={18} />
-          <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-negative" />
         </button>
 
         {/* Avatar */}

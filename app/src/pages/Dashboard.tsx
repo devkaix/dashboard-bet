@@ -27,7 +27,6 @@ import {
 } from 'recharts'
 import KpiCard from '@/components/KpiCard'
 import GlassCard from '@/components/GlassCard'
-import HealthScoreRing from '@/components/HealthScoreRing'
 import AlertItem from '@/components/AlertItem'
 import {
   loadData,
@@ -35,7 +34,7 @@ import {
   formatCurrency,
   formatPercent,
   getPvrName,
-  getPlayerStatus,
+  playerStatus,
   fetchPreviousMonthAggregates,
 } from '@/lib/data'
 import type { BriefingItem, DailyKPI, Alert as AlertType, RankingPlayer, MonthlyAggregates } from '@/lib/data'
@@ -389,14 +388,14 @@ export default function Dashboard() {
           sparklineData={sparkData.activeData}
           sparklineColor="#06b6d4"
           sparklineFillColor="#06b6d4"
-          bottomNote="133 giocatori totali"
+          bottomNote={`${dataStore.metadata.total_players} giocatori totali`}
           index={3}
         />
         <KpiCard
           icon={Activity}
           iconColor="text-accent-purple"
-          label="Tendenza Rake"
-          value={`+${formatCurrency(totalRake - 50000).replace('€', '')}`}
+          label="Rake Medio Giorno"
+          value={formatCurrency(avgRake)}
           delta={`${negativeDays} giorni negativi`}
           deltaPositive={false}
           deltaWarning={true}
@@ -405,7 +404,7 @@ export default function Dashboard() {
           sparklineFillColor="#8b5cf6"
           bottomNote={
             worstDay
-              ? `Peggior giorno: ${new Date(worstDay.date).getDate()} giugno (${formatCurrency(worstDay.total_rake)})`
+              ? `Peggior giorno: ${new Date(worstDay.date + 'T00:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })} (${formatCurrency(worstDay.total_rake)})`
               : ''
           }
           index={4}
@@ -579,8 +578,9 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {topPlayers.map((player, i) => {
-                  const score = 70 + (10 - i) * 1.5
-                  const status = getPlayerStatus(score)
+                  const rawStatus = playerStatus(player.active_days)
+                  const statusLabel = rawStatus === 'active' ? 'Attivo' : rawStatus === 'warning' ? 'Warning' : 'Inattivo'
+                  const statusColor = rawStatus === 'active' ? 'positive' : rawStatus === 'warning' ? 'warning' : 'negative'
                   const rankBg =
                     i === 0 ? 'bg-yellow-500/10' : i === 1 ? 'bg-gray-400/10' : i === 2 ? 'bg-amber-600/10' : ''
 
@@ -623,19 +623,19 @@ export default function Dashboard() {
                       </td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex justify-center">
-                          <HealthScoreRing score={score} size="sm" />
+                          <span className="text-[11px] text-text-muted">N/D</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span
                           className={cn(
                             'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium',
-                            status.color === 'positive' && 'bg-positive/20 text-positive',
-                            status.color === 'warning' && 'bg-warning/20 text-warning',
-                            status.color === 'negative' && 'bg-negative/20 text-negative',
+                            statusColor === 'positive' && 'bg-positive/20 text-positive',
+                            statusColor === 'warning' && 'bg-warning/20 text-warning',
+                            statusColor === 'negative' && 'bg-negative/20 text-negative',
                           )}
                         >
-                          {status.label}
+                          {statusLabel}
                         </span>
                       </td>
                     </motion.tr>

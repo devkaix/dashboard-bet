@@ -225,7 +225,7 @@ function normalizeUsername(s: string): string {
   return s.trim().toLowerCase();
 }
 
-function playerStatus(activeDays: number): string {
+export function playerStatus(activeDays: number): string {
   if (activeDays >= 3) return "active";
   if (activeDays >= 1) return "warning";
   return "inactive";
