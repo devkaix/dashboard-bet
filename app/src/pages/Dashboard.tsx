@@ -134,6 +134,7 @@ export default function Dashboard() {
   const [topPlayers, setTopPlayers] = useState<RankingPlayer[]>([])
   const [totalRake, setTotalRake] = useState(0)
   const [totalBet, setTotalBet] = useState(0)
+  const [totalWon, setTotalWon] = useState(0)
   const [avgPayout, setAvgPayout] = useState(0)
   const [avgActivePerDay, setAvgActivePerDay] = useState(0)
 
@@ -150,6 +151,7 @@ export default function Dashboard() {
         setTopPlayers(dataStore.rankings.top_players_by_rake.slice(0, 10))
         setTotalRake(dataStore.monthly_aggregates.rake)
         setTotalBet(dataStore.monthly_aggregates.bet)
+        setTotalWon(dataStore.monthly_aggregates.won)
         setAvgPayout(dk.length > 0 ? dk.reduce((s: number, d: { avg_payout: number }) => s + d.avg_payout, 0) / dk.length : 0)
         setAvgActivePerDay(dk.length > 0 ? dk.reduce((s: number, d: { active_players: number }) => s + d.active_players, 0) / dk.length : 0)
         setLoading(false)
@@ -193,7 +195,7 @@ export default function Dashboard() {
     [dailyKpis],
   )
 
-  const totalWon = totalBet - totalRake
+  // totalWon is read from state (real 'won' column)
   const negativeDays = dailyKpis.filter((d) => d.total_rake < 0).length
 
   const worstDay = useMemo(() => {

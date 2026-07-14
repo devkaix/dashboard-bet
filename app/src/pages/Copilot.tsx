@@ -36,6 +36,8 @@ import {
   getPvrs,
   formatPercent,
   loadData,
+  dataStore,
+  getMetadata,
 } from '@/lib/data'
 
 /* ─── Types ─── */
@@ -72,7 +74,7 @@ const QUESTION_CATEGORIES: QuestionCategory[] = [
     icon: TrendingUp,
     color: '#06b6d4',
     questions: [
-      "Perche' giugno e' andato peggio di maggio?",
+      "Perche' l'ultimo mese e' andato peggio del precedente?",
       "Qual e' il trend del rake?",
     ],
   },
@@ -117,24 +119,55 @@ const QUICK_CHIPS = [
   "Fai un briefing",
 ]
 
-/* ─── Pre-built AI responses ─── */
+/* ─── Period helpers ─── */
 
-function getAIResponse(userText: string): { content: string; dataComponent?: DataComponent } {
+function capitalizeMonthLabel(label: string): string {
+  if (!label) return label
+  return label.charAt(0).toUpperCase() + label.slice(1)
+}
+
+function getLatestPeriodLabel(): string {
+  try {
+    const meta = getMetadata()
+    if (meta.period_end) {
+      return capitalizeMonthLabel(format(new Date(meta.period_end), 'MMMM yyyy', { locale: it }))
+    }
+  } catch {
+    // fall through
+  }
+  try {
+    const kpis = getDailyKpis()
+    if (kpis.length > 0) {
+      const latest = kpis[kpis.length - 1].date
+      return capitalizeMonthLabel(format(new Date(latest), 'MMMM yyyy', { locale: it }))
+    }
+  } catch {
+    // fall through
+  }
+  return 'periodo corrente'
+}
+
+/* ─── Pre-built analytical responses ─── */
+
+function getAnalyticalResponse(userText: string): { content: string; dataComponent?: DataComponent } {
   const lower = userText.toLowerCase()
 
-  // Response 1: Giugno vs Maggio / Perché giugno è andato peggio
-  if (lower.includes("peggio") || lower.includes("maggio") || lower.includes("giugno")) {
+  // Response 1: Ultimo mese vs precedente / trend negativo
+  if (lower.includes("peggio") || lower.includes("maggio") || lower.includes("giugno") || lower.includes("ultimo mese")) {
     const dailyKpis = getDailyKpis()
+    const monthly = dataStore.monthly_aggregates
     const negativeDays = dailyKpis.filter((d) => d.total_rake < 0)
     const worstDay = negativeDays.length > 0
       ? negativeDays.reduce((a, b) => (a.total_rake < b.total_rake ? a : b))
       : null
-    const avgPayout = dailyKpis.reduce((s, d) => s + d.avg_payout, 0) / dailyKpis.length
-    const avgPlayers = dailyKpis.reduce((s, d) => s + d.active_players, 0) / dailyKpis.length
-    const totalRake = dailyKpis.reduce((s, d) => s + d.total_rake, 0)
+    const avgPayout = dailyKpis.length > 0 ? dailyKpis.reduce((s, d) => s + d.avg_payout, 0) / dailyKpis.length : 0
+    const avgPlayers = dailyKpis.length > 0 ? dailyKpis.reduce((s, d) => s + d.active_players, 0) / dailyKpis.length : 0
+    const totalRake = monthly.rake
+    const totalWon = monthly.won
+    const periodLabel = getLatestPeriodLabel()
 
     return {
-      content: `A giugno 2026 il rake totale e' stato di ${formatCurrency(totalRake)}. Ci sono stati ${negativeDays.length} giorni con rake negativo${worstDay ? `, il peggiore il ${format(new Date(worstDay.date), 'dd MMMM', { locale: it })} con ${formatCurrency(worstDay.total_rake)}` : ''}. Il payout medio del ${formatPercent(avgPayout)} e' in linea. I giocatori attivi sono stati in media ${avgPlayers.toFixed(1)} al giorno.`,
+      content: `Nel periodo ${periodLabel} il rake totale e' stato di ${formatCurrency(totalRake)} e le vincite totali ${formatCurrency(totalWon)}. Ci sono stati ${negativeDays.length} giorni con rake negativo${worstDay ? `, il peggiore il ${format(new Date(worstDay.date), 'dd MMMM', { locale: it })} con ${formatCurrency(worstDay.total_rake)}` : ''}. Il payout medio e' del ${formatPercent(avgPayout)} e i giocatori attivi sono stati in media ${avgPlayers.toFixed(1)} al giorno.`,
       dataComponent: {
         type: 'trend' as const,
         data: dailyKpis.map((d) => ({
@@ -150,8 +183,9 @@ function getAIResponse(userText: string): { content: string; dataComponent?: Dat
     const rankings = getRankings()
     const top5 = rankings.top_pvrs.slice(0, 5)
     const pvrs = getPvrs()
+    const periodLabel = getLatestPeriodLabel()
     return {
-      content: "Ecco i 5 PVR migliori per performance di rake a giugno 2026:",
+      content: `Ecco i 5 PVR migliori per performance di rake nel periodo ${periodLabel}:`,
       dataComponent: {
         type: 'table' as const,
         headers: ['PVR', 'Rake', 'Bet', 'Giocatori Attivi', 'Health Score'],
@@ -162,7 +196,7 @@ function getAIResponse(userText: string): { content: string; dataComponent?: Dat
             formatCurrency(p.total_rake),
             formatCurrency(p.total_bet),
             p.active_players,
-            p.health_score,
+            p.health_score ?? '-',
           ]
         }),
       },
@@ -201,15 +235,15 @@ function getAIResponse(userText: string): { content: string; dataComponent?: Dat
       ? negativeDays.reduce((a, b) => (a.total_rake < b.total_rake ? a : b))
       : null
     const alerts = getAlerts()
-    const highPayoutAlerts = alerts.filter((a) => a.category === 'payout')
+    const periodLabel = getLatestPeriodLabel()
 
     return {
-      content: `Ho rilevato ${negativeDays.length} giorni con rake negativo a giugno. L'anomalia piu' critica e' il ${worstDay ? format(new Date(worstDay.date), 'dd/MM', { locale: it }) : 'N/A'} con ${formatCurrency(worstDay?.total_rake ?? 0)}. Inoltre, ${highPayoutAlerts.length} giocatori ad alto valore sono a rischio churn.`,
+      content: `Ho rilevato ${negativeDays.length} giorni con rake negativo nel periodo ${periodLabel}. L'anomalia piu' critica e' il ${worstDay ? format(new Date(worstDay.date), 'dd/MM', { locale: it }) : 'N/A'} con ${formatCurrency(worstDay?.total_rake ?? 0)}. Sono presenti ${alerts.length} allerte attive in totale.`,
       dataComponent: {
         type: 'alert' as const,
         severity: 'critical',
         count: negativeDays.length,
-        message: `${negativeDays.length} giorni con rake negativo, ${highPayoutAlerts.length} giocatori a rischio`,
+        message: `${negativeDays.length} giorni con rake negativo, ${alerts.length} allerte attive`,
       },
     }
   }
@@ -220,9 +254,10 @@ function getAIResponse(userText: string): { content: string; dataComponent?: Dat
     const criticals = briefing.criticals.slice(0, 3).map((c) => c.title)
     const opportunities = briefing.opportunities.slice(0, 3).map((o) => o.title)
     const suggestions = briefing.suggestions.slice(0, 4).map((s) => s.title)
+    const periodLabel = getLatestPeriodLabel()
 
     return {
-      content: "Ecco il briefing completo basato sull'analisi dei dati di giugno 2026:",
+      content: `Ecco il briefing completo basato sull'analisi dei dati del periodo ${periodLabel}:`,
       dataComponent: {
         type: 'briefing' as const,
         criticals,
@@ -235,10 +270,12 @@ function getAIResponse(userText: string): { content: string; dataComponent?: Dat
   // Response 6: Trend del rake
   if (lower.includes("trend") && lower.includes("rake")) {
     const dailyKpis = getDailyKpis()
-    const totalRake = dailyKpis.reduce((s, d) => s + d.total_rake, 0)
+    const monthly = dataStore.monthly_aggregates
+    const totalRake = monthly.rake
     const negativeDays = dailyKpis.filter((d) => d.total_rake < 0)
+    const periodLabel = getLatestPeriodLabel()
     return {
-      content: `Il trend del rake a giugno mostra un totale di ${formatCurrency(totalRake)} con ${negativeDays.length} giorni negativi su ${dailyKpis.length} giorni totali. La media giornaliera e' di ${formatCurrency(totalRake / dailyKpis.length)}.`,
+      content: `Il trend del rake nel periodo ${periodLabel} mostra un totale di ${formatCurrency(totalRake)} con ${negativeDays.length} giorni negativi su ${dailyKpis.length} giorni totali. La media giornaliera e' di ${formatCurrency(dailyKpis.length ? totalRake / dailyKpis.length : 0)}.`,
       dataComponent: {
         type: 'trend' as const,
         data: dailyKpis.map((d) => ({
@@ -256,9 +293,10 @@ function getAIResponse(userText: string): { content: string; dataComponent?: Dat
     const worstDay = negativeDays.length > 0
       ? negativeDays.reduce((a, b) => (a.total_rake < b.total_rake ? a : b))
       : null
+    const periodLabel = getLatestPeriodLabel()
 
     return {
-      content: `A giugno ci sono stati ${negativeDays.length} giorni con rake negativo. Il giorno peggiore e' stato il ${worstDay ? format(new Date(worstDay.date), 'dd/MM', { locale: it }) : 'N/A'} con ${formatCurrency(worstDay?.total_rake ?? 0)}.`,
+      content: `Nel periodo ${periodLabel} ci sono stati ${negativeDays.length} giorni con rake negativo. Il giorno peggiore e' stato il ${worstDay ? format(new Date(worstDay.date), 'dd/MM', { locale: it }) : 'N/A'} con ${formatCurrency(worstDay?.total_rake ?? 0)}.`,
       dataComponent: {
         type: 'trend' as const,
         data: dailyKpis.map((d) => ({
@@ -270,8 +308,9 @@ function getAIResponse(userText: string): { content: string; dataComponent?: Dat
   }
 
   // Default response
+  const periodLabel = getLatestPeriodLabel()
   return {
-    content: `Mi dispiace, non ho informazioni specifiche su questa domanda. Prova a chiedermi qualcosa sui dati di giugno 2026, come il rake totale, i giocatori top, i PVR migliori o le anomalie.`,
+    content: `Non ho informazioni specifiche su questa domanda. Prova a chiedermi qualcosa sui dati del periodo ${periodLabel}, come il rake totale, le vincite, i giocatori top, i PVR migliori o le anomalie.`,
   }
 }
 
@@ -665,10 +704,10 @@ function WelcomeMessage() {
               transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
             />
             <p className="text-[15px] leading-relaxed text-text-primary pl-2 font-medium">
-              Ciao! Sono l&apos;AI Copilot di DAZN Bet. Come posso aiutarti oggi?
+              Ciao! Sono l&apos;Assistente Analitico di DAZN Bet. Come posso aiutarti oggi?
             </p>
             <p className="text-[13px] leading-relaxed text-text-secondary mt-2 pl-2">
-              Posso analizzare i dati della rete commerciale, rispondere a domande su performance, giocatori, PVR e suggerire azioni strategiche.
+              Analizzo i dati reali della rete commerciale: performance, giocatori, PVR e anomalie. Non uso modelli generativi: tutte le risposte sono calcolate sui dati caricati.
             </p>
           </div>
           <span className="text-[11px] text-text-muted mt-1 ml-2">{format(Date.now(), 'HH:mm', { locale: it })}</span>
@@ -732,13 +771,15 @@ function SuggestedQuestionsSidebar({ onQuestionClick }: { onQuestionClick: (q: s
         <span className="text-[11px] font-medium text-text-muted uppercase tracking-wide">Contesto Attuale</span>
         <div className="flex flex-wrap gap-2 mt-2">
           <span className="px-3 py-1 rounded-full bg-bg-surface-elevated text-[11px] text-text-secondary">
-            Periodo: Giugno 2026
+            Periodo: {dataStore.metadata.period_end
+              ? capitalizeMonthLabel(format(new Date(dataStore.metadata.period_end), 'MMMM yyyy', { locale: it }))
+              : 'corrente'}
           </span>
           <span className="px-3 py-1 rounded-full bg-bg-surface-elevated text-[11px] text-text-secondary">
             Rete: Completa
           </span>
           <span className="px-3 py-1 rounded-full bg-bg-surface-elevated text-[11px] text-text-secondary">
-            Dati: 133 giocatori, 688 record
+            Dati: {dataStore.metadata.total_players} giocatori, {dataStore.metadata.total_records} record
           </span>
         </div>
       </div>
@@ -899,7 +940,7 @@ export default function CopilotPage() {
       // Simulate AI thinking delay
       setTimeout(() => {
         try {
-          const response = getAIResponse(text)
+          const response = getAnalyticalResponse(text)
           const aiMsg: ChatMessage = {
             id: `ai-${Date.now()}`,
             role: 'ai',
@@ -939,19 +980,13 @@ export default function CopilotPage() {
       >
         <div className="flex items-center gap-3">
           <h2 className="text-[28px] font-bold leading-tight tracking-[-0.01em]">
-            <span className="text-text-primary">AI </span>
-            <span className="text-accent-purple">Copilot</span>
+            <span className="text-text-primary">Assistente </span>
+            <span className="text-accent-purple">Analitico</span>
           </h2>
-          <span className="text-[15px] text-text-secondary hidden sm:inline">Assistente Intelligente DAZN Bet</span>
-          {/* Status indicator */}
-          <div className="flex items-center gap-1.5 ml-2">
-            <motion.span
-              className="w-2 h-2 rounded-full bg-positive"
-              animate={{ scale: [1, 1.3, 1], opacity: [0.7, 1, 0.7] }}
-              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-            />
-            <span className="text-[12px] text-positive font-medium">Online</span>
-          </div>
+          <span className="text-[15px] text-text-secondary hidden sm:inline">Motore analitico locale DAZN Bet</span>
+          <span className="ml-2 px-2.5 py-0.5 rounded-full bg-bg-surface-elevated border border-border-subtle text-[11px] text-text-muted font-medium">
+            Motore analitico locale
+          </span>
         </div>
         {messages.length > 0 && (
           <motion.button

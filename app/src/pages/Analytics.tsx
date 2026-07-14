@@ -34,10 +34,27 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { loadData, dataStore, formatCurrency } from '@/lib/data'
+import { loadData, dataStore, formatCurrency, type DailyKPI } from '@/lib/data'
 
 // ─── Types ───
 type Granularity = 'giornaliero' | 'settimanale' | 'mensile'
+
+type Period = {
+  key: string
+  label: string
+  rake: number
+  bet: number
+  won: number
+  activePlayers: number
+  daily: {
+    day: string
+    dayNum: number
+    rake: number
+    bet: number
+    won: number
+    activePlayers: number
+  }[]
+}
 
 // ─── Colors ───
 const C = {
@@ -52,6 +69,31 @@ const C = {
 }
 
 const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ef4444']
+
+// ─── Helpers ───
+function monthKey(date: string): string {
+  return date.slice(0, 7)
+}
+
+function monthLabel(key: string): string {
+  const [year, month] = key.split('-')
+  const names = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
+  return `${names[Number(month) - 1]} ${year}`
+}
+
+function shortMonthName(key: string): string {
+  const [, month] = key.split('-')
+  const names = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
+  return names[Number(month) - 1]
+}
+
+function getISOWeek(date: Date): number {
+  const tmp = new Date(date.getTime())
+  tmp.setHours(0, 0, 0, 0)
+  tmp.setDate(tmp.getDate() + 4 - (tmp.getDay() || 7))
+  const yearStart = new Date(tmp.getFullYear(), 0, 1)
+  return Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+}
 
 // ─── Custom Tooltip ───
 function CustomTooltip({ active, payload, label }: any) {
@@ -129,11 +171,13 @@ function WhatIfSimulator({
   currentPlayers,
   currentBet,
   currentPayout,
+  periodLabel,
 }: {
   currentRake: number
   currentPlayers: number
   currentBet: number
   currentPayout: number
+  periodLabel: string
 }) {
   const [playerDelta, setPlayerDelta] = useState(0)
   const [payoutDelta, setPayoutDelta] = useState(0)
@@ -141,7 +185,7 @@ function WhatIfSimulator({
 
   const simPlayers = currentPlayers * (1 + playerDelta / 100)
   const simPayout = Math.max(0, Math.min(1, currentPayout * (1 + payoutDelta / 100)))
-  const simBetPerPlayer = (currentBet / currentPlayers) * (1 + betDelta / 100)
+  const simBetPerPlayer = currentPlayers > 0 ? (currentBet / currentPlayers) * (1 + betDelta / 100) : 0
   const simTotalBet = simPlayers * simBetPerPlayer
   const simRake = simTotalBet * (1 - simPayout)
   const deltaRake = simRake - currentRake
@@ -189,7 +233,7 @@ function WhatIfSimulator({
       {/* Result Cards */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-bg-surface-elevated rounded-lg p-4 border border-border-subtle">
-          <p className="text-[12px] text-text-muted mb-1">Rake Giugno 2026</p>
+          <p className="text-[12px] text-text-muted mb-1">Rake {periodLabel}</p>
           <p className="text-[20px] font-semibold text-text-primary">{formatCurrency(currentRake)}</p>
         </div>
         <div
@@ -261,6 +305,26 @@ function linearRegression(values: number[]): { slope: number; r2: number } {
   return { slope, r2 };
 }
 
+function buildPeriod(key: string, groups: Map<string, DailyKPI[]>): Period {
+  const days = groups.get(key) || []
+  const rake = days.reduce((s, k) => s + k.total_rake, 0)
+  const bet = days.reduce((s, k) => s + k.total_bet, 0)
+  const won = days.reduce((s, k) => s + k.total_won, 0)
+  const activePlayers = days.length > 0 ? days.reduce((s, k) => s + k.active_players, 0) / days.length : 0
+  const daily = days.map((k) => {
+    const dayNum = new Date(k.date).getDate()
+    return {
+      day: `${dayNum} ${shortMonthName(key)}`,
+      dayNum,
+      rake: k.total_rake,
+      bet: k.total_bet,
+      won: k.total_won,
+      activePlayers: k.active_players,
+    }
+  })
+  return { key, label: monthLabel(key), rake, bet, won, activePlayers, daily }
+}
+
 // ─── Main Analytics Page ───
 export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true)
@@ -281,82 +345,70 @@ export default function AnalyticsPage() {
     }
   }, [loading])
 
-  // May 2026 data (period A) - simulated based on June with deterministic variation
-  const periodA = useMemo(() => {
-    if (!data) return { rake: 0, bet: 0, won: 0, activePlayers: 0, daily: [] as any[] }
-    const juneRake = data.monthly.rake || 61964.77
-    const juneBet = data.monthly.bet || 536118.18
-    const factor = 0.88 // May is ~88% of June
-    const mayRake = juneRake * factor
-    const mayBet = juneBet * factor
-    const mayWon = mayBet - mayRake
-    const mayActive = Math.round((data.monthly.active_players || 133) * 0.92)
-
-    // Generate May daily data (31 days) deterministically
-    const daily = Array.from({ length: 31 }, (_, i) => {
-      const variation = 1 + 0.2 * Math.sin(((i + 1) / 31) * Math.PI * 2)
-      return {
-        day: `${i + 1} Mag`,
-        dayNum: i + 1,
-        rake: (mayRake / 31) * variation,
-        bet: (mayBet / 31) * variation,
-        won: 0,
-        activePlayers: Math.round(mayActive * (0.9 + 0.1 * Math.cos(((i + 1) / 31) * Math.PI * 2))),
-      }
+  // Group real daily KPIs by month
+  const monthlyGroups = useMemo(() => {
+    const groups = new Map<string, DailyKPI[]>()
+    if (!data) return groups
+    data.dailyKpis.forEach((k) => {
+      const key = monthKey(k.date)
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(k)
     })
-    daily.forEach((d) => {
-      d.won = d.bet - d.rake
-    })
-
-    return { rake: mayRake, bet: mayBet, won: mayWon, activePlayers: mayActive, daily }
+    return groups
   }, [data])
 
-  // June 2026 data (period B)
-  const periodB = useMemo(() => {
-    if (!data) return { rake: 0, bet: 0, won: 0, activePlayers: 0, daily: [] as any[] }
-    const juneRake = data.monthly.rake || 61964.77
-    const juneBet = data.monthly.bet || 536118.18
+  const sortedMonths = useMemo(() => {
+    return Array.from(monthlyGroups.keys()).sort()
+  }, [monthlyGroups])
 
-    const daily = data.dailyKpis.map((k, i) => ({
-      day: `${i + 1} Giu`,
-      dayNum: i + 1,
-      rake: k.total_rake,
-      bet: k.total_bet,
-      won: k.total_won,
-      activePlayers: k.active_players,
-    }))
-
-    return {
-      rake: juneRake,
-      bet: juneBet,
-      won: juneBet - juneRake,
-      activePlayers: Math.round(data.monthly.active_players || 133),
-      daily,
+  // Most recent real month (period B)
+  const periodB = useMemo<Period>(() => {
+    if (!data || sortedMonths.length === 0) {
+      return { key: '', label: '', rake: 0, bet: 0, won: 0, activePlayers: 0, daily: [] }
     }
-  }, [data])
+    return buildPeriod(sortedMonths[sortedMonths.length - 1], monthlyGroups)
+  }, [data, sortedMonths, monthlyGroups])
+
+  // Previous real month (period A) if available
+  const periodA = useMemo<Period | null>(() => {
+    if (!data || sortedMonths.length < 2) return null
+    return buildPeriod(sortedMonths[sortedMonths.length - 2], monthlyGroups)
+  }, [data, sortedMonths, monthlyGroups])
 
   // Comparison chart data
   const comparisonData = useMemo(() => {
+    if (!periodA) {
+      return periodB.daily.map((d) => ({
+        day: `${d.dayNum}`,
+        [periodB.label]: Math.round(d.rake),
+      }))
+    }
     const maxDays = Math.min(periodA.daily.length, periodB.daily.length)
     return Array.from({ length: maxDays }, (_, i) => ({
       day: `${i + 1}`,
-      'Maggio 2026': Math.round(periodA.daily[i]?.rake || 0),
-      'Giugno 2026': Math.round(periodB.daily[i]?.rake || 0),
-      delta: periodB.daily[i]?.rake && periodA.daily[i]?.rake
-        ? ((periodB.daily[i].rake - periodA.daily[i].rake) / periodA.daily[i].rake) * 100
-        : 0,
+      [periodA.label]: Math.round(periodA.daily[i]?.rake || 0),
+      [periodB.label]: Math.round(periodB.daily[i]?.rake || 0),
+      delta:
+        periodB.daily[i]?.rake && periodA.daily[i]?.rake
+          ? ((periodB.daily[i].rake - periodA.daily[i].rake) / periodA.daily[i].rake) * 100
+          : 0,
     }))
   }, [periodA, periodB])
 
   // Delta summaries
   const deltas = useMemo(() => {
-    const calc = (curr: number, prev: number) =>
-      prev > 0 ? ((curr - prev) / prev) * 100 : 0
+    const calc = (curr: number, prev: number | null): number | null =>
+      prev !== null && prev > 0 ? ((curr - prev) / prev) * 100 : null
     return [
-      { label: 'Rake', a: periodA.rake, b: periodB.rake, delta: calc(periodB.rake, periodA.rake) },
-      { label: 'Bet', a: periodA.bet, b: periodB.bet, delta: calc(periodB.bet, periodA.bet) },
-      { label: 'Won', a: periodA.won, b: periodB.won, delta: calc(periodB.won, periodA.won) },
-      { label: 'Gioc. Attivi', a: periodA.activePlayers, b: periodB.activePlayers, delta: calc(periodB.activePlayers, periodA.activePlayers) },
+      { label: 'Rake', a: periodA?.rake ?? null, b: periodB.rake, delta: calc(periodB.rake, periodA?.rake ?? null) },
+      { label: 'Bet', a: periodA?.bet ?? null, b: periodB.bet, delta: calc(periodB.bet, periodA?.bet ?? null) },
+      { label: 'Won', a: periodA?.won ?? null, b: periodB.won, delta: calc(periodB.won, periodA?.won ?? null) },
+      {
+        label: 'Gioc. Attivi',
+        a: periodA?.activePlayers ?? null,
+        b: periodB.activePlayers,
+        delta: calc(periodB.activePlayers, periodA?.activePlayers ?? null),
+      },
     ]
   }, [periodA, periodB])
 
@@ -364,36 +416,41 @@ export default function AnalyticsPage() {
   const trendData = useMemo(() => {
     if (!data) return []
     if (granularity === 'giornaliero') {
-      return data.dailyKpis.map((k, i) => ({
-        label: `${i + 1} Giu`,
+      return data.dailyKpis.map((k) => ({
+        label: `${new Date(k.date).getDate()} ${shortMonthName(monthKey(k.date))}`,
         rake: k.total_rake,
         bet: k.total_bet,
         won: k.total_won,
       }))
     }
     if (granularity === 'settimanale') {
-      const weeks: Record<number, { rake: number; bet: number; won: number; count: number }> = {}
-      data.dailyKpis.forEach((k, i) => {
-        const w = Math.floor(i / 7) + 1
-        if (!weeks[w]) weeks[w] = { rake: 0, bet: 0, won: 0, count: 0 }
+      const weeks: Record<string, { rake: number; bet: number; won: number }> = {}
+      data.dailyKpis.forEach((k) => {
+        const d = new Date(k.date)
+        const w = `${d.getFullYear()}-W${getISOWeek(d)}`
+        if (!weeks[w]) weeks[w] = { rake: 0, bet: 0, won: 0 }
         weeks[w].rake += k.total_rake
         weeks[w].bet += k.total_bet
         weeks[w].won += k.total_won
-        weeks[w].count++
       })
       return Object.entries(weeks).map(([w, v]) => ({
-        label: `Sett ${w}`,
-        rake: Math.round(v.rake / v.count),
-        bet: Math.round(v.bet / v.count),
-        won: Math.round(v.won / v.count),
+        label: w,
+        rake: v.rake,
+        bet: v.bet,
+        won: v.won,
       }))
     }
     // mensile
-    return [
-      { label: 'Giu 2026', rake: periodB.rake, bet: periodB.bet, won: periodB.won },
-      { label: 'Mag 2026', rake: periodA.rake, bet: periodA.bet, won: periodA.won },
-    ]
-  }, [data, granularity, periodA, periodB])
+    return sortedMonths.map((key) => {
+      const days = monthlyGroups.get(key) || []
+      return {
+        label: monthLabel(key),
+        rake: days.reduce((s, k) => s + k.total_rake, 0),
+        bet: days.reduce((s, k) => s + k.total_bet, 0),
+        won: days.reduce((s, k) => s + k.total_won, 0),
+      }
+    })
+  }, [data, granularity, sortedMonths, monthlyGroups])
 
   // Anomaly detection
   const anomalies = useMemo(() => {
@@ -402,21 +459,24 @@ export default function AnalyticsPage() {
     const meanRake = kpis.reduce((s, k) => s + k.total_rake, 0) / kpis.length
     const stdRake = Math.sqrt(kpis.reduce((s, k) => s + (k.total_rake - meanRake) ** 2, 0) / kpis.length)
 
-    const points = kpis.map((k, i) => {
+    const points = kpis.map((k) => {
+      const day = new Date(k.date).getDate()
       const zScore = stdRake > 0 ? (k.total_rake - meanRake) / stdRake : 0
       return {
-        day: i + 1,
+        day,
+        date: k.date,
         rake: k.total_rake,
         zScore,
         isAnomaly: Math.abs(zScore) > 2,
-        severity: zScore > 2 ? 'high' : zScore < -2 ? 'critical' : Math.abs(zScore) > 1.5 ? 'warning' : 'normal',
+        severity:
+          zScore > 2 ? 'high' : zScore < -2 ? 'critical' : Math.abs(zScore) > 1.5 ? 'warning' : 'normal',
       }
     })
 
     const list = points
       .filter((p) => p.isAnomaly)
       .map((p) => ({
-        date: `${p.day} giugno`,
+        date: p.date,
         value: p.rake,
         zScore: p.zScore,
         severity: p.severity,
@@ -431,13 +491,15 @@ export default function AnalyticsPage() {
       .slice(0, 5)
 
     // Add known negative rake days
-    const negativeDays = points.filter((p) => p.rake < 0).map((p) => ({
-      date: `${p.day} giugno`,
-      value: p.rake,
-      zScore: p.zScore,
-      severity: 'critical' as const,
-      description: 'Rake negativo — perdita netta',
-    }))
+    const negativeDays = points
+      .filter((p) => p.rake < 0)
+      .map((p) => ({
+        date: p.date,
+        value: p.rake,
+        zScore: p.zScore,
+        severity: 'critical' as const,
+        description: 'Rake negativo — perdita netta',
+      }))
 
     return { points, list: [...negativeDays, ...list].slice(0, 6) }
   }, [data])
@@ -464,7 +526,7 @@ export default function AnalyticsPage() {
         rank: i + 1,
         username: p.username,
         rake: p.total_rake,
-        cumulative: (cum / total) * 100,
+        cumulative: total > 0 ? (cum / total) * 100 : 0,
       }
     })
   }, [data])
@@ -474,7 +536,7 @@ export default function AnalyticsPage() {
     if (!data) return []
     const map = new Map<string, { name: string; rake: number; bet: number }>()
     data.players.forEach((p) => {
-      const pvrId = p.pvr_id || "";
+      const pvrId = p.pvr_id || ''
       const pvr = data.pvrs.find((v) => v.id === p.pvr_id)
       const existing = map.get(pvrId) || { name: pvr?.name || `PVR ${pvrId}`, rake: 0, bet: 0 }
       existing.rake += p.total_rake
@@ -486,16 +548,67 @@ export default function AnalyticsPage() {
       .slice(0, 10)
   }, [data])
 
-  // Pie data (sport vs casino simulation)
+  // Pie data: real PVR distribution (replaces sport/casino simulation)
   const pieData = useMemo(() => {
-    return [
-      { name: 'Calcio', value: 45 },
-      { name: 'Tennis', value: 20 },
-      { name: 'Basket', value: 15 },
-      { name: 'Casino Slots', value: 12 },
-      { name: 'Casino Live', value: 8 },
-    ]
-  }, [])
+    if (!data) return []
+    return pvrDist.slice(0, 5).map((p) => ({ name: p.name, value: Math.round(p.rake) }))
+  }, [data, pvrDist])
+
+  // AI insights derived from real data
+  const insights = useMemo(() => {
+    if (!data) return []
+    const rakeDelta = deltas.find((d) => d.label === 'Rake')?.delta ?? 0
+    const playersDelta = deltas.find((d) => d.label === 'Gioc. Attivi')?.delta ?? 0
+    const negativeDays = anomalies.list.filter((a) => a.severity === 'critical').length
+
+    const sortedPlayers = [...data.players].sort((a, b) => b.total_rake - a.total_rake)
+    const totalRake = sortedPlayers.reduce((s, p) => s + p.total_rake, 0)
+    const top10Count = Math.max(1, Math.ceil(sortedPlayers.length * 0.1))
+    const top10Rake = sortedPlayers.slice(0, top10Count).reduce((s, p) => s + p.total_rake, 0)
+    const paretoShare = totalRake > 0 ? (top10Rake / totalRake) * 100 : 0
+
+    const items: { icon: any; color: string; border: string; title: string; detail: string }[] = []
+
+    if (periodA) {
+      items.push({
+        icon: rakeDelta >= 0 ? TrendingUp : TrendingDown,
+        color: rakeDelta >= 0 ? 'text-positive' : 'text-negative',
+        border: rakeDelta >= 0 ? 'border-l-positive' : 'border-l-negative',
+        title: `Il rake è ${rakeDelta >= 0 ? 'cresciuto' : 'diminuito'} del ${Math.abs(rakeDelta).toFixed(1)}% rispetto a ${shortMonthName(periodA.key)}`,
+        detail: `Da ${formatCurrency(periodA.rake)} a ${formatCurrency(periodB.rake)}.`,
+      })
+
+      items.push({
+        icon: playersDelta >= 0 ? TrendingUp : TrendingDown,
+        color: playersDelta >= 0 ? 'text-positive' : 'text-negative',
+        border: playersDelta >= 0 ? 'border-l-positive' : 'border-l-negative',
+        title: `I giocatori attivi medi sono ${playersDelta >= 0 ? 'cresciuti' : 'diminuiti'} del ${Math.abs(playersDelta).toFixed(1)}%`,
+        detail: `Da ${Math.round(periodA.activePlayers)} a ${Math.round(periodB.activePlayers)} giocatori medi giornalieri.`,
+      })
+    }
+
+    if (negativeDays > 0) {
+      items.push({
+        icon: AlertTriangle,
+        color: 'text-warning',
+        border: 'border-l-warning',
+        title: `${negativeDays} giorn${negativeDays === 1 ? 'o' : 'ate'} con rake negativo`,
+        detail: 'Monitorare i pattern di rake negativo per ridurre le perdite.',
+      })
+    }
+
+    if (paretoShare > 0) {
+      items.push({
+        icon: Users,
+        color: 'text-info',
+        border: 'border-l-info',
+        title: 'La concentrazione del rake è elevata',
+        detail: `Il top 10% dei giocatori (${top10Count} su ${sortedPlayers.length}) genera il ${paretoShare.toFixed(1)}% del rake.`,
+      })
+    }
+
+    return items
+  }, [data, deltas, anomalies, periodA, periodB])
 
   if (loading || !data) {
     return (
@@ -515,7 +628,9 @@ export default function AnalyticsPage() {
   const currentRake = periodB.rake
   const currentPlayers = periodB.activePlayers
   const currentBet = periodB.bet
-  const currentPayout = data.dailyKpis.reduce((s, k) => s + k.avg_payout, 0) / data.dailyKpis.length / 100
+  const currentPayout = data.dailyKpis.length > 0
+    ? data.dailyKpis.reduce((s, k) => s + k.avg_payout, 0) / data.dailyKpis.length / 100
+    : 0
 
   return (
     <div className="p-6 space-y-6">
@@ -542,12 +657,12 @@ export default function AnalyticsPage() {
         className="bg-bg-surface rounded-lg border border-border-subtle p-4 flex items-center justify-center gap-4"
       >
         <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-bg-surface-elevated text-[14px] text-text-primary">
-          <span>Maggio 2026</span>
+          <span>{periodA ? periodA.label : 'Periodo precedente'}</span>
           <ChevronDown size={14} className="text-text-muted" />
         </div>
         <span className="text-[14px] text-text-muted font-medium">vs</span>
         <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-bg-surface-elevated text-[14px] text-text-primary">
-          <span>Giugno 2026</span>
+          <span>{periodB.label || 'Periodo corrente'}</span>
           <ChevronDown size={14} className="text-text-muted" />
         </div>
         <button className="px-4 py-2 rounded-lg bg-accent-blue text-white text-[13px] font-medium flex items-center gap-2 hover:brightness-110 transition-all">
@@ -614,8 +729,8 @@ export default function AnalyticsPage() {
                 wrapperStyle={{ fontSize: 12, color: '#94a3b8' }}
                 formatter={(value: string) => <span style={{ color: '#94a3b8' }}>{value}</span>}
               />
-              <Bar dataKey="Maggio 2026" fill={C.blue} radius={[4, 4, 0, 0]} opacity={0.7} />
-              <Bar dataKey="Giugno 2026" fill={C.positive} radius={[4, 4, 0, 0]} opacity={0.7} />
+              {periodA && <Bar dataKey={periodA.label} fill={C.blue} radius={[4, 4, 0, 0]} opacity={0.7} />}
+              <Bar dataKey={periodB.label} fill={C.positive} radius={[4, 4, 0, 0]} opacity={0.7} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -627,33 +742,39 @@ export default function AnalyticsPage() {
               <p className="text-[11px] text-text-muted mb-1.5">{d.label}</p>
               <div className="flex items-baseline justify-between">
                 <div>
-                  <p className="text-[10px] text-text-muted">Mag</p>
+                  <p className="text-[10px] text-text-muted">{periodA ? shortMonthName(periodA.key) : 'N/A'}</p>
                   <p className="text-[13px] font-mono text-text-secondary">
-                    {d.label === 'Gioc. Attivi' ? Math.round(d.a) : formatCurrency(d.a)}
+                    {d.a === null ? 'N/A' : d.label === 'Gioc. Attivi' ? Math.round(d.a) : formatCurrency(d.a)}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-[10px] text-text-muted">Giu</p>
+                  <p className="text-[10px] text-text-muted">{periodB.key ? shortMonthName(periodB.key) : '-'}</p>
                   <p className="text-[13px] font-mono text-text-primary">
                     {d.label === 'Gioc. Attivi' ? Math.round(d.b) : formatCurrency(d.b)}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-1 mt-1.5">
-                {d.delta >= 0 ? (
-                  <ArrowUp size={12} className="text-positive" />
+                {d.delta === null ? (
+                  <span className="text-[12px] font-mono font-semibold text-text-muted">N/A</span>
                 ) : (
-                  <ArrowDown size={12} className="text-negative" />
+                  <>
+                    {d.delta >= 0 ? (
+                      <ArrowUp size={12} className="text-positive" />
+                    ) : (
+                      <ArrowDown size={12} className="text-negative" />
+                    )}
+                    <span
+                      className={cn(
+                        'text-[12px] font-mono font-semibold',
+                        d.delta >= 0 ? 'text-positive' : 'text-negative',
+                      )}
+                    >
+                      {d.delta >= 0 ? '+' : ''}
+                      {d.delta.toFixed(1)}%
+                    </span>
+                  </>
                 )}
-                <span
-                  className={cn(
-                    'text-[12px] font-mono font-semibold',
-                    d.delta >= 0 ? 'text-positive' : 'text-negative',
-                  )}
-                >
-                  {d.delta >= 0 ? '+' : ''}
-                  {d.delta.toFixed(1)}%
-                </span>
               </div>
             </div>
           ))}
@@ -770,7 +891,7 @@ export default function AnalyticsPage() {
                 <XAxis
                   dataKey="day"
                   type="number"
-                  domain={[1, 30]}
+                  domain={[1, Math.max(periodB.daily.length, 1)]}
                   tick={{ fill: C.muted, fontSize: 9 }}
                   axisLine={false}
                   tickLine={false}
@@ -789,7 +910,7 @@ export default function AnalyticsPage() {
                     const p = payload[0].payload
                     return (
                       <div className="bg-bg-surface-elevated border border-border-subtle rounded-lg p-2 shadow-lg text-[11px]">
-                        <p className="text-text-muted">{p.day} Giu</p>
+                        <p className="text-text-muted">{new Date(p.date).toLocaleDateString('it-IT')}</p>
                         <p className="text-text-primary font-mono">{formatCurrency(p.rake)}</p>
                         <p className={cn(p.zScore > 0 ? 'text-positive' : 'text-negative')}>σ = {p.zScore.toFixed(1)}</p>
                       </div>
@@ -833,7 +954,7 @@ export default function AnalyticsPage() {
                 )}
                 <div>
                   <p className="text-[12px] font-medium text-text-primary">
-                    {a.date}: {formatCurrency(a.value)} (σ = {a.zScore.toFixed(1)})
+                    {new Date(a.date).toLocaleDateString('it-IT')}: {formatCurrency(a.value)} (σ = {a.zScore.toFixed(1)})
                   </p>
                   <p className="text-[11px] text-text-muted">{a.description}</p>
                 </div>
@@ -899,9 +1020,9 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* Pie Chart */}
+        {/* Pie Chart — real PVR distribution */}
         <div className="bg-bg-surface rounded-lg border border-border-subtle p-5 space-y-3">
-          <h2 className="text-[16px] font-semibold text-text-primary">Distribuzione Sport/Casino</h2>
+          <h2 className="text-[16px] font-semibold text-text-primary">Distribuzione per PVR</h2>
           <div className="h-[240px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -923,7 +1044,7 @@ export default function AnalyticsPage() {
                     if (!active || !payload?.length) return null
                     return (
                       <div className="bg-bg-surface-elevated border border-border-subtle rounded-lg p-2 shadow-lg text-[11px]">
-                        <p className="text-text-primary">{payload[0].name}: {payload[0].value}%</p>
+                        <p className="text-text-primary">{payload[0].name}: {formatCurrency(payload[0].value)}</p>
                       </div>
                     )
                   }}
@@ -973,6 +1094,7 @@ export default function AnalyticsPage() {
         currentPlayers={currentPlayers}
         currentBet={currentBet}
         currentPayout={currentPayout}
+        periodLabel={periodB.label || 'Periodo corrente'}
       />
 
       {/* AI Insights */}
@@ -989,56 +1111,33 @@ export default function AnalyticsPage() {
         <div className="flex items-center gap-2 mb-3">
           <Sparkles size={16} className="text-accent-purple" />
           <h3 className="text-[16px] font-semibold text-accent-purple">Insight dall'AI</h3>
-          <span className="text-[11px] text-text-muted ml-2">Basato sui dati del confronto</span>
+          <span className="text-[11px] text-text-muted ml-2">Basato sui dati reali del confronto</span>
         </div>
         <div className="space-y-3">
-          {[
-            {
-              icon: TrendingUp,
-              color: 'text-positive',
-              border: 'border-l-positive',
-              title: 'Il rake è cresciuto del 12.3% rispetto a maggio',
-              detail: 'Principalmente grazie a giocatori ad alto volume come Rena72 e Yukevin.',
-            },
-            {
-              icon: TrendingDown,
-              color: 'text-negative',
-              border: 'border-l-negative',
-              title: 'Il numero di giocatori attivi è diminuito del 3%',
-              detail: '18 giocatori non hanno giocato negli ultimi 7 giorni. Intervento di retention consigliato.',
-            },
-            {
-              icon: AlertTriangle,
-              color: 'text-warning',
-              border: 'border-l-warning',
-              title: '5 giorni hanno mostrato rake negativo',
-              detail: 'Il 17 giugno è stato il giorno peggiore. Monitorare i giocatori ad alto rischio.',
-            },
-            {
-              icon: Users,
-              color: 'text-info',
-              border: 'border-l-info',
-              title: 'La concentrazione del rake è estrema',
-              detail: 'Il top 10% dei giocatori (13 su 133) genera l\'82.3% del rake. Diversificazione necessaria.',
-            },
-          ].map((insight, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, x: -12 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 1.1 + i * 0.1 }}
-              className={cn(
-                'flex items-start gap-3 rounded-md p-3 border-l-[3px] bg-bg-surface',
-                insight.border,
-              )}
-            >
-              <insight.icon size={16} className={cn(insight.color, 'flex-shrink-0 mt-0.5')} />
-              <div>
-                <p className="text-[13px] font-medium text-text-primary">{insight.title}</p>
-                <p className="text-[12px] text-text-secondary mt-0.5">{insight.detail}</p>
-              </div>
-            </motion.div>
-          ))}
+          {insights.length > 0 ? (
+            insights.map((insight, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: -12 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 1.1 + i * 0.1 }}
+                className={cn(
+                  'flex items-start gap-3 rounded-md p-3 border-l-[3px] bg-bg-surface',
+                  insight.border,
+                )}
+              >
+                <insight.icon size={16} className={cn(insight.color, 'flex-shrink-0 mt-0.5')} />
+                <div>
+                  <p className="text-[13px] font-medium text-text-primary">{insight.title}</p>
+                  <p className="text-[12px] text-text-secondary mt-0.5">{insight.detail}</p>
+                </div>
+              </motion.div>
+            ))
+          ) : (
+            <p className="text-[12px] text-text-muted text-center py-4">
+              Nessun insight disponibile per il periodo selezionato.
+            </p>
+          )}
         </div>
       </motion.div>
     </div>

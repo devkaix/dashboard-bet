@@ -14,7 +14,7 @@ Documento di riferimento in italiano per capire **cosa fa** la piattaforma, **qu
 6. [Rete Commerciale](#6-rete-commerciale)
 7. [Giocatori](#7-giocatori)
 8. [Analytics](#8-analytics)
-9. [AI Copilot](#9-ai-copilot)
+9. [Assistente Analitico](#9-assistente-analitico)
 10. [Impostazioni](#10-impostazioni)
 11. [Servizi e funzionalità trasversali](#11-servizi-e-funzionalità-trasversali)
 12. [Come leggere colori, badge e indicatori](#12-come-leggere-colori-badge-e-indicatori)
@@ -32,14 +32,14 @@ Documento di riferimento in italiano per capire **cosa fa** la piattaforma, **qu
 - **Allerte automatiche** su anomalie e rischi
 - **Briefing AI** con criticità, opportunità e suggerimenti operativi
 - **Vista gerarchica** della rete (Regioni → Area Manager → PVR → Agenti → Giocatori)
-- **Assistente conversazionale** (AI Copilot) per interrogare i dati in linguaggio naturale
+- **Assistente Analitico** (motore analitico locale, non LLM generativo) per interrogare i dati in linguaggio naturale
 
 ### A chi è rivolta
 
 | Ruolo | Utilizzo principale |
 |-------|---------------------|
 | **Direzione / Executive** | Dashboard, briefing AI, confronti periodo |
-| **Area Manager** | Rete commerciale, health score PVR, alert fido |
+| **Area Manager** | Rete commerciale, alert PVR, monitoraggio giocatori |
 | **Operatori commerciali** | Griglia giocatori, retention, export CSV |
 | **Analisti** | Analytics avanzata, Pareto, anomalie, simulatore What-If |
 
@@ -51,10 +51,10 @@ I dati caricati nell'applicazione coprono **Giugno 2026** (30 giorni: 1–30 giu
 |---------|--------|
 | Giocatori unici | 133 |
 | Record giornalieri | 688 |
-| PVR (punti vendita) | 20 |
-| Agenti | 30 |
-| Area Manager | 6 |
-| Regioni | 6 (Lombardia, Toscana, Veneto) |
+| PVR (punti vendita) | 32 (da anagrafica reale) |
+| Agenti | non visualizzati finché non disponibile fonte dati reale |
+| Area Manager | derivati dai campi reali `area_manager` sui PVR |
+| Regioni | derivate dai campi reali `region` sui PVR |
 | Rake totale mese | € 61.964,77 |
 | Bet totale mese | € 536.118,18 |
 | Top giocatore | Rena72 (€ 13.333,60 di rake) |
@@ -73,7 +73,8 @@ Excel Exalogic  →  Pagina /upload (browser)  →  Supabase (PostgreSQL)  →  
 - I dati sono persistenti su **Supabase** (PostgreSQL). L'app usa `@supabase/supabase-js` per leggere e scrivere.
 - L'import dei file Excel avviene **nel browser**: la pagina `/upload` parsa il file con `xlsx`, normalizza date/numeri e inserisce/aggiorna le righe direttamente in Supabase.
 - Le tabelle principali sono: `players`, `pvrs`, `daily_player_stats`, `daily_network_stats`, `daily_pvr_stats`, `daily_player_game_stats`, `game_types`, `tickets`, `excel_uploads`.
-- I dati dei giocatori e delle statistiche provengono da export reali Exalogic; la gerarchia rete (regioni, area manager, PVR, agenti) è **generata per la demo** ma coerente con la struttura operativa.
+- I dati dei giocatori e delle statistiche provengono da export reali Exalogic.
+- La gerarchia rete (Regioni → Area Manager → PVR → Giocatori) è costruita **solo dai dati reali**: regioni e area manager derivano dai campi `region` e `area_manager` della tabella `pvrs`; gli agenti non sono mostrati finché non esiste una fonte dati reale.
 
 ### Colonne originali Excel (Exalogic)
 
@@ -99,26 +100,31 @@ Excel Exalogic  →  Pagina /upload (browser)  →  Supabase (PostgreSQL)  →  
    - `daily_network` — totali di rete per giorno
    - `daily_pvr` — giocate giornaliere per PVR
    - `daily_player_game` — giocate giornaliere per giocatore e tipologia di gioco
-   - `player_summary` — totali mensili per giocatore
+   - `player_summary` — totali mensili per giocatore (validato, **non** importato in `daily_player_stats`)
+   - `players_master` — anagrafica giocatori con PVR, KYC, saldi (`players_export (1).xlsx`)
    - `tickets` — ticket scommesse
-4. Ogni riga viene inserita o aggiornata in Supabase con `upsert` sulle chiavi naturali (es. `player_id,date`).
-5. Lo storico degli upload è visibile nella stessa pagina.
+4. L'app calcola l'hash SHA-256 del contenuto del file e blocca i caricamenti duplicati.
+5. Le righe vengono inserite/aggiornate in batch tramite `upsert` sulle chiavi naturali (es. `player_id,date`).
+6. Lo storico degli upload è visibile nella stessa pagina, con eventuali report di validazione.
 
 > Nota: alcuni export Exalogic dichiarano un range Excel errato (`A1:C1`). L'app lo ricalcola automaticamente dalle celle effettivamente scritte.
 
 ### Struttura del database
 
-| Tabella | Contenuto |
-|---------|-----------|
-| `players` | Anagrafica giocatori (`username`, `first_seen_date`, `last_seen_date`) |
+| Tabella / Vista | Contenuto |
+|-----------------|-----------|
+| `players` | Anagrafica giocatori (`username`, `username_normalized`, `email`, `pvr_id`, `pvr_ref_code`, `kyc_status`, `balance`, `withdrawable_balance`, `registration_date`, `first_seen_date`, `last_seen_date`) |
 | `pvrs` | Anagrafica PVR (`exalogic_id`, `name`, `area_manager`, `region`) |
+| `pvr_reference_map` | Mappa verificata `pvr_ref_code` → `pvr_id` |
+| `player_username_aliases` | Alias verificati `alias_normalized` → `player_id` |
 | `daily_player_stats` | Statistiche giornaliere per giocatore |
 | `daily_network_stats` | Statistiche giornaliere di rete (una riga per giorno) |
 | `daily_pvr_stats` | Statistiche giornaliere per PVR |
 | `daily_player_game_stats` | Statistiche giornaliere per giocatore + gioco |
 | `game_types` | Catalogo giochi (`provider`, `game_name`) |
 | `tickets` | Ticket scommesse con codice, stato, importi, date |
-| `excel_uploads` | Storico upload (`filename`, `file_type`, `status`, `rows_processed`, `error_message`) |
+| `monthly_player_stats_v` | Vista aggregata mensile per giocatore (usata per validare `player_summary`) |
+| `excel_uploads` | Storico upload (`filename`, `file_hash`, `file_type`, `status`, `rows_processed`, `validation_status`, `validation_report`, `error_message`, `period_start`, `period_end`) |
 
 ---
 
@@ -134,7 +140,7 @@ Menu fisso a sinistra con 7 voci:
 | **Rete** | `/network` | Albero gerarchico commerciale |
 | **Giocatori** | `/players` | Tabella completa giocatori |
 | **Analytics** | `/analytics` | Analisi avanzata e confronti |
-| **AI Copilot** | `/copilot` | Chat assistente intelligente |
+| **Assistente Analitico** | `/copilot` | Chat con motore analitico locale |
 | **Importa Dati** | `/upload` | Caricamento file Excel in Supabase |
 | **Impostazioni** | `/settings` | Configurazione alert e preferenze |
 
@@ -189,9 +195,11 @@ Mostra il titolo e il sottotitolo della pagina corrente, oltre a controlli globa
 | **Churn** | Rischio di abbandono del giocatore |
 | **Pareto** | Concentrazione del rake: pochi giocatori generano la maggior parte del ricavo |
 
-### Formula Health Score (PVR e Giocatori)
+### Health Score
 
-Il punteggio è calcolato con una formula ponderata:
+Il Health Score **non è attualmente calcolato**. Il campo è mantenuto a `null` su PVR e giocatori in attesa di una formula approvata e validata dal business. L'interfaccia mostra "Non disponibile" dove il punteggio manca.
+
+La formula target in fase di definizione era:
 
 | Fattore | Peso |
 |---------|------|
@@ -274,7 +282,7 @@ Azioni operative consigliate:
 - Campagna retention per giocatori a rischio
 - Investigare giorni con rake negativo
 - Aumentare fido ai PVR in crescita
-- Visite commerciali ai PVR con health score basso
+- Visite commerciali ai PVR con Health Score basso
 
 ### 5.5 Tabella Top 10 Giocatori
 
@@ -356,23 +364,23 @@ Regione
 Si apre un pannello laterale destro (420px) con:
 
 - **Tipo entità** e percorso gerarchico (breadcrumb)
-- **Health Score** (anello grande) per PVR e giocatori
+- **Health Score** (anello grande) per PVR e giocatori, visualizzato solo se un punteggio approvato è disponibile
 - **KPI specifici** per tipo:
-  - *PVR*: rake totale, giocatori, agenti, fido
+  - *PVR*: rake totale, giocatori, agenti (se presenti in anagrafica), fido (se presente in anagrafica)
   - *Agente*: giocatori, commissione, codice
   - *Giocatore*: rake, bet, payout, giorni attivi
   - *Regione/AM*: conteggi strutturali
-- **AI Insight** (solo giocatori): suggerimento automatico basato sul health score
+- **AI Insight** (solo giocatori): suggerimento automatico; quando il Health Score non è disponibile mostra un avviso di dati insufficienti
 - **Lista giocatori** (solo agenti): elenco con rake per giocatore
 
 ### 6.5 Barra riepilogo in basso
 
 Barra fissa con totali rete:
-- Health media rete (barra + punteggio /100)
+- Health media rete (barra + punteggio /100) — visibile solo se disponibile
 - Rake totale
 - Giocatori totali
 - N. PVR
-- N. Agenti
+- N. Agenti (0 finché non esiste fonte dati reale)
 
 ### 6.6 Badge trend PVR
 
@@ -444,13 +452,13 @@ I filtri attivi appaiono come **pillole** rimovibili. Il contatore mostra i risu
 ### 7.5 Export CSV
 
 Il pulsante **Esporta CSV** scarica un file con tutti i giocatori filtrati, contenente:
-Username, Nome, PVR, Agente, Rake, Bet, Won, Payout, Giorni Attivi, Health Score, Stato.
+Username, PVR, Rake, Bet, Won, Payout, Giorni Attivi, Stato. Nome, Agente e Health Score non sono esportati se non presenti in anagrafica.
 
 ### 7.6 Pannello dettaglio giocatore
 
 Clic sull'icona occhio apre un pannello laterale con:
 
-1. **Profilo**: username, PVR, agente, health score, stato, badge "Top 1%" se ≥25 giorni attivi
+1. **Profilo**: username, PVR, Health Score (se disponibile), stato, badge "Top 1%" se ≥25 giorni attivi. Agente non mostrato finché non disponibile.
 2. **KPI**: Rake, Bet, Won, Giorni Attivi, Payout Medio, Buy In
 3. **Trend 30 giorni**: mini grafico a barre del rake giornaliero
 4. **Attività giornaliera**: tabella con Data, Bet, Won, Rake (rosso se negativo), Payout
@@ -550,10 +558,10 @@ Box finale con 4 insight automatici sul confronto periodo:
 
 ---
 
-## 9. AI Copilot
+## 9. Assistente Analitico
 
 **Percorso:** `/copilot`  
-**Scopo:** Assistente conversazionale per interrogare i dati in linguaggio naturale.
+**Scopo:** Assistente conversazionale basato su un motore analitico locale per interrogare i dati in linguaggio naturale. **Non è un LLM generativo**: non chiama modelli esterni e risponde esclusivamente sui dati presenti in Supabase.
 
 ### 9.1 Layout
 
@@ -565,7 +573,7 @@ Box finale con 4 insight automatici sul confronto periodo:
 
 | Categoria | Esempi |
 |-----------|--------|
-| **Trend** | "Perché giugno è andato peggio di maggio?", "Qual è il trend del rake?" |
+| **Trend** | "Qual è il trend del rake?", "Confronta gli ultimi mesi" |
 | **Ranking** | "Quali sono i 5 PVR migliori?", "Chi sono i giocatori top?" |
 | **Network** | "Quali PVR stanno crescendo?", "Quali agenti perdono giocatori?" |
 | **Anomalie** | "Ci sono anomalie questo mese?", "Giorni con rake negativo?" |
@@ -576,7 +584,7 @@ Box finale con 4 insight automatici sul confronto periodo:
 
 ### 9.4 Tipi di risposta
 
-Il Copilot risponde con testo + componenti dati:
+L'Assistente Analitico risponde con testo + componenti dati:
 
 | Tipo risposta | Contenuto |
 |---------------|-----------|
@@ -600,7 +608,7 @@ Il motore risponde in base a keyword nel messaggio:
 | trend + rake | Andamento rake mensile |
 | negativo, giorni | Dettaglio giorni negativi |
 
-> **Nota:** Il Copilot usa un motore **rule-based** (non LLM esterno). Risponde solo a domande correlate ai dati di giugno 2026.
+> **Nota:** L'Assistente Analitico usa un motore **rule-based** (non LLM esterno). I periodi confrontati sono derivati automaticamente dai dati reali caricati; non è più limitato a giugno 2026.
 
 ### 9.6 Contesto attuale
 
@@ -726,7 +734,7 @@ Generato automaticamente dai dati Supabase:
 
 Simulazione matematica del rake variando giocatori, payout e bet.
 
-### 11.8 Servizio AI Copilot (NLU rule-based)
+### 11.8 Servizio Assistente Analitico (NLU rule-based)
 
 Classificazione intent per keyword → risposta predefinita con dati reali.
 
@@ -738,7 +746,7 @@ Classificazione intent per keyword → risposta predefinita con dati reali.
 
 ### 11.10 Servizio Health Score
 
-Calcolo e visualizzazione punteggio 0–100 per PVR e giocatori, con anello colorato e etichette.
+Placeholder per il calcolo e visualizzazione di un punteggio 0–100 per PVR e giocatori. Al momento il campo è `null` e l'interfaccia mostra "Non disponibile".
 
 ---
 
@@ -752,7 +760,7 @@ Calcolo e visualizzazione punteggio 0–100 per PVR e giocatori, con anello colo
 | 🔴 Rosso (`#ef4444`) | Negativo, critico, pericolo | Rake negativo, health basso, alert critici |
 | 🟡 Ambra (`#f59e0b`) | Attenzione, warning | Fido alto, payout elevato, giorni medi |
 | 🔵 Blu (`#3b82f6`) | Bet, azioni primarie | Volume scommesse, pulsanti, link attivi |
-| 🟣 Viola (`#8b5cf6`) | AI / intelligenza | Briefing, Copilot, insight, What-If |
+| 🟣 Viola (`#8b5cf6`) | AI / intelligenza | Briefing, Assistente Analitico, insight, What-If |
 | 🔵 Ciano (`#06b6d4`) | Giocatori attivi | Metriche utenza |
 
 ### Badge stato giocatore
@@ -796,24 +804,25 @@ Questa versione è un **MVP dimostrativo**. È importante conoscere questi limit
 |---------|---------------|
 | **Database** | Supabase PostgreSQL con RLS abilitato (policy permissive per anon, da stringere in produzione) |
 | **Aggiornamento dati** | Upload manuale di file Excel da `/upload`; i dati vengono scritti in Supabase |
-| **Dati maggio 2026** | Simulati per il confronto periodo |
-| **Distribuzione Sport/Casino** | Simulata |
-| **AI Copilot** | Rule-based, non LLM reale |
-| **Impostazioni** | Non persistono tra sessioni |
+| **Periodi precedenti** | Disponibili solo se caricati dati reali di mesi precedenti |
+| **Assistente Analitico** | Rule-based, non LLM reale |
+| **Impostazioni** | Persistono in `localStorage` (non in Supabase) |
 | **Export report** | UI presente, non genera PDF reali |
 | **Notifiche email/SMS** | Solo toggle UI, non inviano messaggi |
 | **Autenticazione** | Nessun login reale |
-| **Delta % KPI dashboard** | Valori demo hardcoded (es. +12,4% vs maggio) |
-| **Gerarchia rete** | PVR/Agenti/AM generati per demo |
+| **Health Score** | Non calcolato in attesa di formula approvata |
+| **Gerarchia rete** | Regioni/AM/PVR derivati da dati reali; agenti non mostrati senza fonte reale |
 
 ### Prossimi passi previsti (da piano progetto)
 
 1. Rinforzare sicurezza RLS su Supabase (policy per utenti autenticati, non anon)
 2. Automatizzare il download da Exalogic e l'import in Supabase
-3. API backend/Edge Functions per KPI, alert, briefing in tempo reale
-4. Copilot con LLM reale
-5. Deploy su hosting di produzione
-6. Notifiche email/webhook funzionanti
+3. Definire e approvare la formula Health Score
+4. Aggiungere fonte dati reale per agenti commerciali
+5. API backend/Edge Functions per KPI, alert, briefing in tempo reale
+6. Assistente Analitico con LLM reale (opzionale)
+7. Deploy su hosting di produzione
+8. Notifiche email/webhook funzionanti
 
 ---
 
@@ -829,11 +838,11 @@ Questa versione è un **MVP dimostrativo**. È importante conoscere questi limit
 | Cercare un giocatore specifico | **Giocatori** |
 | Esportare lista giocatori | **Giocatori** → Esporta CSV |
 | Vedere dettaglio giornaliero di un giocatore | **Giocatori** → icona occhio |
-| Confrontare maggio vs giugno | **Analytics** |
+| Confrontare periodi reali caricati | **Analytics** |
 | Caricare nuovi file Excel | **Importa Dati** |
 | Trovare anomalie nel rake | **Analytics** → Rilevazione Anomalie |
 | Simulare scenari futuri | **Analytics** → Simulatore What-If |
-| Fare una domanda in linguaggio naturale | **AI Copilot** |
+| Fare una domanda in linguaggio naturale | **Assistente Analitico** |
 | Configurare soglie alert | **Impostazioni** → Soglie Alert |
 | Cambiare tema o lingua | **Impostazioni** → Tema / Preferenze |
 

@@ -53,13 +53,15 @@ function str(data: unknown, key: string): string {
 }
 
 /* ─── health helpers ─── */
-function getHealthColor(score: number): string {
+function getHealthColor(score: number | null): string {
+  if (score == null) return '#64748b'
   if (score >= 80) return '#10b981'
   if (score >= 50) return '#f59e0b'
   return '#ef4444'
 }
 
-function getHealthLabel(score: number): string {
+function getHealthLabel(score: number | null): string {
+  if (score == null) return 'Non disponibile'
   if (score >= 80) return 'Buona'
   if (score >= 50) return 'Media'
   return 'Critica'
@@ -72,14 +74,15 @@ function HealthRing({
   strokeWidth = 4,
   showLabel = true,
 }: {
-  score: number
+  score: number | null
   size?: number
   strokeWidth?: number
   showLabel?: boolean
 }) {
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
-  const offset = circumference - (score / 100) * circumference
+  const effectiveScore = score ?? 0
+  const offset = circumference - (effectiveScore / 100) * circumference
   const color = getHealthColor(score)
 
   return (
@@ -92,20 +95,22 @@ function HealthRing({
         stroke="#1e293b"
         strokeWidth={strokeWidth}
       />
-      <motion.circle
-        cx={size / 2}
-        cy={size / 2}
-        r={radius}
-        fill="none"
-        stroke={color}
-        strokeWidth={strokeWidth}
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        initial={{ strokeDashoffset: circumference }}
-        animate={{ strokeDashoffset: offset }}
-        transition={{ duration: 0.8, ease: [0.25, 0.1, 0.25, 1] as [number, number, number, number], delay: 0.4 }}
-        transform={`rotate(-90 ${size / 2} ${size / 2})`}
-      />
+      {score != null && (
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: offset }}
+          transition={{ duration: 0.8, ease: [0.25, 0.1, 0.25, 1] as [number, number, number, number], delay: 0.4 }}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+      )}
       {showLabel && (
         <text
           x={size / 2}
@@ -117,7 +122,7 @@ function HealthRing({
           fontWeight={600}
           fontFamily="JetBrains Mono, monospace"
         >
-          {Math.round(score)}
+          {score != null ? Math.round(score) : '-'}
         </text>
       )}
     </svg>
@@ -125,7 +130,7 @@ function HealthRing({
 }
 
 /* ─── Status Badge ─── */
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: { status: string | null }) {
   const colorMap: Record<string, string> = {
     active: 'bg-positive/15 text-positive',
     inactive: 'bg-negative/15 text-negative',
@@ -136,14 +141,15 @@ function StatusBadge({ status }: { status: string }) {
     inactive: 'Inattivo',
     warning: 'Warning',
   }
+  const s = status || 'unknown'
   return (
     <span
       className={cn(
         'inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium',
-        colorMap[status] || 'bg-bg-surface-elevated text-text-muted',
+        colorMap[s] || 'bg-bg-surface-elevated text-text-muted',
       )}
     >
-      {labelMap[status] || status}
+      {labelMap[s] || s}
     </span>
   )
 }
@@ -203,19 +209,31 @@ function buildTree(): TreeNode[] {
       const amPvrs = pvrs.filter((p) => p.area_manager_id === am.id)
 
       const pvrNodes: TreeNode[] = amPvrs.map((pvr) => {
-        const pvrAgents = agents.filter((a) => a.pvr_id === pvr.id)
-
-        const agentNodes: TreeNode[] = pvrAgents.map((agent) => {
-          const agentPlayers = players.filter((pl) => pl.agent_id === agent.id)
-          const playerNodes: TreeNode[] = agentPlayers.map((pl) => ({
+        const playerNodes: TreeNode[] = players
+          .filter((pl) => pl.pvr_id === pvr.id)
+          .map((pl) => ({
             id: pl.id,
             type: 'player' as EntityType,
             data: pl,
             children: [],
           }))
-          return { id: agent.id, type: 'agent' as EntityType, data: agent, children: playerNodes }
-        })
-        return { id: pvr.id, type: 'pvr' as EntityType, data: pvr, children: agentNodes }
+
+        if (agents.length > 0) {
+          const pvrAgents = agents.filter((a) => a.pvr_id === pvr.id)
+          const agentNodes: TreeNode[] = pvrAgents.map((agent) => {
+            const agentPlayers = players.filter((pl) => pl.agent_id === agent.id)
+            const agentPlayerNodes: TreeNode[] = agentPlayers.map((pl) => ({
+              id: pl.id,
+              type: 'player' as EntityType,
+              data: pl,
+              children: [],
+            }))
+            return { id: agent.id, type: 'agent' as EntityType, data: agent, children: agentPlayerNodes }
+          })
+          return { id: pvr.id, type: 'pvr' as EntityType, data: pvr, children: agentNodes }
+        }
+
+        return { id: pvr.id, type: 'pvr' as EntityType, data: pvr, children: playerNodes }
       })
       return { id: am.id, type: 'area_manager' as EntityType, data: am, children: pvrNodes }
     })
@@ -296,9 +314,9 @@ function DetailPanel({
             transition={{ delay: 0.1 }}
             className="flex flex-col items-center py-4"
           >
-            <HealthRing score={num(node.data, 'health_score')} size={96} strokeWidth={6} />
+            <HealthRing score={(node.data as { health_score?: number | null }).health_score ?? null} size={96} strokeWidth={6} />
             <p className="text-[14px] text-text-secondary mt-3">
-              {getHealthLabel(num(node.data, 'health_score'))}
+              {getHealthLabel((node.data as { health_score?: number | null }).health_score ?? null)}
             </p>
           </motion.div>
         )}
@@ -313,9 +331,11 @@ function DetailPanel({
           {node.type === 'pvr' && (
             <>
               <KpiCard label="Rake Totale" value={formatCurrency(getPvrTotalRake(node))} />
-              <KpiCard label="Giocatori" value={String(node.children.reduce((sum, a) => sum + a.children.length, 0))} />
-              <KpiCard label="Agenti" value={String(node.children.length)} />
-              <KpiCard label="Fido" value={formatCurrency(num(node.data, 'fido'))} />
+              <KpiCard label="Giocatori" value={String(sumPlayerRake(node) > 0 ? node.children.reduce((sum, c) => sum + (c.type === 'player' ? 1 : c.children.length), 0) : 0)} />
+              <KpiCard label="Agenti" value={String(dataStore.agents.length)} />
+              {(node.data as PVR).fido != null && (
+                <KpiCard label="Fido" value={formatCurrency(num(node.data, 'fido'))} />
+              )}
             </>
           )}
           {node.type === 'agent' && (
@@ -361,7 +381,9 @@ function DetailPanel({
               <span className="text-[13px] font-medium text-accent-purple">AI Insight</span>
             </div>
             <p className="text-[13px] text-text-secondary">
-              {num(node.data, 'health_score') >= 80
+              {(node.data as Player).health_score == null
+                ? 'Dati insufficienti per una valutazione automatica.'
+                : num(node.data, 'health_score') >= 80
                 ? 'Top performer \u2014 Considerare offerta VIP'
                 : num(node.data, 'health_score') >= 50
                 ? 'Giocatore stabile \u2014 Monitorare attivit\u00E0'
@@ -518,31 +540,25 @@ function TreeRow({
         {/* Right stats */}
         <div className="flex items-center gap-4 flex-shrink-0">
           {/* Health */}
-          {'health_score' in node.data && node.type !== 'agent' && (
-            <div className="flex-shrink-0">
-              {node.type === 'player' ? (
-                <div
-                  className="w-2 h-2 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: getHealthColor(num(node.data, 'health_score')) }}
-                />
-              ) : (
-                <HealthRing
-                  score={num(node.data, 'health_score')}
-                  size={depth === 0 ? 48 : depth === 1 ? 40 : 36}
-                  strokeWidth={3}
-                  showLabel={depth < 3}
-                />
-              )}
-            </div>
-          )}
-          {node.type === 'agent' && 'health_score' in node.data && (
-            <span
-              className="text-[12px] font-mono font-medium"
-              style={{ color: getHealthColor(num(node.data, 'health_score')) }}
-            >
-              {Math.round(num(node.data, 'health_score'))}
-            </span>
-          )}
+          {'health_score' in node.data &&
+            (node.data as { health_score?: number | null }).health_score != null &&
+            node.type !== 'agent' && (
+              <div className="flex-shrink-0">
+                {node.type === 'player' ? (
+                  <div
+                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: getHealthColor((node.data as { health_score?: number | null }).health_score ?? null) }}
+                  />
+                ) : (
+                  <HealthRing
+                    score={(node.data as { health_score?: number | null }).health_score ?? null}
+                    size={depth === 0 ? 48 : depth === 1 ? 40 : 36}
+                    strokeWidth={3}
+                    showLabel={depth < 3}
+                  />
+                )}
+              </div>
+            )}
 
           {/* Metrics */}
           <div className="flex items-center gap-4 text-[12px] text-text-muted">
@@ -565,17 +581,25 @@ function TreeRow({
             )}
             {node.type === 'pvr' && (
               <>
-                <span>{node.children.length} Agenti</span>
-                <span>
-                  {node.children.reduce((s, a) => s + a.children.length, 0)} Giocatori
-                </span>
+                {dataStore.agents.length > 0 ? (
+                  <>
+                    <span>{node.children.length} Agenti</span>
+                    <span>
+                      {node.children.reduce((s, a) => s + a.children.length, 0)} Giocatori
+                    </span>
+                  </>
+                ) : (
+                  <span>{node.children.length} Giocatori</span>
+                )}
                 <span className="text-text-primary font-mono">
                   {formatCurrency(getPvrTotalRake(node))}
                 </span>
-                <FidoBar
-                  used={num(node.data, 'fido_used')}
-                  total={Math.max(num(node.data, 'fido'), 1)}
-                />
+                {(node.data as PVR).fido != null && (
+                  <FidoBar
+                    used={num(node.data, 'fido_used')}
+                    total={Math.max(num(node.data, 'fido'), 1)}
+                  />
+                )}
               </>
             )}
             {node.type === 'agent' && (
@@ -633,7 +657,6 @@ function getNodeName(node: TreeNode): string {
   const d = node.data as unknown as Record<string, unknown>
   if ('name' in d) return String(d.name)
   if ('username' in d) return String(d.username)
-  if ('first_name' in d && 'last_name' in d) return `${d.first_name} ${d.last_name}`
   return String(d.id || '')
 }
 
@@ -657,32 +680,32 @@ function getNodeIcon(node: TreeNode, depth: number) {
 }
 
 function getPvrTrend(node: TreeNode): 'up' | 'down' | 'stable' {
-  const hs = num(node.data, 'health_score') || 50
+  const hs = (node.data as PVR).health_score
+  if (hs == null) return 'stable'
   if (hs >= 75) return 'up'
   if (hs >= 50) return 'stable'
   return 'down'
 }
 
+function sumPlayerRake(node: TreeNode): number {
+  if (node.type === 'player') return num(node.data, 'total_rake')
+  return node.children.reduce((s, c) => s + sumPlayerRake(c), 0)
+}
+
 function getRegionTotalRake(node: TreeNode): number {
-  return node.children.reduce(
-    (s, am) => s + am.children.reduce((t, pvr) => t + getPvrTotalRake(pvr), 0),
-    0,
-  )
+  return node.children.reduce((s, am) => s + sumPlayerRake(am), 0)
 }
 
 function getAmTotalRake(node: TreeNode): number {
-  return node.children.reduce((s, pvr) => s + getPvrTotalRake(pvr), 0)
+  return node.children.reduce((s, pvr) => s + sumPlayerRake(pvr), 0)
 }
 
 function getPvrTotalRake(node: TreeNode): number {
-  return node.children.reduce(
-    (s, agent) => s + agent.children.reduce((t, pl) => t + num(pl.data, 'total_rake'), 0),
-    0,
-  )
+  return sumPlayerRake(node)
 }
 
 function getAgentTotalRake(node: TreeNode): number {
-  return node.children.reduce((s, pl) => s + num(pl.data, 'total_rake'), 0)
+  return sumPlayerRake(node)
 }
 
 function getBreadcrumbPath(node: TreeNode): string[] {
@@ -705,7 +728,7 @@ function NetworkSummary({ tree }: { tree: TreeNode[] }) {
   const totalPlayers = dataStore.players.length
   const avgHealth =
     dataStore.pvrs.length > 0
-      ? dataStore.pvrs.reduce((s, p) => s + p.health_score, 0) / dataStore.pvrs.length
+      ? dataStore.pvrs.reduce((s, p) => s + (p.health_score ?? 0), 0) / dataStore.pvrs.length
       : 0
 
   return (

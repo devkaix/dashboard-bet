@@ -3,7 +3,7 @@
 ## Project Overview
 Build an AI-powered Business Intelligence Decision Platform for DAZN Bet that sits on top of the Exalogic dashboard. The platform ingests exported Excel data via a browser-side upload page, stores it in Supabase (PostgreSQL), and transforms it into insights, alerts, and actionable suggestions for the commercial network management.
 
-Current stack: React + Vite + TypeScript frontend, Supabase backend, browser-side Excel parsing with `xlsx`.
+Current stack: React 19 + Vite + TypeScript frontend, Supabase backend, browser-side Excel parsing with `xlsx`.
 
 ## Real Data Analysis (from uploaded Excel)
 - **File**: export_grid_stat_all (4).xlsx — exported from Exalogic dashboard
@@ -26,17 +26,16 @@ Current stack: React + Vite + TypeScript frontend, Supabase backend, browser-sid
 - **Most Active Player**: "Claudia80" with 30 active days (every day)
 - **Average Player Activity**: 5.2 days/month
 
-## Hierarchy Data (Generated Mock for Demo)
-- **Regions**: 6 (Lombardia x4, Toscana, Veneto)
-- **Area Managers**: 6 (Matteo Dossena, Marco Rossi, Laura Bianchi, Giuseppe Verdi, Anna Neri, Paolo Fontana)
-- **PVRs (Punti Vendita Raccolta)**: 20 (PVR Bonaparte, PVR Romanoni, PVR Da Engi, PVR Lissone, PVR Monza, etc.)
-- **Agents**: 30 (Agente Rossi, Bianchi, Verdi, etc.)
+## Hierarchy Data (Real Only)
+- **Regions** and **Area Managers** are derived only from the real `region` and `area_manager` fields on the `pvrs` table.
+- **PVRs (Punti Vendita Raccolta)** are loaded from the real `pvrs` table (Exalogic ID + name).
+- **Agents** are not shown until a real agent data source is introduced. The network tree falls back to **PVR → Players** when agents are absent.
+- PVR-to-player mapping uses the verified `pvr_reference_map` table; `pvr_ref_code` on `players` is populated from `players_master` imports.
 
 ## AI Briefing Content (Auto-generated from real data)
 ### Criticals
 - 5 giorni con rake negativo nel mese (worst: -€4,603.42)
-- Multiple PVRs with fido usage >85%
-- 10+ high-value players at churn risk (<3 active days, rake >€50)
+- Negative-rake PVRs and players surfaced from real daily stats
 
 ### Opportunities
 - Top player "Rena72" generates €13,333.60 in rake
@@ -46,25 +45,28 @@ Current stack: React + Vite + TypeScript frontend, Supabase backend, browser-sid
 ### Suggestions
 - Contact churn-risk players with personalized bonus offers
 - Investigate negative rake pattern
-- Increase fido for growing PVRs
-- Schedule commercial visits for low-health PVRs
+- Monitor PVRs with no mapped reference code
 
-## Health Score Formula (for PVRs and Players)
-- Rake growth (30%)
-- Sport vs Casino mix (15%)
-- New customers (15%)
-- Retention rate (15%)
-- Fido utilization (10%)
-- Positive balance (10%)
-- Movement/Activity (5%)
+## Health Score
+No health score is currently generated. The field is kept as `null` on both PVRs and players until an approved, business-validated formula is implemented. The UI handles this gracefully (e.g. "Non disponibile").
 
 ## Required Pages
 1. **Executive Dashboard** (/) — KPI cards, trend chart, AI briefing panel (3 columns: Criticals, Opportunities, Suggestions), alert feed
-2. **Network View** (/network) — Hierarchical view: Regions → Area Managers → PVRs → Agents → Players
+2. **Network View** (/network) — Hierarchical view: Regions → Area Managers → PVRs → Players (Agents when real data available)
 3. **Player Grid** (/players) — Virtual table with 133+ players, search, filters, export
-4. **Analytics** (/analytics) — Period comparison, trend analysis, what-if scenarios
-5. **AI Copilot** (/copilot) — ChatGPT-style interface for natural language queries
+4. **Analytics** (/analytics) — Period comparison (real months only), trend analysis, what-if scenarios
+5. **Assistente Analitico** (/copilot) — Local analytical engine for natural language queries
 6. **Settings** (/settings) — Alert thresholds, user preferences
+
+## Enterprise Realignment (completed)
+- Removed all synthetic data generation from `data.ts`.
+- Added `pvr_reference_map` and `player_username_aliases` mapping tables.
+- Added real-data columns to `players`: `pvr_id`, `pvr_ref_code`, `kyc_status`, `balance`, `withdrawable_balance`, `registration_date`, `username_normalized`.
+- `excel_uploads` now tracks `file_hash`, period, validation status/report, and prevents duplicate uploads by content hash.
+- `player_summary` files are validated against `monthly_player_stats_v` and never written to `daily_player_stats`.
+- `players_master` imports update player metadata and resolve PVR mapping through `pvr_reference_map`.
+- `won` is always read from the real `won` column, never computed as `bet - rake`.
+- Added Vitest test suite (`data.test.ts`, `uploadHelpers.test.ts`).
 
 ## Design Direction
 - Dark theme (professional, data-dense, dashboard-like)

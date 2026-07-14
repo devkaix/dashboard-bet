@@ -4,36 +4,17 @@ import { Upload, FileSpreadsheet, CheckCircle2, XCircle, Loader2, RefreshCw } fr
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
+import { num, normalizeUsername, pDate, pDt, det, col } from "@/lib/uploadHelpers";
 
 interface UploadRecord {
   id: string; filename: string; file_type: string | null; status: string;
   rows_processed: number; error_message: string | null; uploaded_at: string;
+  file_hash: string | null; validation_status: string | null;
 }
 
 const ICONS: Record<string, typeof CheckCircle2> = { completed: CheckCircle2, processing: Loader2, pending: Loader2, error: XCircle };
 const COLS: Record<string, string> = { completed: "text-emerald-400", processing: "text-amber-400", pending: "text-slate-400", error: "text-red-400" };
 const LABS: Record<string, string> = { completed: "Completato", processing: "In elaborazione...", pending: "In attesa...", error: "Errore" };
-
-function num(v: unknown): number {
-  if (v === null || v === undefined) return 0;
-  if (typeof v === "number") return v;
-  const s = String(v).trim();
-  if (s === "" || s === "None") return 0;
-  const commaCount = (s.match(/,/g) || []).length;
-  const dotCount = (s.match(/\./g) || []).length;
-  let clean = s;
-  if (commaCount > 0 && dotCount > 0) {
-    clean = s.replace(/\./g, "").replace(",", ".");
-  } else if (commaCount > 1) {
-    clean = s.replace(/,/g, "");
-  } else if (commaCount === 1) {
-    clean = s.replace(",", ".");
-  } else if (dotCount > 1) {
-    clean = s.replace(/\./g, "").replace(",", ".");
-  }
-  const n = parseFloat(clean);
-  return (isNaN(n) || !isFinite(n)) ? 0 : n;
-}
 
 function fixSheetRange(ws: any) {
   const keys = Object.keys(ws).filter((k) => !k.startsWith("!"));
@@ -52,50 +33,90 @@ function fixSheetRange(ws: any) {
 function check(label: string, res: { data?: any; error?: any }) {
   if (res.error) throw new Error(`${label}: ${res.error.message || JSON.stringify(res.error)}`);
 }
-function pDate(v: unknown): string | null {
-  if (!v) return null;
-  const s = String(v).trim();
-  if (/^\d{4}[\/-]\d{2}[\/-]\d{2}$/.test(s)) return s.replace(/\//g, "-");
-  const p = s.split("/");
-  if (p.length === 3) return p[0].length === 4 ? `${p[0]}-${p[1].padStart(2,"0")}-${p[2].padStart(2,"0")}` : `${p[2]}-${p[1].padStart(2,"0")}-${p[0].padStart(2,"0")}`;
-  return null;
-}
-function pDt(v: unknown): string | null {
-  if (!v) return null;
-  const s = String(v).trim().replace(/\/\/\s*/, "");
-  if (!s) return null;
-  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2}:\d{2})$/);
-  return m ? `${m[3]}-${m[2]}-${m[1]}T${m[4]}` : null;
-}
-function det(hdr: string[]): string {
-  const h = hdr.map(x => x.toLowerCase().trim());
-  if (h.includes("ticket") && h.includes("stato")) return "tickets";
-  if (h.includes("gioco")) return "daily_player_game";
-  if (h.some(x => x.includes("liv 1"))) return "daily_pvr";
-  if (h[0] === "username" && !h.includes("data")) return "player_summary";
-  if (h[0] === "data" && !h.includes("username")) return "daily_network";
-  return "daily_player";
+
+async function sha256(buf: ArrayBuffer): Promise<string> {
+  const hash = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function upPlayer(u: string): Promise<string|null> {
-  if (!u) return null;
-  const { data: ex, error: e1 } = await supabase.from("players").select("id").eq("username", u).maybeSingle();
-  if (e1) throw new Error(`lookup player: ${e1.message}`);
-  if (ex) return (ex as any).id;
-  const { data: cr, error: e2 } = await (supabase.from("players") as any).insert({ username: u }).select("id").single();
-  if (e2) throw new Error(`insert player: ${e2.message}`);
-  return (cr as any)?.id || null;
-}
-async function upPvr(eid: string, nm: string): Promise<string|null> {
-  const { data: ex, error: e1 } = await supabase.from("pvrs").select("id").eq("exalogic_id", eid).maybeSingle();
-  if (e1) throw new Error(`lookup pvr: ${e1.message}`);
-  if (ex) {
-    check("update pvr", await (supabase.from("pvrs") as any).update({ name: nm }).eq("id", (ex as any).id));
-    return (ex as any).id;
+async function batchUpsert(table: string, rows: any[], onConflict: string, chunkSize = 500) {
+  const builder = (supabase as any).from(table);
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+    check(`upsert ${table}`, await builder.upsert(chunk, { onConflict }));
   }
-  const { data: cr, error: e2 } = await (supabase.from("pvrs") as any).insert({ exalogic_id: eid, name: nm }).select("id").single();
-  if (e2) throw new Error(`insert pvr: ${e2.message}`);
-  return (cr as any)?.id || null;
+}
+
+async function loadPvrMap(): Promise<Map<string, string>> {
+  const { data, error } = await supabase.from("pvr_reference_map").select("pvr_ref_code, pvr_id");
+  if (error) throw new Error(`pvr_reference_map: ${error.message}`);
+  const map = new Map<string, string>();
+  for (const r of data || []) map.set(String(r.pvr_ref_code).trim().toLowerCase(), r.pvr_id);
+  return map;
+}
+
+async function loadPlayerAliases(): Promise<Map<string, string>> {
+  const { data, error } = await supabase.from("player_username_aliases").select("alias_normalized, player_id");
+  if (error) throw new Error(`player_username_aliases: ${error.message}`);
+  const map = new Map<string, string>();
+  for (const r of data || []) map.set(r.alias_normalized, r.player_id);
+  return map;
+}
+
+async function resolvePlayerIds(usernames: string[]): Promise<Map<string, string>> {
+  const normalized = usernames.map(normalizeUsername);
+  const unique = [...new Set(normalized)].filter(Boolean);
+  const map = new Map<string, string>();
+  const remaining = new Set(unique);
+
+  // Existing players by normalized username
+  if (remaining.size > 0) {
+    const { data, error } = await supabase.from("players").select("id, username_normalized").in("username_normalized", [...remaining]);
+    if (error) throw new Error(`lookup players: ${error.message}`);
+    for (const p of data || []) {
+      map.set(p.username_normalized!, p.id);
+      remaining.delete(p.username_normalized!);
+    }
+  }
+
+  // Aliases
+  if (remaining.size > 0) {
+    const aliases = await loadPlayerAliases();
+    for (const u of remaining) {
+      const pid = aliases.get(u);
+      if (pid) {
+        map.set(u, pid);
+        remaining.delete(u);
+      }
+    }
+  }
+
+  // Create missing players
+  if (remaining.size > 0) {
+    const inserts = [...remaining].map((u) => ({ username: u, username_normalized: u }));
+    const { data, error } = await supabase.from("players").insert(inserts).select("id, username_normalized");
+    if (error) throw new Error(`insert players: ${error.message}`);
+    for (const p of data || []) map.set(p.username_normalized!, p.id);
+  }
+
+  return map;
+}
+
+function getStats(row: Record<string, unknown>) {
+  return {
+    buy_in: num(col(row, ["Buy In", "buy_in", "BuyIn"])),
+    buy_in_bonus: num(col(row, ["Buy In Bonus", "buy_in_bonus", "BuyInBonus"])),
+    stack: num(col(row, ["Stack", "stack"])),
+    bet: num(col(row, ["Bet", "bet"])),
+    won: num(col(row, ["Won", "won", "Win", "win"])),
+    rake: num(col(row, ["Rake", "rake"])),
+    payout: num(col(row, ["Payout", "payout"])),
+    bet_bonus: num(col(row, ["Bet Bonus", "bet_bonus", "BetBonus"])),
+    jackpot: num(col(row, ["Jackpot", "jackpot"])),
+    jackpot_won: num(col(row, ["Jackpot Won", "jackpot_won", "JackpotWon"])),
+    overlay: num(col(row, ["Overlay", "overlay"])),
+    refund: num(col(row, ["Refund", "refund"])),
+  };
 }
 
 export default function UploadPage() {
@@ -106,15 +127,55 @@ export default function UploadPage() {
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const fetchUploads = useCallback(async () => {
-    const { data } = await supabase.from("excel_uploads").select("*").order("uploaded_at", { ascending: false }).limit(10);
+    const { data } = await supabase
+      .from("excel_uploads")
+      .select("*")
+      .order("uploaded_at", { ascending: false })
+      .limit(10);
     setUploads((data || []) as UploadRecord[]);
   }, []);
   useEffect(() => { fetchUploads(); const t = setInterval(fetchUploads, 5000); return () => clearInterval(t); }, [fetchUploads]);
 
+  async function insertUploadRecord(file: File, fileHash: string, fileType: string, rows: number, status: string, validationStatus: string | null, report: any, errorMsg?: string) {
+    const dates = (report?.dates || []).filter(Boolean).sort();
+    const periodStart = dates[0] || null;
+    const periodEnd = dates[dates.length - 1] || null;
+    check(
+      "insert excel_uploads",
+      await (supabase.from("excel_uploads") as any).insert({
+        filename: file.name,
+        file_hash: fileHash,
+        status,
+        file_type: fileType,
+        rows_processed: rows,
+        error_message: errorMsg || null,
+        period_start: periodStart,
+        period_end: periodEnd,
+        validation_status: validationStatus,
+        validation_report: report,
+      })
+    );
+  }
+
   async function processFile(file: File) {
     setUploading(true); setMessage(null); setProgress("Lettura file...");
+    let fileType = "unknown";
+    let fileHash = "";
+    let report: any = {};
     try {
       const buf = await file.arrayBuffer();
+      fileHash = await sha256(buf);
+
+      // Duplicate detection
+      const { data: dup, error: dupErr } = await supabase
+        .from("excel_uploads")
+        .select("id")
+        .eq("file_hash", fileHash)
+        .eq("status", "completed")
+        .maybeSingle();
+      if (dupErr) throw new Error(`duplicate check: ${dupErr.message}`);
+      if (dup) throw new Error("Questo file è già stato caricato (hash duplicato).");
+
       const wb = XLSX.read(new Uint8Array(buf), { type: "array" });
       const sn = wb.SheetNames[0];
       if (!sn) throw new Error("Nessun foglio Excel trovato");
@@ -125,76 +186,270 @@ export default function UploadPage() {
       setProgress(`Trovate ${aoa.length - 1} righe...`);
 
       const raw = (aoa[0] || []).map((h: unknown) => String(h || "").trim());
-      const ft = det(raw);
+      fileType = det(raw);
       const hdr = [...raw];
-      if (ft === "daily_player_game") { hdr[1] = "Provider"; hdr[2] = "GameName"; }
-      const rows = aoa.slice(1).map(r => { const o: Record<string,unknown>={}; hdr.forEach((h,i)=>{o[h]=r[i]}); return o; });
+      if (fileType === "daily_player_game") { hdr[1] = "Provider"; hdr[2] = "GameName"; }
+      const rows = aoa.slice(1).map((r) => {
+        const o: Record<string, unknown> = {};
+        hdr.forEach((h, i) => { o[h] = r[i]; });
+        return o;
+      });
 
-      setProgress(`Elaborazione ${ft}...`);
-      let cnt = 0;
+      setProgress(`Elaborazione ${fileType}...`);
+      report = { file_type: fileType, total_rows: rows.length, errors: [], dates: [], unmatched_pvrs: [], unmatched_players: [] };
+
+      if (fileType === "players_master") {
+        const pvrMap = await loadPvrMap();
+        const masterRows = rows.map((row) => {
+          const uname = String(col(row, ["Username", "username", "User"]) || "").trim();
+          const refCode = String(col(row, ["Pvr Ref Code", "pvr_ref_code", "PVR", "pvr", "Codice PVR", "Codice Padre"]) || "").trim();
+          return {
+            username: uname,
+            username_normalized: normalizeUsername(uname),
+            email: String(col(row, ["Email", "email", "E-mail"]) || "").trim() || null,
+            pvr_ref_code: refCode || null,
+            pvr_id: refCode ? pvrMap.get(refCode.toLowerCase()) || null : null,
+            kyc_status: String(col(row, ["Kyc Status", "kyc_status", "KYC", "kyc", "Stato KYC"]) || "").trim() || null,
+            balance: num(col(row, ["Balance", "balance", "Saldo"])),
+            withdrawable_balance: num(col(row, ["Withdrawable Balance", "withdrawable_balance", "Saldo Prelevabile"])),
+            registration_date: pDt(col(row, ["Registration Date", "registration_date", "Data Registrazione"])) || pDate(col(row, ["Registration Date", "registration_date", "Data Registrazione"])),
+          };
+        }).filter((r) => r.username);
+
+        const playerMap = await resolvePlayerIds(masterRows.map((r) => r.username));
+        const upserts = masterRows.map((r) => {
+          const id = playerMap.get(r.username_normalized);
+          if (!id) report.unmatched_players.push(r.username);
+          return { id, ...r };
+        }).filter((r) => r.id);
+
+        if (upserts.length > 0) {
+          await batchUpsert("players", upserts, "id", 500);
+        }
+
+        for (const r of masterRows) {
+          if (r.pvr_ref_code && !r.pvr_id) report.unmatched_pvrs.push(r.pvr_ref_code);
+        }
+
+        await insertUploadRecord(file, fileHash, fileType, masterRows.length, "completed", "validated", report);
+        setProgress("");
+        setMessage({ type: "success", text: `"${file.name}" → ${masterRows.length} giocatori aggiornati (${fileType})` });
+        return;
+      }
+
+      if (fileType === "player_summary") {
+        // Validate only: never write to daily_player_stats.
+        const summaryRows = rows.map((row) => {
+          const uname = String(col(row, ["Username", "username", "User"]) || "").trim();
+          return {
+            username: uname,
+            username_normalized: normalizeUsername(uname),
+            ...getStats(row),
+          };
+        }).filter((r) => r.username);
+
+        const playerMap = await resolvePlayerIds(summaryRows.map((r) => r.username));
+        const playerIds = [...new Set([...playerMap.values()])].filter(Boolean);
+
+        let dbTotals: any[] = [];
+        if (playerIds.length > 0) {
+          const { data, error } = await supabase.from("monthly_player_stats_v").select("*").in("player_id", playerIds);
+          if (error) throw new Error(`monthly_player_stats_v: ${error.message}`);
+          dbTotals = data || [];
+        }
+
+        const mismatches: string[] = [];
+        for (const r of summaryRows) {
+          const pid = playerMap.get(r.username_normalized);
+          if (!pid) {
+            report.unmatched_players.push(r.username);
+            continue;
+          }
+          const db = dbTotals.find((x) => x.player_id === pid);
+          const eps = 0.01;
+          if (db) {
+            if (Math.abs(num(db.rake) - r.rake) > eps || Math.abs(num(db.bet) - r.bet) > eps || Math.abs(num(db.won) - r.won) > eps) {
+              mismatches.push(r.username);
+            }
+          }
+        }
+
+        report.mismatches = mismatches;
+        report.validated_rows = summaryRows.length - mismatches.length - report.unmatched_players.length;
+        await insertUploadRecord(file, fileHash, fileType, summaryRows.length, "completed", mismatches.length === 0 ? "validated" : "mismatch", report);
+        setProgress("");
+        if (mismatches.length > 0) {
+          setMessage({ type: "error", text: `"${file.name}" → ${summaryRows.length} righe; ${mismatches.length} mismatch con i dati giornalieri.` });
+        } else {
+          setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe validate (${fileType}, non importato)` });
+        }
+        return;
+      }
+
+      // Collect dates and player/pvr references for daily/ticket files
+      const usernames: string[] = [];
+      const pvrKeys: { eid: string; name: string }[] = [];
+      const dailyPlayerRows: any[] = [];
+      const dailyPvrRows: any[] = [];
+      const dailyNetworkRows: any[] = [];
+      const dailyGameRows: any[] = [];
+      const ticketRows: any[] = [];
 
       for (const row of rows) {
         const fv = row[hdr[0]];
         if (fv === undefined || fv === null || ["", "None"].includes(String(fv).trim())) continue;
-        const date = pDate(row["Data"] || row["data"]);
-        const uname = String(row["Username"] || row["username"] || "").trim();
-        const stats = {
-          buy_in: num(row["Buy In"]), buy_in_bonus: num(row["Buy In Bonus"]), stack: num(row["Stack"]),
-          bet: num(row["Bet"]), won: num(row["Won"]), rake: num(row["Rake"]), payout: num(row["Payout"]),
-          bet_bonus: num(row["Bet Bonus"]), jackpot: num(row["Jackpot"]), jackpot_won: num(row["Jackpot Won"]),
-          overlay: num(row["Overlay"]), refund: num(row["Refund"]),
-        };
 
-        if (ft === "tickets") {
-          const tc = String(row["Ticket"] || ""); if (!tc) continue;
-          const pid = await upPlayer(uname);
-          check("upsert tickets", await (supabase.from("tickets") as any).upsert({
-            ticket_code: tc, player_id: pid, pvr_code: String(row["Codice Padre"] || ""),
-            emission_date: pDt(row["Data Emissione"]), status: String(row["Stato"] || "").trim(),
-            competition_date: pDate(row["Data Competenza"]), amount: num(row["Importo"]),
-            win_amount: num(row["Importo vincita"]), events_count: parseInt(String(row["Eventi"] || "0")) || 0,
-            payment_date: pDt(row["Data Pagamento"]),
-          }, { onConflict: "ticket_code" }));
-          cnt++; continue;
+        const date = pDate(col(row, ["Data", "data", "Date", "date"]));
+        const uname = String(col(row, ["Username", "username", "User"]) || "").trim();
+        const stats = getStats(row);
+
+        if (date) report.dates.push(date);
+
+        if (fileType === "tickets") {
+          const tc = String(col(row, ["Ticket", "ticket", "Codice Ticket"]) || "");
+          if (!tc) continue;
+          usernames.push(uname);
+          ticketRows.push({
+            ticket_code: tc,
+            pvr_code: String(col(row, ["Codice Padre", "pvr_code", "PVR", "pvr"]) || ""),
+            emission_date: pDt(col(row, ["Data Emissione", "emission_date"])),
+            status: String(col(row, ["Stato", "status", "stato"]) || "").trim() || null,
+            competition_date: pDate(col(row, ["Data Competenza", "competition_date"])),
+            amount: num(col(row, ["Importo", "amount"])),
+            win_amount: num(col(row, ["Importo vincita", "win_amount", "Vincita"])),
+            events_count: parseInt(String(col(row, ["Eventi", "events_count", "events"]) || "0")) || 0,
+            payment_date: pDt(col(row, ["Data Pagamento", "payment_date"])),
+            username_normalized: normalizeUsername(uname),
+          });
+          continue;
         }
-        if (ft === "daily_pvr") {
-          const eid = String(row["ID Liv 1"] || ""), nm = String(row["Liv 1"] || "");
+
+        if (fileType === "daily_pvr") {
+          const eid = String(col(row, ["ID Liv 1", "id_liv_1", "Pvr Id"]) || "");
+          const nm = String(col(row, ["Liv 1", "liv_1", "Pvr Name"]) || "");
           if (!eid || !nm || !date) continue;
-          const pid = await upPvr(eid, nm);
-          if (pid) check("upsert daily_pvr_stats", await (supabase.from("daily_pvr_stats") as any).upsert({ pvr_id: pid, date, ...stats }, { onConflict: "pvr_id,date" }));
-          cnt++; continue;
+          pvrKeys.push({ eid, name: nm });
+          dailyPvrRows.push({ eid, name: nm, date, ...stats });
+          continue;
         }
-        if (ft === "daily_network") {
+
+        if (fileType === "daily_network") {
           if (!date) continue;
-          check("upsert daily_network_stats", await (supabase.from("daily_network_stats") as any).upsert({ date, ...stats }, { onConflict: "date" }));
-          cnt++; continue;
+          dailyNetworkRows.push({ date, ...stats });
+          continue;
         }
-        if (ft === "player_summary") {
-          const pid = await upPlayer(uname);
-          if (pid) check("upsert player_summary", await (supabase.from("daily_player_stats") as any).upsert({ player_id: pid, date: "2026-06-30", ...stats }, { onConflict: "player_id,date" }));
-          cnt++; continue;
-        }
+
         if (!uname || !date) continue;
-        const pid = await upPlayer(uname); if (!pid) continue;
-        if (ft === "daily_player_game") {
-          const prov = String(row["Provider"] || "").trim(), gn = String(row["GameName"] || "").trim();
+        usernames.push(uname);
+
+        if (fileType === "daily_player_game") {
+          const prov = String(col(row, ["Provider", "provider"]) || "").trim();
+          const gn = String(col(row, ["GameName", "game_name", "Gioco", "gioco"]) || "").trim();
           if (prov && gn) {
-            check("upsert game_types", await (supabase.from("game_types") as any).upsert({ provider: prov, game_name: gn }, { onConflict: "provider,game_name" }));
-            check("upsert daily_player_game_stats", await (supabase.from("daily_player_game_stats") as any).upsert({ player_id: pid, provider: prov, game_name: gn, date, ...stats }, { onConflict: "player_id,provider,game_name,date" }));
+            dailyGameRows.push({
+              username_normalized: normalizeUsername(uname),
+              provider: prov,
+              game_name: gn,
+              date,
+              ...stats,
+            });
           }
         } else {
-          check("upsert daily_player_stats", await (supabase.from("daily_player_stats") as any).upsert({ player_id: pid, date, ...stats }, { onConflict: "player_id,date" }));
+          dailyPlayerRows.push({ username_normalized: normalizeUsername(uname), date, ...stats });
         }
-        check("update player last_seen", await (supabase.from("players") as any).update({ last_seen_date: date }).eq("id", pid));
-        cnt++;
-        if (cnt % 100 === 0) setProgress(`${cnt} righe...`);
       }
 
-      check("insert excel_uploads", await (supabase.from("excel_uploads") as any).insert({ filename: file.name, status: "completed", rows_processed: cnt, file_type: ft }));
+      // Resolve players in one batch
+      const playerMap = await resolvePlayerIds(usernames);
+
+      // Resolve PVRs for daily_pvr
+      const pvrMap = new Map<string, string>();
+      if (pvrKeys.length > 0) {
+        const uniqueEids = [...new Set(pvrKeys.map((k) => k.eid))];
+        const { data: existingPvrs, error: pvrErr } = await supabase.from("pvrs").select("id, exalogic_id").in("exalogic_id", uniqueEids);
+        if (pvrErr) throw new Error(`lookup pvrs: ${pvrErr.message}`);
+        for (const p of existingPvrs || []) pvrMap.set(p.exalogic_id, p.id);
+
+        const missingEids = uniqueEids.filter((eid) => !pvrMap.has(eid));
+        if (missingEids.length > 0) {
+          const inserts = missingEids.map((eid) => {
+            const k = pvrKeys.find((x) => x.eid === eid);
+            return { exalogic_id: eid, name: k?.name || eid };
+          });
+          const { data: created, error: createErr } = await supabase.from("pvrs").insert(inserts).select("id, exalogic_id");
+          if (createErr) throw new Error(`insert pvrs: ${createErr.message}`);
+          for (const p of created || []) pvrMap.set(p.exalogic_id, p.id);
+        }
+      }
+
+      // Upsert tickets
+      if (ticketRows.length > 0) {
+        const upserts = ticketRows.map((r) => {
+          const player_id = playerMap.get(r.username_normalized);
+          if (!player_id) report.unmatched_players.push(r.username_normalized);
+          return { ...r, player_id: player_id || null };
+        });
+        await batchUpsert("tickets", upserts, "ticket_code", 500);
+      }
+
+      // Upsert daily_pvr_stats
+      if (dailyPvrRows.length > 0) {
+        const upserts = dailyPvrRows.map((r) => {
+          const pvr_id = pvrMap.get(r.eid);
+          if (!pvr_id) report.errors.push(`PVR non risolto: ${r.eid}`);
+          return { pvr_id: pvr_id || "", date: r.date, ...getStats(r) };
+        }).filter((r) => r.pvr_id);
+        await batchUpsert("daily_pvr_stats", upserts, "pvr_id,date", 500);
+      }
+
+      // Upsert daily_network_stats
+      if (dailyNetworkRows.length > 0) {
+        await batchUpsert("daily_network_stats", dailyNetworkRows, "date", 500);
+      }
+
+      // Upsert game types and daily_player_game_stats
+      if (dailyGameRows.length > 0) {
+        const gameTypes = [...new Map(dailyGameRows.map((r) => [`${r.provider}|${r.game_name}`, { provider: r.provider, game_name: r.game_name }])).values()];
+        await batchUpsert("game_types", gameTypes, "provider,game_name", 500);
+        const upserts = dailyGameRows.map((r) => {
+          const player_id = playerMap.get(r.username_normalized);
+          if (!player_id) report.unmatched_players.push(r.username_normalized);
+          return { player_id: player_id || "", provider: r.provider, game_name: r.game_name, date: r.date, ...getStats(r) };
+        }).filter((r) => r.player_id);
+        await batchUpsert("daily_player_game_stats", upserts, "player_id,provider,game_name,date", 500);
+      }
+
+      // Upsert daily_player_stats and update last_seen_date
+      if (dailyPlayerRows.length > 0) {
+        const upserts = dailyPlayerRows.map((r) => {
+          const player_id = playerMap.get(r.username_normalized);
+          if (!player_id) report.unmatched_players.push(r.username_normalized);
+          return { player_id: player_id || "", date: r.date, ...getStats(r) };
+        }).filter((r) => r.player_id);
+        await batchUpsert("daily_player_stats", upserts, "player_id,date", 500);
+
+        const seenMap = new Map<string, string>();
+        for (const r of dailyPlayerRows) {
+          const pid = playerMap.get(r.username_normalized);
+          if (!pid) continue;
+          const curr = seenMap.get(pid);
+          if (!curr || r.date > curr) seenMap.set(pid, r.date);
+        }
+        const updates = Array.from(seenMap.entries()).map(([id, date]) => ({ id, last_seen_date: date }));
+        await batchUpsert("players", updates, "id", 500);
+      }
+
+      const totalRows = ticketRows.length + dailyPvrRows.length + dailyNetworkRows.length + dailyGameRows.length + dailyPlayerRows.length;
+      await insertUploadRecord(file, fileHash, fileType, totalRows, "completed", "validated", report);
       setProgress("");
-      setMessage({ type: "success", text: `"${file.name}" → ${cnt} righe (${ft})` });
+      const unmatchedMsg = report.unmatched_players.length > 0 ? ` (${report.unmatched_players.length} giocatori non riconosciuti)` : "";
+      setMessage({ type: "success", text: `"${file.name}" → ${totalRows} righe (${fileType})${unmatchedMsg}` });
     } catch (err: unknown) {
-      setMessage({ type: "error", text: err instanceof Error ? err.message : String(err) });
+      const msg = err instanceof Error ? err.message : String(err);
+      try {
+        await insertUploadRecord(file, fileHash, fileType, 0, "error", null, report, msg);
+      } catch {}
+      setMessage({ type: "error", text: msg });
       setProgress("");
     } finally {
       setUploading(false);
@@ -204,7 +459,7 @@ export default function UploadPage() {
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault(); setDragOver(false);
-    Array.from(e.dataTransfer.files).filter(f => /\.(xlsx|xls|csv)$/i.test(f.name)).forEach(processFile);
+    Array.from(e.dataTransfer.files).filter((f) => /\.(xlsx|xls|csv)$/i.test(f.name)).forEach(processFile);
   }, []);
   const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     Array.from(e.target.files || []).forEach(processFile); e.target.value = "";
@@ -214,12 +469,12 @@ export default function UploadPage() {
     <div className="p-6 space-y-6">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <h1 className="text-2xl font-bold text-white">Importa Dati</h1>
-        <p className="text-text-secondary mt-1">Elaborazione diretta nel browser — nessun passaggio intermedio.</p>
+        <p className="text-text-secondary mt-1">Elaborazione diretta nel browser — solo dati reali da Excel/CSV.</p>
       </motion.div>
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
         className={cn("relative border-2 border-dashed rounded-xl p-12 text-center transition-all duration-200 cursor-pointer",
           dragOver ? "border-accent-purple bg-accent-purple/5" : "border-border-subtle hover:border-text-secondary/40 bg-bg-surface-elevated/50")}
-        onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop}
         onClick={() => document.getElementById("fx")?.click()}>
         <input id="fx" type="file" accept=".xlsx,.xls,.csv" multiple className="hidden" onChange={handleFileInput} />
         {uploading ? (
@@ -246,13 +501,13 @@ export default function UploadPage() {
           <div className="p-8 text-center text-text-secondary text-sm"><FileSpreadsheet className="w-8 h-8 mx-auto mb-2 opacity-40" />Nessun upload</div>
         ) : (
           <div className="divide-y divide-border-subtle">
-            {uploads.map(u => { const Icon = ICONS[u.status] || FileSpreadsheet; return (
+            {uploads.map((u) => { const Icon = ICONS[u.status] || FileSpreadsheet; return (
               <div key={u.id} className="px-5 py-3 flex items-center gap-3 hover:bg-white/[0.02]">
-                <Icon className={cn("w-5 h-5 flex-shrink-0", COLS[u.status] || "text-slate-400", (u.status === "processing"||u.status==="pending")?"animate-spin":"")} />
+                <Icon className={cn("w-5 h-5 flex-shrink-0", COLS[u.status] || "text-slate-400", (u.status === "processing" || u.status === "pending") ? "animate-spin" : "")} />
                 <div className="flex-1 min-w-0"><p className="text-sm text-white truncate">{u.filename}</p><p className="text-xs text-text-secondary">{u.file_type} · {u.rows_processed} righe · {new Date(u.uploaded_at).toLocaleDateString("it-IT")}</p></div>
-                <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", u.status==="completed"&&"bg-emerald-500/10 text-emerald-400", u.status==="processing"&&"bg-amber-500/10 text-amber-400", u.status==="error"&&"bg-red-500/10 text-red-400")}>{LABS[u.status]||u.status}</span>
+                <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", u.status === "completed" && "bg-emerald-500/10 text-emerald-400", u.status === "processing" && "bg-amber-500/10 text-amber-400", u.status === "error" && "bg-red-500/10 text-red-400")}>{LABS[u.status] || u.status}</span>
               </div>
-            )})}
+            ); })}
           </div>
         )}
       </motion.div>

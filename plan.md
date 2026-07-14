@@ -7,8 +7,7 @@ Costruire un MVP funzionante della piattaforma AI Decision Intelligence per DAZN
 - Mostra una **Executive Dashboard** completa con KPI reali, trend, ranking
 - Include **AI Briefing Panel** con criticita, opportunita, suggerimenti generati dai dati
 - Ha **Player Grid** virtuale con ricerca/filtri
-- Mostra **Health Score** per PVR e giocatori
-- Include **AI Copilot Chat** per interrogazione linguaggio naturale
+- Include **Assistente Analitico** per interrogazione linguaggio naturale (motore analitico locale, non LLM generativo)
 
 ## Architettura MVP (implementata)
 ```
@@ -18,10 +17,10 @@ Supabase (PostgreSQL) backend
 │   ├── src/
 │   │   ├── pages/         # Dashboard, Network, Players, Analytics, Copilot, Settings, Upload
 │   │   ├── components/    # Componenti UI
-│   │   └── lib/           # Supabase client, data layer, utilità
+│   │   └── lib/           # Supabase client, data layer, utilità, test
 │   └── public/            # Asset statici
 ├── automation/            # Script Playwright per download export Exalogic
-└── supabase/              # Progetto Supabase (tabelle, RLS)
+└── supabase/              # Migrazioni SQL e schema
 ```
 
 ## Dati Reali (da Excel)
@@ -37,27 +36,38 @@ Supabase (PostgreSQL) backend
 ### Stage 1: Data Preparation
 - Estrazione e pulizia dati dall'Excel reale
 - Conversione formato europeo → numerico
-- Generazione JSON strutturato per il data layer
-- Calcolo aggregazioni (KPI, trend, ranking)
-- Generazione mock PVR/Agenti/Area Manager realistico
+- Caricamento in Supabase tramite `/upload`
+- Calcolo aggregazioni (KPI, trend, ranking) dal database
 
-### Stage 2: AI Engine & Analytics Layer
-- Implementazione KPI engine (rake, bet, won, active players, delta)
-- Health Score algorithm (formula ponderata dal prompt)
+### Stage 2: Enterprise Realignment (completato)
+- Rimozione di tutti i dati sintetici da `data.ts`
+- Aggiunta tabelle `pvr_reference_map` e `player_username_aliases`
+- Aggiunta colonne reali su `players` (`pvr_id`, `pvr_ref_code`, `kyc_status`, `balance`, `withdrawable_balance`, `registration_date`, `username_normalized`)
+- Deduplicazione upload tramite hash SHA-256
+- Validazione `player_summary` contro `monthly_player_stats_v` (mai scritto in `daily_player_stats`)
+- Supporto import `players_master`
+- `won` letto sempre dalla colonna reale, mai calcolato come `bet - rake`
+- Health score disabilitato in attesa di formula approvata
+
+### Stage 3: AI Engine & Analytics Layer
+- Implementazione KPI engine (rake, bet, won, active players, delta) su dati reali
 - Anomaly detection (regole business + statistiche)
 - AI Briefing generator (criticità, opportunità, suggerimenti)
-- Copilot NLU (intent classification + query builder)
+- Assistente Analitico (intent classification + query builder locali)
 
-### Stage 3: Frontend Dashboard
+### Stage 4: Frontend Dashboard
 - Executive Dashboard (KPI cards, trend chart, briefing panel, alerts)
-- Network View (gerarchia Regioni → Area Manager → PVR → Agenti → Giocatori)
+- Network View (gerarchia Regioni → Area Manager → PVR → Giocatori; Agenti quando disponibili)
 - Player Grid (tabella virtuale con ricerca, filtri, export)
-- Analytics Page (confronto periodi, what-if)
-- Copilot Chat (interfaccia ChatGPT-style)
+- Analytics Page (confronto periodi reali, trend, what-if)
+- Assistente Analitico (interfaccia chat)
 - Settings Page
 
-### Stage 4: Deploy
+### Stage 5: Quality & Deploy
+- Vitest + test su helper puri
+- Typecheck e build passanti
 - Build e deploy su hosting statico
 
 ## Skill da Usare
-- `vibecoding-webapp-swarm` — per la costruzione dell'app Next.js
+- React 19 + Vite + TypeScript + Tailwind CSS
+- Supabase PostgreSQL + RLS

@@ -1,7 +1,12 @@
-// ─── Supabase-backed data layer ───
+// ─── Supabase-backed data layer (enterprise real-data only) ───
 import { supabase } from "./supabase";
 
-// ─── Type definitions (same interface as before) ───
+// ─── Type definitions ───
+
+export interface DateRange {
+  start?: string; // ISO date YYYY-MM-DD
+  end?: string;
+}
 
 export interface Region {
   id: number
@@ -22,34 +27,35 @@ export interface PVR {
   code: string
   name: string
   area_manager_id: number
-  address: string
-  city: string
-  cap: string
-  fido: number
-  fido_used: number
-  saldo: number
-  status: string
-  health_score: number
+  region_id: number
+  address: string | null
+  city: string | null
+  cap: string | null
+  fido: number | null
+  fido_used: number | null
+  saldo: number | null
+  status: string | null
+  health_score: number | null
   created_at: string
 }
 
-// Player summary from DB (aggregated from daily_player_stats)
 export interface Player {
   id: string
   username: string
-  first_name: string
-  last_name: string
-  fiscal_code: string
-  email: string
-  phone: string
-  address: string
-  city: string
+  first_name: string | null
+  last_name: string | null
+  fiscal_code: string | null
+  email: string | null
+  phone: string | null
+  address: string | null
+  city: string | null
   pvr_id: string | null
-  agent_id: number
-  registration_date: string
-  last_activity_date: string
-  status: string
-  health_score: number
+  pvr_ref_code: string | null
+  agent_id: number | null
+  registration_date: string | null
+  last_activity_date: string | null
+  status: string | null
+  health_score: number | null
   total_buy_in: number
   total_bet: number
   total_won: number
@@ -112,7 +118,7 @@ export interface RankingPVR {
   total_rake: number
   total_bet: number
   active_players: number
-  health_score: number
+  health_score: number | null
 }
 
 export interface Alert {
@@ -167,6 +173,7 @@ export interface Metadata {
 export interface MonthlyAggregates {
   rake: number
   bet: number
+  won: number
   active_players: number
 }
 
@@ -191,46 +198,47 @@ export interface DaznBetData {
   briefing: Briefing
 }
 
-// ─── Fresh data fetch (no cache for enterprise — always live) ───
+// ─── Helpers ───
 
-async function fetchDailyStats(): Promise<DailyStat[]> {
-  const { data } = await supabase
-    .from("daily_player_stats")
-    .select(`
-      id,
-      player_id,
-      players!inner(username),
-      date, buy_in, bet, won, rake
-    `)
-    .order("date", { ascending: false });
-
-  return (data || []).map((row: any) => ({
-    id: row.id,
-    player_id: row.player_id,
-    username: row.players?.username || "",
-    date: row.date,
-    buy_in: Number(row.buy_in) || 0,
-    bet: Number(row.bet) || 0,
-    won: Number(row.won) || 0,
-    rake: Number(row.rake) || 0,
-    payout: Number(row.bet) > 0 ? (Number(row.won) / Number(row.bet)) * 100 : 0,
-    pvr_id: null,
-    created_at: row.created_at,
-  }));
+function applyDateRange<T extends { date: string }>(
+  q: ReturnType<typeof supabase.from>,
+  range: DateRange | undefined,
+  tableDateColumn = "date"
+) {
+  // Note: this helper is used only when callers build queries manually.
+  // Most queries below apply range inline via chainable filters.
+  return q;
 }
 
-export async function loadData(): Promise<DaznBetData> {
-  const metadata = await fetchMetadata();
-  const network = await fetchNetworkHierarchy();
-  const [dailyKpis, dailyStats, rankings, alerts, briefing] = await Promise.all([
-    fetchDailyKpis(),
-    fetchDailyStats(),
-    fetchRankings(),
-    fetchAlerts(),
-    fetchBriefing(),
+function toNumber(v: unknown): number {
+  const n = typeof v === "string" ? Number(v.replace(/,/g, ".")) : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizeUsername(s: string): string {
+  return s.trim().toLowerCase();
+}
+
+function playerStatus(activeDays: number): string {
+  if (activeDays >= 3) return "active";
+  if (activeDays >= 1) return "warning";
+  return "inactive";
+}
+
+// ─── Main loader ───
+
+export async function loadData(range?: DateRange): Promise<DaznBetData> {
+  const metadata = await fetchMetadata(range);
+  const network = await fetchNetworkHierarchy(range);
+  const [dailyKpis, dailyStats, rankings, alerts, briefing, monthlyAggs] = await Promise.all([
+    fetchDailyKpis(range),
+    fetchDailyStats(range),
+    fetchRankings(range),
+    fetchAlerts(range),
+    fetchBriefing(range),
+    fetchMonthlyAggregates(range),
   ]);
-  const players = await fetchPlayers(network.pvrs, network.agents);
-  const monthlyAggs = await fetchMonthlyAggregates();
+  const players = await fetchPlayers(network.pvrs, range);
 
   const totalRake = monthlyAggs.rake;
   const sortedPlayers = [...players].sort((a, b) => b.total_rake - a.total_rake);
@@ -267,11 +275,14 @@ export async function loadData(): Promise<DaznBetData> {
 
 // ─── Individual fetchers ───
 
-async function fetchMetadata(): Promise<Metadata> {
-  const { data: networkData } = await supabase
+async function fetchMetadata(range?: DateRange): Promise<Metadata> {
+  let networkQ = supabase
     .from("daily_network_stats")
     .select("date")
     .order("date", { ascending: true });
+  if (range?.start) networkQ = networkQ.gte("date", range.start);
+  if (range?.end) networkQ = networkQ.lte("date", range.end);
+  const { data: networkData } = await networkQ;
 
   const { count: playerCount } = await supabase
     .from("players")
@@ -281,9 +292,12 @@ async function fetchMetadata(): Promise<Metadata> {
     .from("pvrs")
     .select("*", { count: "exact", head: true });
 
-  const { count: statsCount } = await supabase
+  let statsQ = supabase
     .from("daily_player_stats")
     .select("*", { count: "exact", head: true });
+  if (range?.start) statsQ = statsQ.gte("date", range.start);
+  if (range?.end) statsQ = statsQ.lte("date", range.end);
+  const { count: statsCount } = await statsQ;
 
   const days = (networkData || []) as Array<{ date: string }>;
   const periodStart = days.length > 0 ? days[0].date : "";
@@ -305,7 +319,7 @@ async function fetchMetadata(): Promise<Metadata> {
   };
 }
 
-async function fetchNetworkHierarchy(): Promise<{
+async function fetchNetworkHierarchy(range?: DateRange): Promise<{
   pvrs: PVR[];
   regions: Region[];
   area_managers: AreaManager[];
@@ -313,14 +327,6 @@ async function fetchNetworkHierarchy(): Promise<{
 }> {
   const { data } = await supabase.from("pvrs").select("*").order("name");
   const rawPvrs = (data || []) as Array<Record<string, unknown>>;
-
-  const regionPool = ["Lombardia", "Toscana", "Veneto", "Lazio", "Campania", "Sicilia"];
-  const amPool = ["Matteo Dossena", "Marco Rossi", "Laura Bianchi", "Giuseppe Verdi", "Anna Neri", "Paolo Fontana"];
-  for (const p of rawPvrs) {
-    if (!p.region) p.region = regionPool[hashString(p.name as string) % regionPool.length];
-    const regionIndex = regionPool.indexOf(p.region as string);
-    if (!p.area_manager) p.area_manager = amPool[regionIndex >= 0 ? regionIndex : hashString(p.name as string) % amPool.length];
-  }
 
   const regionNames = Array.from(new Set(rawPvrs.map((p) => p.region as string).filter(Boolean)));
   const amNames = Array.from(new Set(rawPvrs.map((p) => p.area_manager as string).filter(Boolean)));
@@ -353,96 +359,87 @@ async function fetchNetworkHierarchy(): Promise<{
   const pvrs: PVR[] = rawPvrs.map((p) => {
     const am = areaManagers.find((am) => am.name === p.area_manager);
     const region = regions.find((r) => r.name === p.region);
-    const fido = 10000 + (hashString(p.name as string) % 40000);
-    const fidoUsed = Math.min(fido, Math.max(0, Number(p.rake) || 0) * 2 + (hashString(p.name as string) % 5000));
-    let health = 50 + Math.min(30, (Number(p.rake) || 0) / 1000) + Math.min(20, (fidoUsed / fido) * 30);
-    health = Math.min(100, Math.max(0, health));
     return {
       id: p.id as string,
-      code: p.exalogic_id as string,
+      code: (p.exalogic_id as string) || "",
       name: p.name as string,
       area_manager_id: am?.id || 0,
-      address: "",
-      city: region?.name || "",
-      cap: "",
-      fido,
-      fido_used: fidoUsed,
-      saldo: fido - fidoUsed,
+      region_id: region?.id || 0,
+      address: null,
+      city: null,
+      cap: null,
+      fido: null,
+      fido_used: null,
+      saldo: null,
       status: "active",
-      health_score: health,
-      created_at: p.created_at as string,
+      health_score: null,
+      created_at: (p.created_at as string) || new Date().toISOString(),
     };
   });
 
+  // No synthetic agents until a real agent data source is introduced.
   const agents: Agent[] = [];
-  const firstNames = ["Marco", "Laura", "Giuseppe", "Anna", "Paolo", "Matteo", "Roberta", "Luca", "Sara", "Davide"];
-  const lastNames = ["Rossi", "Bianchi", "Verdi", "Neri", "Fontana", "Dossena", "Ferrari", "Russo", "Galli", "Conti"];
-  for (const pvr of pvrs) {
-    const count = 1 + (hashString(pvr.name) % 2);
-    for (let i = 0; i < count; i++) {
-      const fn = firstNames[hashString(pvr.name + i) % firstNames.length];
-      const ln = lastNames[hashString(pvr.name + i + 1) % lastNames.length];
-      agents.push({
-        id: agents.length + 1,
-        code: `AG${String(agents.length + 1).padStart(3, "0")}`,
-        name: `${fn} ${ln}`,
-        pvr_id: pvr.id,
-        email: `${fn.toLowerCase()}.${ln.toLowerCase()}@daznbet.it`,
-        phone: "",
-        commission_rate: 5 + (hashString(pvr.name + i) % 11),
-        created_at: pvr.created_at,
-      });
-    }
-  }
 
   return { pvrs, regions, area_managers: areaManagers, agents };
 }
 
-function hashString(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h << 5) - h + s.charCodeAt(i);
-  return Math.abs(h);
-}
+async function fetchPlayers(pvrs: PVR[], range?: DateRange): Promise<Player[]> {
+  // 1. Player metadata (real PVR mapping from players_master / pvr_reference_map)
+  const { data: playersData, error: playersError } = await supabase
+    .from("players")
+    .select("id, username, pvr_id, pvr_ref_code, email, registration_date, created_at, updated_at");
+  if (playersError) throw playersError;
 
-async function fetchPlayers(pvrs: PVR[], agents: Agent[]): Promise<Player[]> {
-  const { data: stats } = await supabase
+  const playerMeta = new Map<
+    string,
+    {
+      username: string;
+      pvr_id: string | null;
+      pvr_ref_code: string | null;
+      email: string | null;
+      registration_date: string | null;
+      created_at: string;
+      updated_at: string;
+    }
+  >();
+  for (const p of playersData || []) {
+    playerMeta.set(p.id, {
+      username: p.username || "",
+      pvr_id: p.pvr_id,
+      pvr_ref_code: p.pvr_ref_code,
+      email: p.email,
+      registration_date: p.registration_date ? p.registration_date.split("T")[0] : null,
+      created_at: p.created_at || new Date().toISOString(),
+      updated_at: p.updated_at || p.created_at || new Date().toISOString(),
+    });
+  }
+
+  // 2. Aggregated daily stats per player
+  let statsQ = supabase
     .from("daily_player_stats")
-    .select(`
-      player_id,
-      players!inner(username),
-      date, buy_in, bet, won, rake
-    `);
+    .select("player_id, date, buy_in, bet, won, rake");
+  if (range?.start) statsQ = statsQ.gte("date", range.start);
+  if (range?.end) statsQ = statsQ.lte("date", range.end);
+  const { data: stats, error: statsError } = await statsQ;
+  if (statsError) throw statsError;
 
-  const rows = (stats || []) as Array<{
-    player_id: string;
-    players: { username: string } | { username: string }[];
-    date: string;
-    buy_in: number;
-    bet: number;
-    won: number;
-    rake: number;
-  }>;
+  const agg = new Map<
+    string,
+    {
+      total_buy_in: number;
+      total_bet: number;
+      total_won: number;
+      total_rake: number;
+      days: Set<string>;
+      minDate: string | null;
+      maxDate: string | null;
+    }
+  >();
 
-  const playerMap = new Map<string, {
-    username: string;
-    total_buy_in: number;
-    total_bet: number;
-    total_won: number;
-    total_rake: number;
-    days: Set<string>;
-    minDate: string | null;
-    maxDate: string | null;
-  }>();
-
-  for (const row of rows) {
+  for (const row of stats || []) {
     const pid = row.player_id;
-    const playersVal = row.players;
-    const username = Array.isArray(playersVal) ? (playersVal[0]?.username || "") : (playersVal?.username || "");
-    const date = row.date;
-
-    if (!playerMap.has(pid)) {
-      playerMap.set(pid, {
-        username,
+    if (!agg.has(pid)) {
+      agg.set(pid, {
         total_buy_in: 0,
         total_bet: 0,
         total_won: 0,
@@ -452,104 +449,178 @@ async function fetchPlayers(pvrs: PVR[], agents: Agent[]): Promise<Player[]> {
         maxDate: null,
       });
     }
-    const p = playerMap.get(pid)!;
-    p.total_buy_in += Number(row.buy_in) || 0;
-    p.total_bet += Number(row.bet) || 0;
-    p.total_won += Number(row.won) || 0;
-    p.total_rake += Number(row.rake) || 0;
-    if (date) {
-      p.days.add(date);
-      if (!p.minDate || date < p.minDate) p.minDate = date;
-      if (!p.maxDate || date > p.maxDate) p.maxDate = date;
+    const p = agg.get(pid)!;
+    p.total_buy_in += toNumber(row.buy_in);
+    p.total_bet += toNumber(row.bet);
+    p.total_won += toNumber(row.won);
+    p.total_rake += toNumber(row.rake);
+    if (row.date) {
+      p.days.add(row.date);
+      if (!p.minDate || row.date < p.minDate) p.minDate = row.date;
+      if (!p.maxDate || row.date > p.maxDate) p.maxDate = row.date;
     }
   }
 
-  return Array.from(playerMap.entries()).map(([pid, p]) => {
-    const avgPayout = p.total_bet > 0 ? (p.total_won / p.total_bet) * 100 : 0;
-    let health = 50 + Math.min(30, p.days.size) + Math.min(20, p.total_rake / 500);
-    if (avgPayout > 100) health -= 15;
-    health = Math.min(100, Math.max(0, health));
+  // 3. Also include players present in master data even with no daily stats
+  for (const [pid, meta] of playerMeta) {
+    if (!agg.has(pid)) {
+      agg.set(pid, {
+        total_buy_in: 0,
+        total_bet: 0,
+        total_won: 0,
+        total_rake: 0,
+        days: new Set(),
+        minDate: meta.registration_date,
+        maxDate: null,
+      });
+    }
+  }
 
-    const assignedPvr = pvrs.length > 0 ? pvrs[hashString(p.username) % pvrs.length] : null;
-    const pvrAgents = assignedPvr ? agents.filter((a) => a.pvr_id === assignedPvr.id) : [];
-    const assignedAgent = pvrAgents.length > 0
-      ? pvrAgents[hashString(p.username + "agent") % pvrAgents.length]
-      : null;
+  return Array.from(agg.entries()).map(([pid, p]) => {
+    const meta = playerMeta.get(pid);
+    const username = meta?.username || `player-${pid.slice(0, 8)}`;
+    const avgPayout = p.total_bet > 0 ? (p.total_won / p.total_bet) * 100 : 0;
+    const activeDays = p.days.size;
 
     return {
       id: pid,
-      username: p.username,
-      first_name: "",
-      last_name: "",
-      fiscal_code: "",
-      email: "",
-      phone: "",
-      address: "",
-      city: "",
-      pvr_id: assignedPvr?.id || null,
-      agent_id: assignedAgent?.id || 0,
-      registration_date: p.minDate || "",
-      last_activity_date: p.maxDate || "",
-      status: p.days.size >= 3 ? "active" : "warning",
-      health_score: health,
+      username,
+      first_name: null,
+      last_name: null,
+      fiscal_code: null,
+      email: meta?.email || null,
+      phone: null,
+      address: null,
+      city: null,
+      pvr_id: meta?.pvr_id || null,
+      pvr_ref_code: meta?.pvr_ref_code || null,
+      agent_id: null,
+      registration_date: meta?.registration_date || p.minDate,
+      last_activity_date: p.maxDate,
+      status: playerStatus(activeDays),
+      health_score: null,
       total_buy_in: p.total_buy_in,
       total_bet: p.total_bet,
       total_won: p.total_won,
       total_rake: p.total_rake,
       avg_payout: avgPayout,
-      active_days: p.days.size,
-      created_at: p.minDate || "",
-      updated_at: p.maxDate || "",
+      active_days: activeDays,
+      created_at: meta?.created_at || p.minDate || new Date().toISOString(),
+      updated_at: meta?.updated_at || p.maxDate || new Date().toISOString(),
     };
   });
 }
 
-async function fetchDailyKpis(): Promise<DailyKPI[]> {
-  const { data } = await supabase
-    .from("daily_network_stats")
-    .select("*")
-    .order("date", { ascending: true });
-
-  const { data: activeData } = await supabase
+async function fetchDailyStats(range?: DateRange): Promise<DailyStat[]> {
+  let q = supabase
     .from("daily_player_stats")
-    .select("date, player_id");
+    .select(`
+      id,
+      player_id,
+      players!inner(username, pvr_id),
+      date, buy_in, bet, won, rake
+    `)
+    .order("date", { ascending: false });
+  if (range?.start) q = q.gte("date", range.start);
+  if (range?.end) q = q.lte("date", range.end);
+  const { data, error } = await q;
+  if (error) throw error;
 
-  const activeMap = new Map<string, Set<string>>();
-  const betsMap = new Map<string, number>();
-  for (const row of (activeData || []) as Array<{ date: string; player_id: string }>) {
-    if (!activeMap.has(row.date)) activeMap.set(row.date, new Set());
-    activeMap.get(row.date)!.add(row.player_id);
-    betsMap.set(row.date, (betsMap.get(row.date) || 0) + 1);
-  }
-
-  return (data || []).map((d: Record<string, unknown>) => ({
-    date: d.date as string,
-    total_buy_in: Number(d.buy_in) || 0,
-    total_bet: Number(d.bet) || 0,
-    total_won: Number(d.won) || 0,
-    total_rake: Number(d.rake) || 0,
-    avg_payout: Number(d.bet) > 0 ? (Number(d.won) / Number(d.bet)) * 100 : 0,
-    active_players: activeMap.get(d.date as string)?.size || 0,
-    total_bets_count: betsMap.get(d.date as string) || 0,
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    player_id: row.player_id,
+    username: row.players?.username || "",
+    date: row.date,
+    buy_in: toNumber(row.buy_in),
+    bet: toNumber(row.bet),
+    won: toNumber(row.won),
+    rake: toNumber(row.rake),
+    payout: toNumber(row.bet) > 0 ? (toNumber(row.won) / toNumber(row.bet)) * 100 : 0,
+    pvr_id: row.players?.pvr_id || null,
+    created_at: row.created_at,
   }));
 }
 
-async function fetchMonthlyAggregates(): Promise<MonthlyAggregates> {
-  const { data } = await supabase
+async function fetchDailyKpis(range?: DateRange): Promise<DailyKPI[]> {
+  let netQ = supabase
     .from("daily_network_stats")
-    .select("bet, rake");
+    .select("*")
+    .order("date", { ascending: true });
+  if (range?.start) netQ = netQ.gte("date", range.start);
+  if (range?.end) netQ = netQ.lte("date", range.end);
+  const { data: networkData, error: netErr } = await netQ;
+  if (netErr) throw netErr;
 
-  if (!data || data.length === 0) return { rake: 0, bet: 0, active_players: 0 };
-
-  const totalBet = data.reduce((sum: number, d: Record<string, unknown>) => sum + (Number(d.bet) || 0), 0);
-  const totalRake = data.reduce((sum: number, d: Record<string, unknown>) => sum + (Number(d.rake) || 0), 0);
-
-  const { data: activeData } = await supabase
+  let activeQ = supabase
     .from("daily_player_stats")
     .select("date, player_id");
+  if (range?.start) activeQ = activeQ.gte("date", range.start);
+  if (range?.end) activeQ = activeQ.lte("date", range.end);
+  const { data: activeData, error: activeErr } = await activeQ;
+  if (activeErr) throw activeErr;
 
   const activeMap = new Map<string, Set<string>>();
-  for (const row of (activeData || []) as Array<{ date: string; player_id: string }>) {
+  for (const row of activeData || []) {
+    if (!activeMap.has(row.date)) activeMap.set(row.date, new Set());
+    activeMap.get(row.date)!.add(row.player_id);
+  }
+
+  // Real bet count from tickets when available
+  let ticketsQ = supabase
+    .from("tickets")
+    .select("emission_date");
+  if (range?.start) ticketsQ = ticketsQ.gte("emission_date", range.start);
+  if (range?.end) ticketsQ = ticketsQ.lte("emission_date", range.end);
+  const { data: ticketsData, error: ticketsErr } = await ticketsQ;
+  if (ticketsErr) throw ticketsErr;
+
+  const betsMap = new Map<string, number>();
+  for (const row of ticketsData || []) {
+    const date = row.emission_date;
+    if (!date) continue;
+    betsMap.set(date, (betsMap.get(date) || 0) + 1);
+  }
+
+  return (networkData || []).map((d: Record<string, unknown>) => {
+    const date = d.date as string;
+    const bet = toNumber(d.bet);
+    const won = toNumber(d.won);
+    return {
+      date,
+      total_buy_in: toNumber(d.buy_in),
+      total_bet: bet,
+      total_won: won,
+      total_rake: toNumber(d.rake),
+      avg_payout: bet > 0 ? (won / bet) * 100 : 0,
+      active_players: activeMap.get(date)?.size || 0,
+      total_bets_count: betsMap.get(date) || 0,
+    };
+  });
+}
+
+async function fetchMonthlyAggregates(range?: DateRange): Promise<MonthlyAggregates> {
+  let q = supabase.from("daily_network_stats").select("bet, rake, won");
+  if (range?.start) q = q.gte("date", range.start);
+  if (range?.end) q = q.lte("date", range.end);
+  const { data, error } = await q;
+  if (error) throw error;
+
+  if (!data || data.length === 0) return { rake: 0, bet: 0, won: 0, active_players: 0 };
+
+  const totalBet = data.reduce((sum, d) => sum + toNumber(d.bet), 0);
+  const totalRake = data.reduce((sum, d) => sum + toNumber(d.rake), 0);
+  const totalWon = data.reduce((sum, d) => sum + toNumber(d.won), 0);
+
+  let activeQ = supabase
+    .from("daily_player_stats")
+    .select("date, player_id");
+  if (range?.start) activeQ = activeQ.gte("date", range.start);
+  if (range?.end) activeQ = activeQ.lte("date", range.end);
+  const { data: activeData, error: activeErr } = await activeQ;
+  if (activeErr) throw activeErr;
+
+  const activeMap = new Map<string, Set<string>>();
+  for (const row of activeData || []) {
     if (!activeMap.has(row.date)) activeMap.set(row.date, new Set());
     activeMap.get(row.date)!.add(row.player_id);
   }
@@ -558,66 +629,104 @@ async function fetchMonthlyAggregates(): Promise<MonthlyAggregates> {
     ? Array.from(activeMap.values()).reduce((sum, s) => sum + s.size, 0) / activeMap.size
     : 0;
 
-  return { rake: totalRake, bet: totalBet, active_players: avgActive };
+  return { rake: totalRake, bet: totalBet, won: totalWon, active_players: avgActive };
 }
 
-async function fetchRankings(): Promise<Rankings> {
-  const { data: playerStats } = await supabase
+async function fetchRankings(range?: DateRange): Promise<Rankings> {
+  // Player rankings
+  let playerQ = supabase
     .from("daily_player_stats")
     .select(`
       player_id,
-      players!inner(username),
+      players!inner(username, pvr_id),
       date, rake, bet
     `);
+  if (range?.start) playerQ = playerQ.gte("date", range.start);
+  if (range?.end) playerQ = playerQ.lte("date", range.end);
+  const { data: playerStats, error: playerErr } = await playerQ;
+  if (playerErr) throw playerErr;
 
-  // Aggregate by player
-  const playerAgg = new Map<string, { username: string; rake: number; bet: number; days: Set<string> }>();
-  for (const row of (playerStats || []) as any[]) {
+  const playerAgg = new Map<
+    string,
+    { username: string; rake: number; bet: number; days: Set<string>; pvr_id: string | null }
+  >();
+  for (const row of playerStats || []) {
     const pid = row.player_id as string;
-    const username = (row.players as { username: string })?.username || "";
-    const date = (row as any).date as string;
+    const username = row.players?.username || "";
+    const pvrId = row.players?.pvr_id || null;
+    const date = row.date as string;
 
     if (!playerAgg.has(pid)) {
-      playerAgg.set(pid, { username, rake: 0, bet: 0, days: new Set() });
+      playerAgg.set(pid, { username, rake: 0, bet: 0, days: new Set(), pvr_id: pvrId });
     }
     const p = playerAgg.get(pid)!;
-    p.rake += Number(row.rake) || 0;
-    p.bet += Number(row.bet) || 0;
+    p.rake += toNumber(row.rake);
+    p.bet += toNumber(row.bet);
     if (date) p.days.add(date);
+    // Keep latest known PVR if multiple
+    if (pvrId) p.pvr_id = pvrId;
   }
 
-  const playersByRake = Array.from(playerAgg.entries())
-    .sort((a, b) => b[1].rake - a[1].rake)
-    .slice(0, 20)
-    .map(([, p], i) => ({
-      rank: i + 1,
-      username: p.username,
-      total_rake: p.rake,
-      total_bet: p.bet,
-      active_days: p.days.size,
-      pvr_id: null,
-    }));
+  const makePlayerRanking = (entries: Array<[string, typeof playerAgg extends Map<string, infer V> ? V : never]>) =>
+    entries
+      .slice(0, 20)
+      .map(([pid, p], i) => ({
+        rank: i + 1,
+        username: p.username || `player-${pid.slice(0, 8)}`,
+        total_rake: p.rake,
+        total_bet: p.bet,
+        active_days: p.days.size,
+        pvr_id: p.pvr_id,
+      }));
 
-  const playersByBet = [...playersByRake]
-    .sort((a, b) => b.total_bet - a.total_bet);
+  const byRake = makePlayerRanking(
+    Array.from(playerAgg.entries()).sort((a, b) => b[1].rake - a[1].rake)
+  );
+  const byBet = makePlayerRanking(
+    Array.from(playerAgg.entries()).sort((a, b) => b[1].bet - a[1].bet)
+  );
 
   // PVR rankings
-  const { data: pvrStats } = await supabase
+  let pvrQ = supabase
     .from("daily_pvr_stats")
     .select(`
       pvr_id,
       pvrs!inner(name),
       rake, bet
     `);
+  if (range?.start) pvrQ = pvrQ.gte("date", range.start);
+  if (range?.end) pvrQ = pvrQ.lte("date", range.end);
+  const { data: pvrStats, error: pvrErr } = await pvrQ;
+  if (pvrErr) throw pvrErr;
 
   const pvrAgg = new Map<string, { name: string; rake: number; bet: number }>();
-  for (const row of (pvrStats || []) as any[]) {
+  for (const row of pvrStats || []) {
     const pid = row.pvr_id as string;
-    const name = (row.pvrs as { name: string })?.name || "";
+    const name = row.pvrs?.name || "";
     if (!pvrAgg.has(pid)) pvrAgg.set(pid, { name, rake: 0, bet: 0 });
     const p = pvrAgg.get(pid)!;
-    p.rake += Number(row.rake) || 0;
-    p.bet += Number(row.bet) || 0;
+    p.rake += toNumber(row.rake);
+    p.bet += toNumber(row.bet);
+  }
+
+  // Active players per PVR (from player daily stats joined to players.pvr_id)
+  let activePvrQ = supabase
+    .from("daily_player_stats")
+    .select(`
+      date,
+      players!inner(pvr_id)
+    `);
+  if (range?.start) activePvrQ = activePvrQ.gte("date", range.start);
+  if (range?.end) activePvrQ = activePvrQ.lte("date", range.end);
+  const { data: activePvrData, error: activePvrErr } = await activePvrQ;
+  if (activePvrErr) throw activePvrErr;
+
+  const pvrActiveMap = new Map<string, Set<string>>();
+  for (const row of activePvrData || []) {
+    const pvrId = row.players?.pvr_id;
+    if (!pvrId) continue;
+    if (!pvrActiveMap.has(pvrId)) pvrActiveMap.set(pvrId, new Set());
+    pvrActiveMap.get(pvrId)!.add(row.date + "|" + (row as any).player_id);
   }
 
   const topPvrs = Array.from(pvrAgg.entries())
@@ -629,39 +738,41 @@ async function fetchRankings(): Promise<Rankings> {
       pvr_name: p.name,
       total_rake: p.rake,
       total_bet: p.bet,
-      active_players: 0,
-      health_score: 75,
+      active_players: pvrActiveMap.get(pid)?.size || 0,
+      health_score: null as number | null,
     }));
 
   return {
-    top_players_by_rake: playersByRake,
-    top_players_by_bet: playersByBet,
+    top_players_by_rake: byRake,
+    top_players_by_bet: byBet,
     top_pvrs: topPvrs,
   };
 }
 
-async function fetchAlerts(): Promise<Alert[]> {
-  // Generate alerts from real data
+async function fetchAlerts(range?: DateRange): Promise<Alert[]> {
   const alerts: Alert[] = [];
 
-  // Negative rake days
-  const { data: networkStats } = await supabase
+  let q = supabase
     .from("daily_network_stats")
     .select("date, rake")
     .lt("rake", 0)
     .order("date", { ascending: false });
+  if (range?.start) q = q.gte("date", range.start);
+  if (range?.end) q = q.lte("date", range.end);
+  const { data: networkStats, error } = await q;
+  if (error) throw error;
 
-  for (const row of (networkStats || []) as any[]) {
+  for (const row of networkStats || []) {
     alerts.push({
       id: alerts.length + 1,
       type: "negative_rake",
       category: "Critico",
       title: `Rake negativo il ${row.date}`,
-      description: `Rake giornaliero di ${formatCurrency(Number(row.rake))}`,
+      description: `Rake giornaliero di ${formatCurrency(toNumber(row.rake))}`,
       severity: "high",
       date: row.date as string,
       metric: "rake",
-      value: Number(row.rake),
+      value: toNumber(row.rake),
       status: "active",
     });
   }
@@ -669,47 +780,56 @@ async function fetchAlerts(): Promise<Alert[]> {
   return alerts;
 }
 
-async function fetchBriefing(): Promise<Briefing> {
+async function fetchBriefing(range?: DateRange): Promise<Briefing> {
   const today = new Date().toISOString().split("T")[0];
-
-  // AI Briefing generated from real data
   const criticals: BriefingItem[] = [];
   const opportunities: BriefingItem[] = [];
   const suggestions: BriefingItem[] = [];
 
-  // Get negative rake days
-  const { data: negDays } = await supabase
+  let negQ = supabase
     .from("daily_network_stats")
     .select("date, rake")
     .lt("rake", 0)
     .order("rake", { ascending: true })
     .limit(1);
+  if (range?.start) negQ = negQ.gte("date", range.start);
+  if (range?.end) negQ = negQ.lte("date", range.end);
+  const { data: negDays, error: negErr } = await negQ;
+  if (negErr) throw negErr;
 
   if (negDays && negDays.length > 0) {
-    const worst = negDays[0] as any;
+    const worst = negDays[0];
     criticals.push({
       id: 1,
       title: `Giornata peggiore: rake negativo`,
-      description: `${worst.date}: rake di ${formatCurrency(Number(worst.rake))}`,
+      description: `${worst.date}: rake di ${formatCurrency(toNumber(worst.rake))}`,
       severity: "high",
-      value: Number(worst.rake),
+      value: toNumber(worst.rake),
       metric: "rake",
     });
   }
 
-  // Top player
-  const { data: topPlayer } = await supabase
+  // Top player by aggregated rake
+  let topQ = supabase
     .from("daily_player_stats")
-    .select("players!inner(username), rake")
-    .order("rake", { ascending: false })
-    .limit(1);
+    .select("player_id, players!inner(username), rake");
+  if (range?.start) topQ = topQ.gte("date", range.start);
+  if (range?.end) topQ = topQ.lte("date", range.end);
+  const { data: topPlayerRows, error: topErr } = await topQ;
+  if (topErr) throw topErr;
 
-  if (topPlayer && topPlayer.length > 0) {
-    // Actually need aggregation, but this gives us a sense
+  const topAgg = new Map<string, { username: string; rake: number }>();
+  for (const row of topPlayerRows || []) {
+    const pid = row.player_id;
+    if (!topAgg.has(pid)) topAgg.set(pid, { username: row.players?.username || "", rake: 0 });
+    topAgg.get(pid)!.rake += toNumber(row.rake);
+  }
+  const topPlayer = Array.from(topAgg.entries()).sort((a, b) => b[1].rake - a[1].rake)[0];
+  if (topPlayer) {
     opportunities.push({
       id: 1,
       title: "Top player identificato",
-      description: `${(topPlayer[0] as any).players?.username || "N/A"} è il miglior giocatore`,
+      description: `${topPlayer[1].username} è il miglior giocatore per rake`,
       severity: "info",
     });
   }
@@ -751,7 +871,7 @@ export function getTotalBet(): number {
 }
 
 export function getTotalWon(): number {
-  return getTotalBet() - getTotalRake();
+  return getData().monthly_aggregates.won;
 }
 
 export function getAvgActivePlayersPerDay(): number {
@@ -823,10 +943,10 @@ export function getPvrName(pvrId: string | null): string {
   return pvr ? pvr.name : `PVR ${pvrId}`;
 }
 
-export function getPlayerStatus(healthScore: number): { label: string; color: string } {
-  if (healthScore >= 75) return { label: "Attivo", color: "positive" };
-  if (healthScore >= 50) return { label: "A Rischio", color: "warning" };
-  return { label: "Critico", color: "negative" };
+export function getPlayerStatus(_healthScore: number | null): { label: string; color: string } {
+  // Kept for compatibility; health_score is no longer generated.
+  // Default to active/positive until an approved scoring formula is implemented.
+  return { label: "Attivo", color: "positive" };
 }
 
 // ─── Singleton exports for compatibility ───
@@ -848,7 +968,7 @@ export const dataStore = {
   get daily_kpis() { return cachedData?.daily_kpis ?? []; },
   get daily_stats() { return cachedData?.daily_stats ?? []; },
   get monthly_aggregates() {
-    return cachedData?.monthly_aggregates ?? { rake: 0, bet: 0, active_players: 0 };
+    return cachedData?.monthly_aggregates ?? { rake: 0, bet: 0, won: 0, active_players: 0 };
   },
   get rankings() {
     return cachedData?.rankings ?? { top_players_by_rake: [], top_players_by_bet: [], top_pvrs: [] };
