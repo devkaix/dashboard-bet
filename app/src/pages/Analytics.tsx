@@ -531,19 +531,16 @@ export default function AnalyticsPage() {
     })
   }, [data])
 
-  // PVR distribution
+  // PVR distribution - official source: daily_pvr_stats (file 9)
   const pvrDist = useMemo(() => {
     if (!data) return []
-    const map = new Map<string, { name: string; rake: number; bet: number }>()
-    data.players.forEach((p) => {
-      const pvrId = p.pvr_id || ''
-      const pvr = data.pvrs.find((v) => v.id === p.pvr_id)
-      const existing = map.get(pvrId) || { name: pvr?.name || `PVR ${pvrId}`, rake: 0, bet: 0 }
-      existing.rake += p.total_rake
-      existing.bet += p.total_bet
-      map.set(pvrId, existing)
-    })
-    return Array.from(map.values())
+    const totals = dataStore.pvr_totals
+    const pvrs = data.pvrs
+    return Object.entries(totals)
+      .map(([pvrId, t]) => {
+        const pvr = pvrs.find((v) => v.id === pvrId)
+        return { name: pvr?.name || `PVR ${pvrId}`, rake: t.rake, bet: t.bet }
+      })
       .sort((a, b) => b.rake - a.rake)
       .slice(0, 10)
   }, [data])

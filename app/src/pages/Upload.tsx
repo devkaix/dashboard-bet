@@ -39,6 +39,56 @@ async function sha256(buf: ArrayBuffer): Promise<string> {
   return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function normalizedContentHash(fileType: string, rows: Record<string, unknown>[]): Promise<string> {
+  let normalized: string[]
+  if (fileType === 'daily_player' || fileType === 'daily_network' || fileType === 'daily_pvr') {
+    normalized = rows.map((r) => {
+      const uname = normalizeUsername(String(r['Username'] || r['username'] || r['User'] || ''))
+      const date = pDate(r['Data'] || r['data'] || r['Date'] || r['date'])
+      const stats = getStats(r)
+      return `${uname}|${date}|${stats.buy_in}|${stats.bet}|${stats.won}|${stats.rake}|${stats.payout}`
+    }).sort()
+  } else if (fileType === 'tickets') {
+    normalized = rows.map((r) => {
+      const tc = String(r['Ticket'] || r['ticket'] || '')
+      const amt = num(r['Importo'] || r['amount'])
+      return `${tc}|${amt}`
+    }).sort()
+  } else {
+    normalized = rows.map((r) => JSON.stringify(r, Object.keys(r).sort())).sort()
+  }
+  const content = normalized.join('\n')
+  return sha256(new TextEncoder().encode(content).buffer as ArrayBuffer)
+}
+
+async function checkDuplicateByContent(
+  fileType: string,
+  fileHash: string,
+  normalizedHash: string,
+): Promise<{ blocked: boolean; existingFilename?: string; existingDate?: string }> {
+  const { data: byHash } = await supabase
+    .from('excel_uploads')
+    .select('filename, uploaded_at')
+    .eq('file_hash', fileHash)
+    .eq('status', 'completed')
+    .maybeSingle()
+  if (byHash) {
+    return { blocked: true, existingFilename: (byHash as any).filename, existingDate: (byHash as any).uploaded_at }
+  }
+  const { data: byContent } = await supabase
+    .from('excel_uploads')
+    .select('filename, uploaded_at')
+    .eq('normalized_hash' as any, normalizedHash)
+    .eq('status', 'completed')
+    .neq('file_hash', fileHash)
+    .maybeSingle()
+  if (byContent) {
+    return { blocked: true, existingFilename: (byContent as any).filename, existingDate: (byContent as any).uploaded_at }
+  }
+  return { blocked: false }
+}
+
+
 async function batchUpsert(table: string, rows: any[], onConflict: string, chunkSize = 500) {
   const builder = (supabase as any).from(table);
   for (let i = 0; i < rows.length; i += chunkSize) {
@@ -145,6 +195,7 @@ export default function UploadPage() {
       await (supabase.from("excel_uploads") as any).insert({
         filename: file.name,
         file_hash: fileHash,
+        normalized_hash: report?.normalized_hash || null,
         status,
         file_type: fileType,
         rows_processed: rows,
@@ -161,6 +212,7 @@ export default function UploadPage() {
     setUploading(true); setMessage(null); setProgress("Lettura file...");
     let fileType = "unknown";
     let fileHash = "";
+    let normalizedHash = "";
     let report: any = {};
     try {
       const buf = await file.arrayBuffer();
@@ -178,19 +230,6 @@ export default function UploadPage() {
       const raw = (aoa[0] || []).map((h: unknown) => String(h || "").trim());
       fileType = det(raw);
 
-      // Duplicate detection: player_summary can be re-uploaded after DB corrections,
-      // so we only block re-uploads that were already validated.
-      const dupBase = supabase.from("excel_uploads").select("id, validation_status").eq("file_hash", fileHash).eq("status", "completed");
-      const dupQ = fileType === "player_summary" ? dupBase.eq("validation_status", "validated") : dupBase;
-      const { data: dup, error: dupErr } = await dupQ.maybeSingle();
-      if (dupErr) throw new Error(`duplicate check: ${dupErr.message}`);
-      if (dup) {
-        throw new Error(
-          fileType === "player_summary"
-            ? "Questo file player_summary è già stato validato con successo."
-            : "Questo file è già stato caricato (hash duplicato)."
-        );
-      }
       const hdr = [...raw];
       if (fileType === "daily_player_game") { hdr[1] = "Provider"; hdr[2] = "GameName"; }
       const rows = aoa.slice(1).map((r) => {
@@ -201,6 +240,16 @@ export default function UploadPage() {
 
       setProgress(`Elaborazione ${fileType}...`);
       report = { file_type: fileType, total_rows: rows.length, errors: [], dates: [], unmatched_pvrs: [], unmatched_players: [] };
+
+      // Compute normalized content hash and check for duplicates
+      const normalizedHash = await normalizedContentHash(fileType, rows);
+      report.normalized_hash = normalizedHash;
+      const dupCheck = await checkDuplicateByContent(fileType, fileHash, normalizedHash);
+      if (dupCheck.blocked) {
+        throw new Error(
+          `File duplicato: contenuto già importato il ${dupCheck.existingDate ? new Date(dupCheck.existingDate).toLocaleDateString('it-IT') : '?'} come "${dupCheck.existingFilename || 'sconosciuto'}". Stessi dati, importazione bloccata.`
+        );
+      }
 
       if (fileType === "players_master") {
         const pvrMap = await loadPvrMap();
