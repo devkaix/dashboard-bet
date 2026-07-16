@@ -86,6 +86,9 @@ export default function PvrMappingPage() {
   const [preview, setPreview] = useState<Record<string, PreviewResult | null>>({})
   const [coverage, setCoverage] = useState<CoverageStats | null>(null)
   const [expandedCode, setExpandedCode] = useState<string | null>(null)
+  const [previewTimestamps, setPreviewTimestamps] = useState<Record<string, number>>({})
+  const [previewPvrIds, setPreviewPvrIds] = useState<Record<string, string | null>>({})
+  const [reasons, setReasons] = useState<Record<string, string>>({})
 
   useEffect(() => { load() }, [])
 
@@ -156,6 +159,8 @@ export default function PvrMappingPage() {
       })
       if (error) throw error
       setPreview(p => ({ ...p, [code]: data as unknown as PreviewResult }))
+      setPreviewTimestamps(p => ({ ...p, [code]: Date.now() }))
+      setPreviewPvrIds(p => ({ ...p, [code]: pvrId }))
     } catch {
       setPreview(p => ({ ...p, [code]: null }))
     }
@@ -169,30 +174,17 @@ export default function PvrMappingPage() {
       const { data, error } = await (supabase as any).rpc('verify_pvr_mapping', {
         p_reference_code: code,
         p_pvr_id: pvrId,
-        p_reason: 'Verified via PVR mapping UI',
+        p_reason: reasons[code] || 'Verified via PVR mapping UI',
       })
       if (error) throw error
 
       const result = data as unknown as { success: boolean; affected_players: number; action: string }
-      setMappings((prev) => {
-        const next = prev.filter((m) => m.pvr_ref_code !== code)
-        next.push({ pvr_ref_code: code, pvr_id: pvrId, verified: true, mapping_source: 'admin_verification', notes: null })
-        return next
-      })
-      setDraft((d) => ({ ...d, [code]: pvrId }))
       setPreview(p => ({ ...p, [code]: null }))
+      setPreviewTimestamps(prev => { const n = { ...prev }; delete n[code]; return n })
+      setPreviewPvrIds(prev => { const n = { ...prev }; delete n[code]; return n })
+      setReasons(prev => { const n = { ...prev }; delete n[code]; return n })
       setMessage({ type: 'success', text: `Mapping ${code} verificato. ${result.affected_players} giocatori aggiornati.` })
-
-      // Update coverage
-      if (coverage) {
-        setCoverage({
-          ...coverage,
-          mapping_verificati: coverage.mapping_verificati + 1,
-          mapping_non_risolti: Math.max(0, coverage.mapping_non_risolti - 1),
-          giocatori_con_pvrid: coverage.giocatori_con_pvrid + result.affected_players,
-          giocatori_senza_pvrid: Math.max(0, coverage.giocatori_senza_pvrid - result.affected_players),
-        })
-      }
+      await load()
     } catch (e: any) {
       setMessage({ type: 'error', text: e.message || `Errore salvataggio ${code}` })
     } finally { setSaving((s) => ({ ...s, [code]: false })) }
@@ -311,6 +303,9 @@ export default function PvrMappingPage() {
                               onValueChange={(val) => {
                                 const pvrId = val === '__none__' ? null : val
                                 setDraft((d) => ({ ...d, [code]: pvrId }))
+                                setPreview(p => ({ ...p, [code]: null }))
+                                setPreviewTimestamps(prev => { const n = { ...prev }; delete n[code]; return n })
+                                setPreviewPvrIds(prev => { const n = { ...prev }; delete n[code]; return n })
                               }}
                             >
                               <SelectTrigger><SelectValue placeholder="Seleziona PVR…" /></SelectTrigger>
@@ -327,19 +322,29 @@ export default function PvrMappingPage() {
                           </td>
                           <td className="py-3 px-3">
                             <div className="flex items-center gap-1">
-                              <Button size="sm" variant="outline"
-                                onClick={() => previewMapping(code, draft[code] || null)}
-                                disabled={!draft[code] || isVerified}
-                              >
-                                <Eye className="w-3 h-3 mr-1" /> Anteprima
-                              </Button>
-                              <Button size="sm"
-                                onClick={() => saveMapping(code, draft[code] || null)}
-                                disabled={!draft[code] || !!saving[code]}
-                              >
-                                <Save className="w-3 h-3 mr-1" />
-                                {saving[code] ? '…' : 'Salva'}
-                              </Button>
+                              {(() => {
+                                const hasPreview = previewTimestamps[code] != null && previewPvrIds[code] === draft[code]
+                                const needsReason = previewData && (previewData.was_verified || previewData.players_with_different_pvr > 0)
+                                const reasonOk = !needsReason || (reasons[code]?.length || 0) >= 5
+                                const canSave = !!draft[code] && !saving[code] && hasPreview && reasonOk
+                                return (
+                                  <>
+                                    <Button size="sm" variant="outline"
+                                      onClick={() => previewMapping(code, draft[code] || null)}
+                                      disabled={!draft[code]}
+                                    >
+                                      <Eye className="w-3 h-3 mr-1" /> Anteprima
+                                    </Button>
+                                    <Button size="sm"
+                                      onClick={() => saveMapping(code, draft[code] || null)}
+                                      disabled={!canSave}
+                                    >
+                                      <Save className="w-3 h-3 mr-1" />
+                                      {saving[code] ? '…' : 'Salva'}
+                                    </Button>
+                                  </>
+                                )
+                              })()}
                             </div>
                           </td>
                         </tr>
@@ -356,6 +361,18 @@ export default function PvrMappingPage() {
                                   <p className="text-amber-400">⚠️ Associati a PVR diverso: <strong>{previewData.players_with_different_pvr}</strong> — saranno corretti</p>
                                 )}
                                 {previewData.was_verified && <p className="text-amber-400">⚠️ Mapping già verificato — sarà aggiornato con audit</p>}
+                                {(previewData.was_verified || previewData.players_with_different_pvr > 0) && (
+                                  <div className="mt-2">
+                                    <label className="text-xs text-text-secondary block mb-1">Motivazione (richiesta, min 5 caratteri):</label>
+                                    <input
+                                      type="text"
+                                      className="w-full max-w-md bg-bg-surface border border-border-subtle rounded px-2 py-1 text-xs text-text-primary"
+                                      placeholder="Motivo della modifica..."
+                                      value={reasons[code] || ''}
+                                      onChange={(e) => setReasons(r => ({ ...r, [code]: e.target.value }))}
+                                    />
+                                  </div>
+                                )}
                               </div>
                             </td>
                           </tr>

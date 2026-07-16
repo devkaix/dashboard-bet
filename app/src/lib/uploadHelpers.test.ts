@@ -91,8 +91,25 @@ describe('det', () => {
     expect(det(['Username', 'Rake', 'Bet'])).toBe('player_summary');
   });
 
-  it('defaults to daily_player', () => {
+  it('detects player_summary with extra columns (no data column)', () => {
+    expect(det(['Username', 'Rake', 'Bet', 'Won'])).toBe('player_summary');
+  });
+
+  it('detects daily_player (data and username present)', () => {
     expect(det(['Data', 'Username', 'Rake'])).toBe('daily_player');
+  });
+
+  it('detects daily_player with extra columns', () => {
+    expect(det(['Data', 'Username', 'Rake', 'Bet'])).toBe('daily_player');
+  });
+
+  it('detects daily_network with data but no username', () => {
+    expect(det(['Data', 'Rake', 'Bet'])).toBe('daily_network');
+  });
+
+  it('returns unknown for unrecognized headers', () => {
+    expect(det(['SomeCol', 'AnotherCol'])).toBe('unknown');
+    expect(det(['Rake', 'Bet', 'Won'])).toBe('unknown');
   });
 });
 

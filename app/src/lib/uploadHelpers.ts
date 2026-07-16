@@ -107,9 +107,14 @@ export function det(hdr: string[]): string {
   if (h.includes("ticket") && h.includes("stato")) return "tickets";
   if (h.includes("gioco")) return "daily_player_game";
   if (h.some((x) => x.includes("liv 1"))) return "daily_pvr";
-  if (h[0] === "username" && !h.includes("data")) return "player_summary";
-  if (h[0] === "data" && !h.includes("username")) return "daily_network";
-  return "daily_player";
+  const hasUsername = h.some(x => x === "username");
+  const hasData = h.some(x => x === "data");
+
+  if (hasUsername && hasData) return "daily_player";
+  if (hasUsername && !hasData) return "player_summary";
+  if (hasData && !hasUsername) return "daily_network";
+
+  return "unknown";
 }
 
 export function col(row: Record<string, unknown>, names: string[]): unknown {
