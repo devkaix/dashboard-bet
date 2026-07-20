@@ -1,7 +1,22 @@
 # Preprocessing Decision Engine — Foundation
 
 > Commit corrente — 16/07/2026
-> Modulo: `app/src/lib/preprocessing.ts`
+> Modulo: 
+> Stato: **Integrato nel data layer** — Dashboard alert e briefing usano lo stesso motore
+
+## Stato integrazione
+
+- ✅ Preprocessing integrato in loadData() (data.ts)
+- ✅ Dashboard alert derivano da convertSignalsToAlerts(signals)
+- ✅ Briefing costruito da buildBriefingFromSignals(signals, queue)
+- ✅ decision_queue calcolata ma non ancora visualizzata in UI
+- ✅ Alert giocatori disattivati (solo scope network)
+- ✅ Soglie tecniche provvisorie (non commerciali)
+- ✅ Integrazione read-only (nessuna scrittura Supabase)
+- ✅ Nessuna pulizia delle righe storiche sospette
+- ⬜ Bottone decisionale (prossimo step)
+- ⬜ Collegamento Settings (prossimo step)
+- ⬜ Preprocessing PVR e giocatori (prossimo step)`app/src/lib/preprocessing.ts`
 
 ## Obiettivo di prodotto
 

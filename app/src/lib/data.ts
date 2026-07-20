@@ -1,4 +1,13 @@
 // ─── Supabase-backed data layer (enterprise real-data only) ───
+import {
+  validateNetworkObservations,
+  preprocessNetwork,
+  generateNetworkSignals,
+  buildDecisionQueue,
+  type NetworkDailyObservation,
+  type DecisionSignal,
+  type DataQualityError,
+} from "./preprocessing";
 import { supabase } from "./supabase";
 import { fromZonedTime, formatInTimeZone } from "date-fns-tz";
 
@@ -123,7 +132,7 @@ export interface RankingPVR {
 }
 
 export interface Alert {
-  id: number
+  id: string
   type: string
   category: string
   title: string
@@ -202,6 +211,9 @@ export interface DaznBetData {
   pvr_totals: PvrTotals
   alerts: Alert[]
   briefing: Briefing
+  decision_signals: DecisionSignal[]
+  decision_queue: DecisionSignal[]
+  preprocessing_issues: DataQualityError[]
 }
 
 // ─── Helpers ───
@@ -266,17 +278,36 @@ export async function loadData(range?: DateRange): Promise<DaznBetData> {
   const effectiveRange = range ?? await inferLatestMonthRange();
   const metadata = await fetchMetadata(effectiveRange);
   const network = await fetchNetworkHierarchy(effectiveRange);
-  const [dailyKpis, dailyStats, rankings, alerts, briefing, monthlyAggs, pvrTotals] = await Promise.all([
+  const [dailyKpis, dailyStats, rankings, monthlyAggs, pvrTotals] = await Promise.all([
     fetchDailyKpis(effectiveRange),
     fetchDailyStats(effectiveRange),
     fetchRankings(effectiveRange),
-    fetchAlerts(effectiveRange),
-    fetchBriefing(effectiveRange),
     fetchMonthlyAggregates(effectiveRange),
     fetchPvrTotals(effectiveRange),
   ]);
   const players = await fetchPlayers(network.pvrs, effectiveRange);
 
+  // ─── Preprocessing pipeline ───
+  // 1. Convert DailyKPI → NetworkObservation (explicit mapping)
+  const observations: NetworkDailyObservation[] = dailyKpis.map((dk) => ({
+    date: dk.date,
+    total_rake: dk.total_rake,
+    total_bet: dk.total_bet,
+    total_won: dk.total_won,
+    active_players: dk.active_players,
+  }));
+
+  // 2. Validate → preprocess → signals → queue
+  const validation = validateNetworkObservations(observations);
+  const preprocessed = preprocessNetwork(validation.valid);
+  const signals = generateNetworkSignals(preprocessed);
+  const queue = buildDecisionQueue(signals, 10);
+
+  // 3. Convert signals to Alert[] and Briefing
+  const alerts = convertSignalsToAlerts(signals);
+  const briefing = buildBriefingFromSignals(signals, queue);
+
+  // ─── Metadata enrichment ───
   const totalRake = monthlyAggs.rake;
   const sortedPlayers = [...players].sort((a, b) => b.total_rake - a.total_rake);
   const top10Count = Math.max(1, Math.ceil(sortedPlayers.length * 0.1));
@@ -290,7 +321,6 @@ export async function loadData(range?: DateRange): Promise<DaznBetData> {
   metadata.pareto_20_percent = totalRake > 0 ? top20Rake / totalRake : 0;
 
   const emptyRankings: Rankings = { top_players_by_rake: [], top_players_by_bet: [], top_pvrs: [] };
-  const emptyBriefing: Briefing = { date: "", generated_at: "", criticals: [], opportunities: [], suggestions: [] };
 
   cachedData = {
     metadata,
@@ -305,7 +335,10 @@ export async function loadData(range?: DateRange): Promise<DaznBetData> {
     rankings: rankings || emptyRankings,
     pvr_totals: pvrTotals,
     alerts,
-    briefing: briefing || emptyBriefing,
+    briefing,
+    decision_signals: signals,
+    decision_queue: queue,
+    preprocessing_issues: validation.errors,
   };
 
   return cachedData;
@@ -829,38 +862,108 @@ async function fetchPvrTotals(range?: DateRange): Promise<PvrTotals> {
   return totals;
 }
 
-async function fetchAlerts(range?: DateRange): Promise<Alert[]> {
-  const alerts: Alert[] = [];
+// ─── Alert conversion: DecisionSignal → Alert (pure function) ───
 
-  let q = supabase
-    .from("daily_network_stats")
-    .select("date, rake")
-    .lt("rake", 0)
-    .order("date", { ascending: false });
-  if (range?.start) q = q.gte("date", range.start);
-  if (range?.end) q = q.lte("date", range.end);
-  const { data: networkStats, error } = await q;
-  if (error) throw error;
-
-  for (const row of networkStats || []) {
-    alerts.push({
-      id: alerts.length + 1,
-      type: "negative_rake",
-      category: "Critico",
-      title: `Rake negativo il ${row.date}`,
-      description: `Rake giornaliero di ${formatCurrency(toNumber(row.rake))}`,
-      severity: "high",
-      date: row.date as string,
-      metric: "rake",
-      value: toNumber(row.rake),
+/** Converts preprocessing DecisionSignals into UI Alert objects. */
+function convertSignalsToAlerts(signals: DecisionSignal[]): Alert[] {
+  const severityMap: Record<string, string> = { high: "critical", medium: "warning", low: "info" };
+  return signals
+    .sort((a, b) => {
+      if (b.priority_score !== a.priority_score) return b.priority_score - a.priority_score;
+      return b.date.localeCompare(a.date);
+    })
+    .map((s) => ({
+      id: s.id,
+      type: s.rule_id,
+      category: s.category,
+      title: s.title,
+      description: s.explanation,
+      severity: severityMap[s.severity] || s.severity,
+      date: s.date,
+      metric: s.metric,
+      value: s.current_value,
       status: "active",
+    }));
+}
+
+// ─── Briefing construction from signals (pure function) ───
+
+/** Builds Briefing from pre-generated signals and decision queue. */
+function buildBriefingFromSignals(signals: DecisionSignal[], queue: DecisionSignal[]): Briefing {
+  const today = new Date().toISOString().split("T")[0];
+  const criticals: BriefingItem[] = [];
+  const opportunities: BriefingItem[] = [];
+  const suggestions: BriefingItem[] = [];
+
+  // Criticals: high-severity signals, sorted by priority
+  const highSignals = signals.filter((s) => s.severity === "high").sort((a, b) => b.priority_score - a.priority_score);
+  let critId = 1;
+  for (const s of highSignals) {
+    criticals.push({
+      id: critId++,
+      title: s.title,
+      description: s.explanation,
+      severity: s.severity,
+      metric: s.metric,
+      value: s.current_value,
     });
   }
 
-  return alerts;
+  // Suggestions: recommended_action from decision queue, deduplicated
+  const seenActions = new Set<string>();
+  let suggId = 1;
+  for (const s of queue) {
+    if (!seenActions.has(s.recommended_action)) {
+      seenActions.add(s.recommended_action);
+      suggestions.push({
+        id: suggId++,
+        title: s.title,
+        description: s.recommended_action,
+        action: s.recommended_action,
+      });
+    }
+  }
+
+  // Opportunities: use ranking data if available
+  try {
+    if (cachedData) {
+      const topPlayer = cachedData.rankings?.top_players_by_rake?.[0];
+      if (topPlayer && topPlayer.total_rake > 0) {
+        opportunities.push({
+          id: 1,
+          title: "Top player identificato",
+          description: `${topPlayer.username} \u00e8 il miglior giocatore per rake`,
+          severity: "info",
+        });
+      }
+    }
+  } catch {
+    // ranking not yet loaded
+  }
+
+  // Count negative rake days from signals
+  const negCount = signals.filter((s) => s.rule_id === "NETWORK_RAKE_NEGATIVE").length;
+  if (negCount > 0) {
+    suggestions.push({
+      id: suggId++,
+      title: `${negCount} giorni con rake negativo`,
+      description: `Analizza i pattern per identificare le cause`,
+    });
+  }
+
+  return {
+    date: today,
+    generated_at: new Date().toISOString(),
+    criticals,
+    opportunities,
+    suggestions,
+  };
 }
 
 async function fetchBriefing(range?: DateRange): Promise<Briefing> {
+  // Briefing now built from preprocessing signals in loadData().
+  // This function is kept for interface compatibility; returns cached briefing.
+  if (cachedData) return cachedData.briefing;
   const today = new Date().toISOString().split("T")[0];
   const criticals: BriefingItem[] = [];
   const opportunities: BriefingItem[] = [];
@@ -1066,4 +1169,7 @@ export const dataStore = {
   get briefing() {
     return cachedData?.briefing ?? { date: "", generated_at: "", criticals: [], opportunities: [], suggestions: [] };
   },
+  get decision_signals() { return cachedData?.decision_signals ?? []; },
+  get decision_queue() { return cachedData?.decision_queue ?? []; },
+  get preprocessing_issues() { return cachedData?.preprocessing_issues ?? []; },
 };

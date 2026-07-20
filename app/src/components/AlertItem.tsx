@@ -6,7 +6,7 @@ import { motion } from 'framer-motion'
 interface AlertItemProps {
   alert: Alert
   index: number
-  onDismiss?: (id: number) => void
+  onDismiss?: (id: string) => void
 }
 
 export default function AlertItem({ alert, index, onDismiss }: AlertItemProps) {
