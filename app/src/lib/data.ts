@@ -7,6 +7,7 @@ import {
   type NetworkDailyObservation,
   type DecisionSignal,
   type DataQualityError,
+  type SignalEvidence,
 } from "./preprocessing";
 import { supabase } from "./supabase";
 import { fromZonedTime, formatInTimeZone } from "date-fns-tz";
@@ -149,6 +150,7 @@ export interface Alert {
   scope: string
   entity_id: string
   priority_score: number
+  evidence: SignalEvidence
 }
 
 export interface BriefingItem {
@@ -897,6 +899,7 @@ export function convertSignalsToAlerts(signals: ReadonlyArray<DecisionSignal>): 
       scope: s.scope,
       entity_id: s.entity_id,
       priority_score: s.priority_score,
+      evidence: { ...s.evidence },
     }));
 }
 

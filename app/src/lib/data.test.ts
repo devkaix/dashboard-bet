@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCurrency, formatPercent, formatCompact, convertSignalsToAlerts, buildBriefingFromSignals, type Alert, type Rankings } from './data';
+import { formatCurrency, formatPercent, formatCompact, convertSignalsToAlerts, buildBriefingFromSignals, type Rankings } from './data';
 import {
   validateNetworkObservations,
   preprocessNetwork,
@@ -227,6 +227,9 @@ describe('convertSignalsToAlerts', () => {
     expect(a.entity_id).toBe('network');
     expect(a.priority_score).toBe(300);
     expect(a.severity).toBe('critical');
+    expect(a.evidence.source).toBe('daily_network_stats');
+    expect(a.evidence.baseline_days).toBe(5);
+    expect(a.evidence.direct_fact).toBe(true);
   })
 
   it('maps severity correctly: high→critical, medium→warning, low→info', () => {
@@ -245,8 +248,8 @@ describe('convertSignalsToAlerts', () => {
 
 describe('buildBriefingFromSignals', () => {
   it('receives rankings as parameter (no cachedData dependency)', () => {
-    const signals: any[] = [];
-    const queue: any[] = [];
+    const signals: DecisionSignal[] = [];
+    const queue: DecisionSignal[] = [];
     const rankings: Rankings = { top_players_by_rake: [], top_players_by_bet: [], top_pvrs: [] };
     const briefing = buildBriefingFromSignals(signals, queue, rankings);
     expect(briefing.criticals).toEqual([]);
@@ -255,8 +258,8 @@ describe('buildBriefingFromSignals', () => {
   })
 
   it('creates opportunity from ranking data when available', () => {
-    const signals: any[] = [];
-    const queue: any[] = [];
+    const signals: DecisionSignal[] = [];
+    const queue: DecisionSignal[] = [];
     const rankings: Rankings = {
       top_players_by_rake: [{ rank: 1, username: 'TopPlayer', total_rake: 5000, total_bet: 50000, active_days: 20, pvr_id: null }],
       top_players_by_bet: [],
