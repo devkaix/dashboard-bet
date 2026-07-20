@@ -22,7 +22,7 @@ export interface ValidationResult {
 
 /** A data quality error encountered during validation. */
 export interface DataQualityError {
-  type: 'INVALID_DATE' | 'NAN_METRIC' | 'INFINITE_METRIC' | 'DUPLICATE_DATE'
+  type: 'INVALID_DATE' | 'NAN_METRIC' | 'INFINITE_METRIC' | 'DUPLICATE_DATE' | 'INVALID_DOMAIN_VALUE'
   index: number
   detail: string
 }
@@ -41,17 +41,22 @@ export interface PreprocessingConfig {
   zScoreCritical: number
 }
 
+/**
+ * Default technical thresholds — NOT commercially approved.
+ * Before operational activation, these must be connected to Settings
+ * and validated against historical data.
+ */
 export const DEFAULT_PREPROCESSING_CONFIG: PreprocessingConfig = {
   baselineWindowDays: 14,
-  minBaselineDays: 5,
-  rakeDropWarningPct: 15,
-  rakeDropCriticalPct: 30,
-  activePlayersDropWarningPct: 15,
-  activePlayersDropCriticalPct: 30,
-  payoutWarningPct: 95,
-  payoutCriticalPct: 98,
-  zScoreWarning: 1.5,
-  zScoreCritical: 2.0,
+  minBaselineDays: 7,
+  rakeDropWarningPct: 20,
+  rakeDropCriticalPct: 35,
+  activePlayersDropWarningPct: 20,
+  activePlayersDropCriticalPct: 35,
+  payoutWarningPct: 120,
+  payoutCriticalPct: 200,
+  zScoreWarning: 2,
+  zScoreCritical: 3,
 }
 
 /** A single preprocessed day with computed features. */
@@ -61,14 +66,14 @@ export interface PreprocessedNetworkDay {
   total_bet: number
   total_won: number
   active_players: number
-  payout_pct: number
+  payout_pct: number | null // null when total_bet = 0
   // Baseline (computed from previous days only)
   baseline_days: number
   baseline_sufficient: boolean
   rake_baseline: number
-  payout_baseline: number
+  payout_baseline: number | null
   active_players_baseline: number
-  // Deltas
+  // Deltas (directional, negative = drop)
   rake_delta_pct: number | null
   payout_delta_pct: number | null
   active_players_delta_pct: number | null
@@ -146,6 +151,11 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v))
 }
 
+/** Builds a deterministic signal ID from rule_id + scope + entity_id + date. */
+function buildSignalId(ruleId: string, scope: string, entityId: string, date: string): string {
+  return `${ruleId}:${scope}:${entityId}:${date}`
+}
+
 // ─── Data Quality Gate ───
 
 /**
@@ -194,6 +204,24 @@ export function validateNetworkObservations(
     }
     if (!metricOk) continue
 
+    // 3. Domain validation: rake can be negative, but bet/won/active_players cannot
+    if (o.total_bet < 0) {
+      errors.push({ type: 'INVALID_DOMAIN_VALUE', index: i, detail: `total_bet cannot be negative (${o.total_bet}) for date ${o.date}` })
+      continue
+    }
+    if (o.total_won < 0) {
+      errors.push({ type: 'INVALID_DOMAIN_VALUE', index: i, detail: `total_won cannot be negative (${o.total_won}) for date ${o.date}` })
+      continue
+    }
+    if (o.active_players < 0) {
+      errors.push({ type: 'INVALID_DOMAIN_VALUE', index: i, detail: `active_players cannot be negative (${o.active_players}) for date ${o.date}` })
+      continue
+    }
+    if (o.active_players !== Math.floor(o.active_players)) {
+      errors.push({ type: 'INVALID_DOMAIN_VALUE', index: i, detail: `active_players must be integer (${o.active_players}) for date ${o.date}` })
+      continue
+    }
+
     candidates.push({ obs: { ...o }, idx: i })
   }
 
@@ -219,6 +247,7 @@ export function validateNetworkObservations(
  * Preprocesses validated network observations.
  * Computes baselines (from previous days only), deltas, z-scores, and confidence.
  * Days with insufficient baseline still get features computed with null deltas/z-scores.
+ * payout_pct is null when total_bet = 0 (undefined ratio).
  */
 export function preprocessNetwork(
   observations: NetworkDailyObservation[],
@@ -230,7 +259,7 @@ export function preprocessNetwork(
 
   for (let i = 0; i < observations.length; i++) {
     const current = observations[i]
-    const payout = current.total_bet > 0 ? (current.total_won / current.total_bet) * 100 : 0
+    const payout: number | null = current.total_bet > 0 ? (current.total_won / current.total_bet) * 100 : null
 
     // Baseline: only previous days, up to baselineWindowDays
     const baselineStart = Math.max(0, i - config.baselineWindowDays)
@@ -238,15 +267,29 @@ export function preprocessNetwork(
     const baselineSufficient = baselineDays.length >= config.minBaselineDays
 
     const rakeBaseline = baselineSufficient ? mean(baselineDays.map(d => d.total_rake)) : 0
-    const payoutBaseline = baselineSufficient ? mean(baselineDays.map(d => d.total_bet > 0 ? (d.total_won / d.total_bet) * 100 : 0)) : 0
+    const payoutBaseline = baselineSufficient
+      ? (() => {
+          const payoutValues = baselineDays
+            .map(d => d.total_bet > 0 ? (d.total_won / d.total_bet) * 100 : null)
+            .filter((v): v is number => v !== null)
+          return payoutValues.length > 0 ? mean(payoutValues) : null
+        })()
+      : null
     const activeBaseline = baselineSufficient ? mean(baselineDays.map(d => d.active_players)) : 0
 
     const rakeDelta = baselineSufficient ? deltaPct(current.total_rake, rakeBaseline) : null
-    const payoutDelta = baselineSufficient ? deltaPct(payout, payoutBaseline) : null
+    const payoutDelta = baselineSufficient && payout !== null && payoutBaseline !== null ? deltaPct(payout, payoutBaseline) : null
     const activeDelta = baselineSufficient ? deltaPct(current.active_players, activeBaseline) : null
 
     const rakeZ = baselineSufficient ? zScore(current.total_rake, baselineDays.map(d => d.total_rake)) : null
-    const payoutZ = baselineSufficient ? zScore(payout, baselineDays.map(d => d.total_bet > 0 ? (d.total_won / d.total_bet) * 100 : 0)) : null
+    const payoutZ = baselineSufficient && payout !== null
+      ? (() => {
+          const payoutValues = baselineDays
+            .map(d => d.total_bet > 0 ? (d.total_won / d.total_bet) * 100 : null)
+            .filter((v): v is number => v !== null)
+          return payoutValues.length >= 2 ? zScore(payout, payoutValues) : null
+        })()
+      : null
 
     // Confidence: 1.0 when baseline sufficient, scales down with fewer days
     const confidence = baselineDays.length >= config.minBaselineDays
@@ -261,11 +304,11 @@ export function preprocessNetwork(
       total_bet: current.total_bet,
       total_won: current.total_won,
       active_players: current.active_players,
-      payout_pct: Math.round(payout * 100) / 100,
+      payout_pct: payout !== null ? Math.round(payout * 100) / 100 : null,
       baseline_days: baselineDays.length,
       baseline_sufficient: baselineSufficient,
       rake_baseline: Math.round(rakeBaseline * 100) / 100,
-      payout_baseline: Math.round(payoutBaseline * 100) / 100,
+      payout_baseline: payoutBaseline !== null ? Math.round(payoutBaseline * 100) / 100 : null,
       active_players_baseline: Math.round(activeBaseline * 100) / 100,
       rake_delta_pct: rakeDelta !== null ? Math.round(rakeDelta * 10) / 10 : null,
       payout_delta_pct: payoutDelta !== null ? Math.round(payoutDelta * 10) / 10 : null,
@@ -281,19 +324,9 @@ export function preprocessNetwork(
 
 // ─── Signal Generation ───
 
-let signalCounter = 0
-function nextSignalId(): string {
-  return `sig-${++signalCounter}-${Date.now().toString(36)}`
-}
-
 function priorityScore(severity: 'high' | 'medium' | 'low', confidence: number): number {
   const sevWeight = severity === 'high' ? 3 : severity === 'medium' ? 2 : 1
   return Math.round(sevWeight * confidence * 100)
-}
-
-interface BaselineRef {
-  value: number
-  days: number
 }
 
 /**
@@ -307,16 +340,12 @@ export function generateNetworkSignals(
   const signals: DecisionSignal[] = []
 
   for (const day of days) {
-    const hasRakeNegative = false // track to prevent double-signalling
-
     // ── RULE 1: NETWORK_RAKE_NEGATIVE ──
+    // Direct fact: negative rake. Does not require baseline.
+    // Baseline evidence is included when available.
     if (day.total_rake < 0) {
-      const baseline: BaselineRef = day.baseline_sufficient
-        ? { value: day.rake_baseline, days: day.baseline_days }
-        : { value: 0, days: 0 }
-
       signals.push({
-        id: nextSignalId(),
+        id: buildSignalId('NETWORK_RAKE_NEGATIVE', 'network', 'network', day.date),
         rule_id: 'NETWORK_RAKE_NEGATIVE',
         scope: 'network',
         entity_id: 'network',
@@ -326,9 +355,9 @@ export function generateNetworkSignals(
         severity: 'high',
         current_value: day.total_rake,
         baseline_value: day.baseline_sufficient ? day.rake_baseline : null,
-        delta_pct: day.rake_delta_pct,
-        z_score: day.rake_z_score,
-        confidence: 1.0, // direct fact, always confident
+        delta_pct: day.baseline_sufficient ? day.rake_delta_pct : null,
+        z_score: day.baseline_sufficient ? day.rake_z_score : null,
+        confidence: 1.0,
         priority_score: priorityScore('high', 1.0),
         title: `Rake negativo il ${day.date}`,
         explanation: day.baseline_sufficient
@@ -337,7 +366,7 @@ export function generateNetworkSignals(
         recommended_action: 'Aprire il drill-down per identificare PVR e giocatori che hanno contribuito al rake negativo.',
         evidence: {
           source: 'daily_network_stats',
-          baseline_days: baseline.days,
+          baseline_days: day.baseline_days,
           direct_fact: true,
         },
       })
@@ -345,19 +374,27 @@ export function generateNetworkSignals(
     }
 
     // ── RULE 2: NETWORK_RAKE_DROP ──
+    // Directional: only fires when rake DECREASES (delta negative, z-score negative).
+    // An increase in rake must never produce this signal.
     if (day.baseline_sufficient && day.rake_delta_pct !== null) {
-      const absDelta = Math.abs(day.rake_delta_pct!)
       let severity: 'high' | 'medium' | 'low' | null = null
 
-      if (absDelta >= config.rakeDropCriticalPct || (day.rake_z_score !== null && Math.abs(day.rake_z_score!) >= config.zScoreCritical)) {
+      // Check directional thresholds (only negative = drop)
+      if (
+        day.rake_delta_pct <= -config.rakeDropCriticalPct ||
+        (day.rake_z_score !== null && day.rake_z_score <= -config.zScoreCritical)
+      ) {
         severity = 'high'
-      } else if (absDelta >= config.rakeDropWarningPct || (day.rake_z_score !== null && Math.abs(day.rake_z_score!) >= config.zScoreWarning)) {
+      } else if (
+        day.rake_delta_pct <= -config.rakeDropWarningPct ||
+        (day.rake_z_score !== null && day.rake_z_score <= -config.zScoreWarning)
+      ) {
         severity = 'medium'
       }
 
       if (severity) {
         signals.push({
-          id: nextSignalId(),
+          id: buildSignalId('NETWORK_RAKE_DROP', 'network', 'network', day.date),
           rule_id: 'NETWORK_RAKE_DROP',
           scope: 'network',
           entity_id: 'network',
@@ -384,43 +421,59 @@ export function generateNetworkSignals(
     }
 
     // ── RULE 3: NETWORK_PAYOUT_ANOMALY ──
-    const payoutAnomaly = day.baseline_sufficient
-      ? (day.payout_pct >= config.payoutWarningPct || (day.payout_z_score !== null && day.payout_z_score >= config.zScoreWarning))
-      : false
+    // A. Absolute threshold: payout_pct >= payoutWarningPct
+    // B. Statistical anomaly: payout_z_score >= zScoreWarning (requires baseline)
+    // Only fires when payout is computable (total_bet > 0).
+    if (day.payout_pct !== null) {
+      let sev: 'high' | 'medium' | 'low' | null = null
+      let isDirectFact = false
 
-    const payoutHighSeverity = day.baseline_sufficient
-      ? (day.payout_pct >= config.payoutCriticalPct || (day.payout_z_score !== null && day.payout_z_score >= config.zScoreCritical))
-      : false
+      // Absolute threshold check
+      if (day.payout_pct >= config.payoutCriticalPct) {
+        sev = 'high'
+        isDirectFact = true
+      } else if (day.payout_pct >= config.payoutWarningPct) {
+        sev = 'medium'
+        isDirectFact = true
+      }
 
-    if (day.payout_pct >= config.payoutWarningPct) {
-      // Direct fact: payout above threshold
-      const sev = payoutHighSeverity ? 'high' : 'medium'
-      signals.push({
-        id: nextSignalId(),
-        rule_id: 'NETWORK_PAYOUT_ANOMALY',
-        scope: 'network',
-        entity_id: 'network',
-        date: day.date,
-        category: sev === 'high' ? 'critical' : 'warning',
-        metric: 'payout',
-        severity: sev,
-        current_value: day.payout_pct,
-        baseline_value: day.baseline_sufficient ? day.payout_baseline : null,
-        delta_pct: day.payout_delta_pct,
-        z_score: day.payout_z_score,
-        confidence: day.confidence,
-        priority_score: priorityScore(sev, day.confidence),
-        title: `Payout anomalo il ${day.date}`,
-        explanation: day.baseline_sufficient
-          ? `Payout del ${day.payout_pct.toFixed(1)}% (baseline: ${day.payout_baseline.toFixed(1)}%, ${day.baseline_days} giorni)${day.payout_z_score !== null ? `, z-score: ${day.payout_z_score!.toFixed(2)}` : ''}.`
-          : `Payout del ${day.payout_pct.toFixed(1)}%. Baseline insufficiente.`,
-        recommended_action: 'Verificare se il payout elevato è legato a vincite consistenti o a un calo del bet. Azione prudente raccomandata.',
-        evidence: {
-          source: 'daily_network_stats',
-          baseline_days: day.baseline_days,
-          direct_fact: day.payout_pct >= config.payoutCriticalPct,
-        },
-      })
+      // Statistical anomaly check (may override or set severity)
+      if (day.baseline_sufficient && day.payout_z_score !== null) {
+        if (day.payout_z_score >= config.zScoreCritical) {
+          sev = 'high'
+        } else if (day.payout_z_score >= config.zScoreWarning && sev === null) {
+          sev = 'medium'
+        }
+      }
+
+      if (sev) {
+        signals.push({
+          id: buildSignalId('NETWORK_PAYOUT_ANOMALY', 'network', 'network', day.date),
+          rule_id: 'NETWORK_PAYOUT_ANOMALY',
+          scope: 'network',
+          entity_id: 'network',
+          date: day.date,
+          category: sev === 'high' ? 'critical' : 'warning',
+          metric: 'payout',
+          severity: sev,
+          current_value: day.payout_pct,
+          baseline_value: day.payout_baseline,
+          delta_pct: day.payout_delta_pct,
+          z_score: day.payout_z_score,
+          confidence: day.confidence,
+          priority_score: priorityScore(sev, day.confidence),
+          title: `Payout anomalo il ${day.date}`,
+          explanation: day.baseline_sufficient && day.payout_baseline !== null
+            ? `Payout del ${day.payout_pct.toFixed(1)}% (baseline: ${day.payout_baseline.toFixed(1)}%, ${day.baseline_days} giorni)${day.payout_z_score !== null ? `, z-score: ${day.payout_z_score!.toFixed(2)}` : ''}.`
+            : `Payout del ${day.payout_pct.toFixed(1)}%. Baseline insufficiente.`,
+          recommended_action: 'Verificare se il payout elevato è legato a vincite consistenti o a un calo del bet. Azione prudente raccomandata.',
+          evidence: {
+            source: 'daily_network_stats',
+            baseline_days: day.baseline_days,
+            direct_fact: isDirectFact,
+          },
+        })
+      }
     }
   }
 
@@ -432,6 +485,7 @@ export function generateNetworkSignals(
 /**
  * Builds a prioritised decision queue from signals.
  * Deduplicates: keeps only the highest-priority signal per rule_id+scope+entity_id.
+ * Tie-break: highest priority_score wins; if equal, most recent date wins.
  * Then sorts by priority_score descending and applies the limit.
  * The original signals array is never mutated.
  */
@@ -439,12 +493,19 @@ export function buildDecisionQueue(
   signals: DecisionSignal[],
   limit: number = 10,
 ): DecisionSignal[] {
-  // Deduplicate by rule_id + scope + entity_id (keep highest priority_score)
+  if (limit <= 0) return []
+
+  // Deduplicate by rule_id + scope + entity_id
+  // Keep: highest priority_score, then most recent date for ties
   const deduped = new Map<string, DecisionSignal>()
   for (const s of signals) {
     const key = `${s.rule_id}|${s.scope}|${s.entity_id}`
     const existing = deduped.get(key)
-    if (!existing || s.priority_score > existing.priority_score) {
+    if (
+      !existing ||
+      s.priority_score > existing.priority_score ||
+      (s.priority_score === existing.priority_score && s.date > existing.date)
+    ) {
       deduped.set(key, s)
     }
   }
@@ -456,9 +517,4 @@ export function buildDecisionQueue(
   })
 
   return sorted.slice(0, limit)
-}
-
-// Reset signal counter (useful for tests)
-export function __resetSignalCounter(): void {
-  signalCounter = 0
 }

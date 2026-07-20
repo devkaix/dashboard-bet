@@ -1,6 +1,6 @@
 # Preprocessing Decision Engine — Foundation
 
-> Commit: `87d24c4` — 16/07/2026
+> Commit corrente — 16/07/2026
 > Modulo: `app/src/lib/preprocessing.ts`
 
 ## Obiettivo di prodotto
@@ -15,24 +15,24 @@ daily_network_stats (file 6)
         ▼
 validateNetworkObservations()
         │
-        ├── valid (ordinati, deduplicati)
-        └── errors (date invalide, NaN, duplicati)
+        ├── valid (ordinati, deduplicati, domain-validated)
+        └── errors (date, NaN, duplicati, domain violations)
         │
         ▼
 preprocessNetwork()
         │
-        ├── payout_pct
+        ├── payout_pct (null when total_bet=0)
         ├── baseline (solo giorni precedenti)
-        ├── delta_pct
+        ├── delta_pct (direzionale, negativo = calo)
         ├── z_score
         └── confidence
         │
         ▼
 generateNetworkSignals()
         │
-        ├── NETWORK_RAKE_NEGATIVE
-        ├── NETWORK_RAKE_DROP
-        └── NETWORK_PAYOUT_ANOMALY
+        ├── NETWORK_RAKE_NEGATIVE (fatto diretto)
+        ├── NETWORK_RAKE_DROP (direzionale: solo cali)
+        └── NETWORK_PAYOUT_ANOMALY (soglia assoluta + statistica)
         │
         ▼
 buildDecisionQueue()
@@ -51,57 +51,58 @@ buildDecisionQueue()
 
 ## Feature prodotte (rete giornaliera)
 
-| Feature | Formula | Dipende da baseline |
-|---------|---------|:-------------------:|
-| `payout_pct` | `won / bet × 100` | No |
-| `rake_baseline` | media mobile dei giorni precedenti | Sì |
-| `payout_baseline` | media mobile payout precedenti | Sì |
-| `active_players_baseline` | media mobile active_players precedenti | Sì |
-| `rake_delta_pct` | `(curr - baseline) / abs(baseline) × 100` | Sì |
-| `payout_delta_pct` | idem per payout | Sì |
-| `active_players_delta_pct` | idem per active_players | Sì |
-| `rake_z_score` | `(curr - mean) / std` su finestra baseline | Sì |
-| `payout_z_score` | idem per payout | Sì |
-| `confidence` | `min(1, baselineDays / minBaselineDays)` | Sì |
+| Feature | Formula | Dipende da baseline | Null quando |
+|---------|---------|:-------------------:|-------------|
+| `payout_pct` | `won / bet × 100` | No | `total_bet = 0` |
+| `rake_baseline` | media mobile dei giorni precedenti | Sì | baseline insufficiente (=0) |
+| `payout_baseline` | media mobile payout precedenti (escludendo bet=0) | Sì | baseline insufficiente o nessun payout valido |
+| `active_players_baseline` | media mobile active_players precedenti | Sì | baseline insufficiente |
+| `rake_delta_pct` | `(curr - baseline) / abs(baseline) × 100` | Sì | baseline insufficiente |
+| `payout_delta_pct` | idem per payout | Sì | payout o baseline null |
+| `active_players_delta_pct` | idem per active_players | Sì | baseline insufficiente |
+| `rake_z_score` | `(curr - mean) / std` su finestra baseline | Sì | <2 valori nella baseline |
+| `payout_z_score` | idem per payout (escludendo bet=0) | Sì | <2 payout validi nella baseline |
+| `confidence` | `min(1, baselineDays / minBaselineDays)` | Sì | — |
 
 ## Quality gate
 
 1. **Validazione ISO date**: `YYYY-MM-DD` valida, non ambigua
 2. **NaN/Infinity rejection**: metriche non numeriche o infinite → errore esplicito
-3. **Deduplicazione date**: stesso giorno → tiene primo, segnala duplicato
-4. **Ordinamento cronologico**: obbligatorio prima del preprocessing
-5. **Baseline solo da giorni precedenti**: mai includere il giorno corrente
-6. **Errori separati dai segnali**: dati non validi non diventano zero silenziosamente
-7. **Rake negativo**: segnalabile anche senza baseline (fatto diretto)
+3. **Domain validation**: `total_bet >= 0`, `total_won >= 0`, `active_players >= 0` e intero. Rake può essere negativo.
+4. **Deduplicazione date**: stesso giorno → tiene primo, segnala duplicato
+5. **Ordinamento cronologico**: obbligatorio prima del preprocessing
+6. **Baseline solo da giorni precedenti**: mai includere il giorno corrente
+7. **Errori separati dai segnali**: dati non validi non diventano zero silenziosamente
+8. **Payout nullo con bet=0**: rapporto matematicamente non definito → null, non zero
 
 ## Regole implementate
 
 ### NETWORK_RAKE_NEGATIVE
 - **Condizione**: `total_rake < 0`
-- **Severità**: `high`
-- **Baseline**: non richiesta (fatto contabile diretto)
+- **Severità**: `high` (fatto contabile diretto)
+- **Baseline**: non richiesta
 - **Confidence**: 1.0
 - **Priorità**: 300
 - **Esclusione mutua**: se attivo, non genera anche `NETWORK_RAKE_DROP`
+- **Baseline evidence**: `evidence.baseline_days` riporta giorni reali anche se insufficienti
 
-### NETWORK_RAKE_DROP
-- **Condizione**: baseline sufficiente + delta oltre soglia
-- **Warning**: delta ≥ `rakeDropWarningPct` (15%) o z-score ≥ `zScoreWarning` (1.5)
-- **Critical**: delta ≥ `rakeDropCriticalPct` (30%) o z-score ≥ `zScoreCritical` (2.0)
+### NETWORK_RAKE_DROP (direzionale)
+- **Condizione**: baseline sufficiente + rake in **diminuzione** rispetto alla baseline
+- **Warning**: `rake_delta_pct <= -rakeDropWarningPct` o `rake_z_score <= -zScoreWarning`
+- **Critical**: `rake_delta_pct <= -rakeDropCriticalPct` o `rake_z_score <= -zScoreCritical`
+- **Direzionalità**: un aumento del rake (delta positivo, z-score positivo) non produce mai questo segnale
 - **Confidence**: proporzionale ai giorni di baseline
-- **Priorità**: 200-300 in base a severity × confidence
 
 ### NETWORK_PAYOUT_ANOMALY
-- **Condizione**: payout ≥ soglia warning (95%)
-- **Severità**: medium (≥95%) o high (≥98%)
-- **Baseline**: usata per delta/z-score quando disponibile
-- **Confidence**: proporzionale ai giorni di baseline
-- **Azione raccomandata**: prudente, non automatica
+- **Soglia assoluta**: `payout_pct >= payoutWarningPct` → medium; `>= payoutCriticalPct` → high
+- **Anomalia statistica**: `payout_z_score >= zScoreWarning` con baseline sufficiente
+- **evidence.direct_fact**: `true` se soglia assoluta, `false` se solo via z-score
+- **Bet=0**: payout null → nessun segnale generato
 
 ## Contratto DecisionSignal
 
 Ogni segnale contiene sempre:
-- `id`: identificatore univoco stabile
+- `id`: deterministico = `rule_id:scope:entity_id:date` (nessun contatore, nessun timestamp)
 - `rule_id`: regola che l'ha generato
 - `scope`: network | pvr | player | game
 - `entity_id`: identificatore dell'entità
@@ -118,29 +119,47 @@ Ogni segnale contiene sempre:
 - `title`, `explanation`, `recommended_action`: testuali basati su valori reali
 - `evidence.source`, `evidence.baseline_days`, `evidence.direct_fact`
 
+## ID deterministici
+
+Gli ID sono derivati dalla combinazione:
+```
+rule_id + scope + entity_id + date
+```
+Esempio: `NETWORK_RAKE_NEGATIVE:network:network:2026-06-17`
+
+Nessun contatore globale, nessun `Date.now()`, nessun `Math.random()`. A parità di input, ogni esecuzione produce lo stesso identico ID.
+
 ## Differenza tra alert history e decision queue
 
 - **Alert history** = `generateNetworkSignals()` → tutti i segnali generati, storico completo
 - **Decision queue** = `buildDecisionQueue()` → deduplicato per `rule_id+scope+entity_id`, ordinato per priorità, con limit
 
+### Regole della coda decisionale
+1. Priorità più alta vince
+2. A parità di priorità: data più recente
+3. Ordinamento finale: `priority_score` decrescente
+4. Applicazione del `limit`
+
 La coda decisionale è progettata per alimentare il futuro bottone "Cosa devo fare adesso?".
 
-## Configurazione
+## Configurazione (soglie tecniche provvisorie)
 
 ```typescript
 const config = {
-  baselineWindowDays: 14,      // finestra mobile
-  minBaselineDays: 5,          // minimo per baseline sufficiente
-  rakeDropWarningPct: 15,      // soglia warning calo rake
-  rakeDropCriticalPct: 30,     // soglia critica calo rake
-  activePlayersDropWarningPct: 15,
-  activePlayersDropCriticalPct: 30,
-  payoutWarningPct: 95,        // payout sopra 95% = warning
-  payoutCriticalPct: 98,        // payout sopra 98% = critico
-  zScoreWarning: 1.5,
-  zScoreCritical: 2.0,
+  baselineWindowDays: 14,
+  minBaselineDays: 7,
+  rakeDropWarningPct: 20,
+  rakeDropCriticalPct: 35,
+  activePlayersDropWarningPct: 20,
+  activePlayersDropCriticalPct: 35,
+  payoutWarningPct: 120,
+  payoutCriticalPct: 200,
+  zScoreWarning: 2,
+  zScoreCritical: 3,
 }
 ```
+
+**⚠️ Queste sono soglie tecniche iniziali e non soglie commerciali definitivamente approvate.** Prima dell'attivazione operativa saranno collegate a Settings e validate sui dati storici.
 
 ## Esclusioni correnti
 
@@ -150,6 +169,8 @@ const config = {
 - **Churn prediction**: non implementato
 - **Maggio simulato**: non creato
 - **106 righe extra**: non pulite, solo documentate
+- **Active players alerts**: non generati (dato con anomalia storica non certificata)
+- **Integrazione applicativa**: non ancora collegato a data.ts, Dashboard, Copilot o Settings
 
 ## Prossimi step
 

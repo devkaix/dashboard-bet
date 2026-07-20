@@ -1,11 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import {
   validateNetworkObservations,
   preprocessNetwork,
   generateNetworkSignals,
   buildDecisionQueue,
   DEFAULT_PREPROCESSING_CONFIG,
-  __resetSignalCounter,
   type NetworkDailyObservation,
   type PreprocessingConfig,
   type DecisionSignal,
@@ -23,21 +22,16 @@ function makeDay(overrides: Partial<NetworkDailyObservation> & { date: string })
   }
 }
 
-// Generate N consecutive stable days
 function stableDays(n: number, startDate = '2026-06-01'): NetworkDailyObservation[] {
   const days: NetworkDailyObservation[] = []
-  const base = new Date(startDate + 'T00:00:00')
+  const base = new Date(startDate + 'T12:00:00Z')
   for (let i = 0; i < n; i++) {
     const d = new Date(base)
-    d.setDate(d.getDate() + i)
+    d.setUTCDate(d.getUTCDate() + i)
     days.push(makeDay({ date: d.toISOString().slice(0, 10) }))
   }
   return days
 }
-
-beforeEach(() => {
-  __resetSignalCounter()
-})
 
 // ═══════════════════════════════════════════
 // VALIDATION & QUALITY GATE
@@ -76,6 +70,41 @@ describe('validateNetworkObservations', () => {
     expect(errors[0].type).toBe('INFINITE_METRIC')
   })
 
+  it('rejects negative total_bet', () => {
+    const { valid, errors } = validateNetworkObservations([makeDay({ date: '2026-06-01', total_bet: -100 })])
+    expect(valid).toHaveLength(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].type).toBe('INVALID_DOMAIN_VALUE')
+  })
+
+  it('rejects negative total_won', () => {
+    const { valid, errors } = validateNetworkObservations([makeDay({ date: '2026-06-01', total_won: -100 })])
+    expect(valid).toHaveLength(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].type).toBe('INVALID_DOMAIN_VALUE')
+  })
+
+  it('rejects negative active_players', () => {
+    const { valid, errors } = validateNetworkObservations([makeDay({ date: '2026-06-01', active_players: -5 })])
+    expect(valid).toHaveLength(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].type).toBe('INVALID_DOMAIN_VALUE')
+  })
+
+  it('rejects non-integer active_players', () => {
+    const { valid, errors } = validateNetworkObservations([makeDay({ date: '2026-06-01', active_players: 5.5 })])
+    expect(valid).toHaveLength(0)
+    expect(errors).toHaveLength(1)
+    expect(errors[0].type).toBe('INVALID_DOMAIN_VALUE')
+  })
+
+  it('accepts negative rake (valid domain)', () => {
+    const { valid, errors } = validateNetworkObservations([makeDay({ date: '2026-06-01', total_rake: -500 })])
+    expect(valid).toHaveLength(1)
+    expect(errors).toHaveLength(0)
+    expect(valid[0].total_rake).toBe(-500)
+  })
+
   it('detects and removes duplicate dates (keeps first)', () => {
     const raw = [
       makeDay({ date: '2026-06-01', total_rake: 100 }),
@@ -84,7 +113,7 @@ describe('validateNetworkObservations', () => {
     ]
     const { valid, errors } = validateNetworkObservations(raw)
     expect(valid).toHaveLength(2)
-    expect(valid[0].total_rake).toBe(100) // first occurrence kept
+    expect(valid[0].total_rake).toBe(100)
     expect(errors.some(e => e.type === 'DUPLICATE_DATE')).toBe(true)
   })
 
@@ -116,10 +145,26 @@ describe('preprocessNetwork', () => {
     expect(result[0].payout_pct).toBe(90)
   })
 
-  it('payout is 0 when total_bet is 0', () => {
+  it('payout is null when total_bet is 0', () => {
     const days = [makeDay({ date: '2026-06-01', total_bet: 0, total_won: 100 })]
     const result = preprocessNetwork(days)
-    expect(result[0].payout_pct).toBe(0)
+    expect(result[0].payout_pct).toBeNull()
+    expect(result[0].payout_delta_pct).toBeNull()
+    expect(result[0].payout_z_score).toBeNull()
+    expect(result[0].payout_baseline).toBeNull()
+  })
+
+  it('payout baseline excludes bet=0 days', () => {
+    const config = { ...DEFAULT_PREPROCESSING_CONFIG, minBaselineDays: 1 }
+    const days = [
+      makeDay({ date: '2026-06-01', total_bet: 0, total_won: 0 }),
+      makeDay({ date: '2026-06-02', total_bet: 1000, total_won: 900 }), // 90% payout
+      makeDay({ date: '2026-06-03', total_bet: 1000, total_won: 920 }), // 92% payout
+    ]
+    const result = preprocessNetwork(days, config)
+    // Day 2 baseline: [day1 payout=null → excluded, day2 payout=90%]. mean=90
+    expect(result[2].payout_baseline).toBe(90)
+    expect(result[2].payout_delta_pct).toBeCloseTo(2.2, 0) // (92-90)/90*100
   })
 
   it('baseline insufficient for first days', () => {
@@ -136,7 +181,6 @@ describe('preprocessNetwork', () => {
     const config = { ...DEFAULT_PREPROCESSING_CONFIG, minBaselineDays: 3 }
     const days = stableDays(5)
     const result = preprocessNetwork(days, config)
-    // Days 0-2: insufficient, Days 3-4: sufficient
     expect(result[0].baseline_sufficient).toBe(false)
     expect(result[1].baseline_sufficient).toBe(false)
     expect(result[2].baseline_sufficient).toBe(false)
@@ -148,7 +192,7 @@ describe('preprocessNetwork', () => {
     const config = { ...DEFAULT_PREPROCESSING_CONFIG, baselineWindowDays: 10, minBaselineDays: 1 }
     const days = [
       makeDay({ date: '2026-06-01', total_rake: 2000 }),
-      makeDay({ date: '2026-06-02', total_rake: 1600 }), // -20% delta
+      makeDay({ date: '2026-06-02', total_rake: 1600 }),
     ]
     const result = preprocessNetwork(days, config)
     expect(result[1].baseline_sufficient).toBe(true)
@@ -164,8 +208,6 @@ describe('preprocessNetwork', () => {
       makeDay({ date: '2026-06-04', total_rake: 1900 }),
     ]
     const result = preprocessNetwork(days, config)
-    // Day 3 baseline: [2000, 2100, 2050], mean=2033.33, std≈40.82
-    // z-score = (1900-2033.33)/40.82 ≈ -3.27
     expect(result[3].baseline_sufficient).toBe(true)
     expect(result[3].rake_z_score).toBeLessThan(-3)
   })
@@ -177,7 +219,6 @@ describe('preprocessNetwork', () => {
       makeDay({ date: '2026-06-02', total_rake: 200 }),
     ]
     const result = preprocessNetwork(days, config)
-    // Day 1 baseline should be [100], mean=100, delta=(200-100)/100=100%
     expect(result[1].rake_baseline).toBe(100)
     expect(result[1].rake_delta_pct).toBe(100)
   })
@@ -186,7 +227,6 @@ describe('preprocessNetwork', () => {
     const config = { ...DEFAULT_PREPROCESSING_CONFIG, baselineWindowDays: 2, minBaselineDays: 1 }
     const days = stableDays(5)
     const result = preprocessNetwork(days, config)
-    // Day 4 should have baseline from days 2-3 only
     expect(result[4].baseline_days).toBeLessThanOrEqual(2)
   })
 
@@ -198,9 +238,7 @@ describe('preprocessNetwork', () => {
     const config = { ...DEFAULT_PREPROCESSING_CONFIG, minBaselineDays: 5 }
     const days = stableDays(4)
     const result = preprocessNetwork(days, config)
-    // Day 3 has 3 baseline days, confidence = 3/5 = 0.6
     expect(result[3].confidence).toBeCloseTo(0.6, 1)
-    // Day 0 has 0 baseline days, confidence = 0.1
     expect(result[0].confidence).toBe(0.1)
   })
 })
@@ -218,6 +256,7 @@ describe('generateNetworkSignals', () => {
     expect(signals[0].rule_id).toBe('NETWORK_RAKE_NEGATIVE')
     expect(signals[0].severity).toBe('high')
     expect(signals[0].evidence.direct_fact).toBe(true)
+    expect(signals[0].evidence.baseline_days).toBe(0)
   })
 
   it('NETWORK_RAKE_NEGATIVE includes baseline when available', () => {
@@ -243,17 +282,16 @@ describe('generateNetworkSignals', () => {
     ]
     const processed = preprocessNetwork(days, config)
     const signals = generateNetworkSignals(processed, config)
-    // Should only have RAKE_NEGATIVE, not RAKE_DROP
     expect(signals.filter(s => s.rule_id === 'NETWORK_RAKE_NEGATIVE')).toHaveLength(1)
     expect(signals.filter(s => s.rule_id === 'NETWORK_RAKE_DROP')).toHaveLength(0)
   })
 
-  it('NETWORK_RAKE_DROP fires on warning threshold', () => {
+  it('NETWORK_RAKE_DROP: delta negative over warning → medium', () => {
     const config = { ...DEFAULT_PREPROCESSING_CONFIG, minBaselineDays: 2, rakeDropWarningPct: 10, rakeDropCriticalPct: 50, zScoreWarning: 999, zScoreCritical: 999 }
     const days = [
       makeDay({ date: '2026-06-01', total_rake: 2000 }),
       makeDay({ date: '2026-06-02', total_rake: 2100 }),
-      makeDay({ date: '2026-06-03', total_rake: 1700 }), // -17% from baseline ~2050: triggers warning (delta > 10%), not critical (< 50%)
+      makeDay({ date: '2026-06-03', total_rake: 1700 }),
     ]
     const processed = preprocessNetwork(days, config)
     const signals = generateNetworkSignals(processed, config)
@@ -262,18 +300,43 @@ describe('generateNetworkSignals', () => {
     expect(drops[0].severity).toBe('medium')
   })
 
-  it('NETWORK_RAKE_DROP fires on critical threshold', () => {
-    const config = { ...DEFAULT_PREPROCESSING_CONFIG, minBaselineDays: 2, rakeDropCriticalPct: 20 }
+  it('NETWORK_RAKE_DROP: delta negative over critical → high', () => {
+    const config = { ...DEFAULT_PREPROCESSING_CONFIG, minBaselineDays: 2, rakeDropCriticalPct: 20, zScoreWarning: 999, zScoreCritical: 999 }
     const days = [
       makeDay({ date: '2026-06-01', total_rake: 2000 }),
       makeDay({ date: '2026-06-02', total_rake: 2100 }),
-      makeDay({ date: '2026-06-03', total_rake: 1500 }), // -27% from baseline
+      makeDay({ date: '2026-06-03', total_rake: 1500 }),
     ]
     const processed = preprocessNetwork(days, config)
     const signals = generateNetworkSignals(processed, config)
     const drops = signals.filter(s => s.rule_id === 'NETWORK_RAKE_DROP')
     expect(drops.length).toBeGreaterThanOrEqual(1)
     expect(drops[0].severity).toBe('high')
+  })
+
+  it('NETWORK_RAKE_DROP: rake increase (+50%) → no signal', () => {
+    const config = { ...DEFAULT_PREPROCESSING_CONFIG, minBaselineDays: 2 }
+    const days = [
+      makeDay({ date: '2026-06-01', total_rake: 2000 }),
+      makeDay({ date: '2026-06-02', total_rake: 2100 }),
+      makeDay({ date: '2026-06-03', total_rake: 3000 }),
+    ]
+    const processed = preprocessNetwork(days, config)
+    const signals = generateNetworkSignals(processed, config)
+    expect(signals.filter(s => s.rule_id === 'NETWORK_RAKE_DROP')).toHaveLength(0)
+  })
+
+  it('NETWORK_RAKE_DROP: high positive z-score → no signal', () => {
+    const config = { ...DEFAULT_PREPROCESSING_CONFIG, minBaselineDays: 2 }
+    const days = [
+      makeDay({ date: '2026-06-01', total_rake: 2000 }),
+      makeDay({ date: '2026-06-02', total_rake: 2100 }),
+      makeDay({ date: '2026-06-03', total_rake: 4000 }),
+    ]
+    const processed = preprocessNetwork(days, config)
+    const signals = generateNetworkSignals(processed, config)
+    // z-score is highly positive (good), should NOT fire RAKE_DROP
+    expect(signals.filter(s => s.rule_id === 'NETWORK_RAKE_DROP')).toHaveLength(0)
   })
 
   it('NETWORK_RAKE_DROP does not fire without sufficient baseline', () => {
@@ -291,7 +354,7 @@ describe('generateNetworkSignals', () => {
     const config = { ...DEFAULT_PREPROCESSING_CONFIG, payoutWarningPct: 95, minBaselineDays: 1 }
     const days = [
       makeDay({ date: '2026-06-01', total_bet: 10000, total_won: 2000 }),
-      makeDay({ date: '2026-06-02', total_bet: 10000, total_won: 9700 }), // 97% payout
+      makeDay({ date: '2026-06-02', total_bet: 10000, total_won: 9700 }),
     ]
     const processed = preprocessNetwork(days, config)
     const signals = generateNetworkSignals(processed, config)
@@ -299,11 +362,77 @@ describe('generateNetworkSignals', () => {
     expect(payoutAnomalies.length).toBeGreaterThanOrEqual(1)
   })
 
+  it('NETWORK_PAYOUT_ANOMALY: payout under absolute threshold but z-score high → still fires', () => {
+    const config = { ...DEFAULT_PREPROCESSING_CONFIG, payoutWarningPct: 200, zScoreWarning: 1.0, zScoreCritical: 3, minBaselineDays: 2 }
+    const days = [
+      makeDay({ date: '2026-06-01', total_bet: 10000, total_won: 9000 }),
+      makeDay({ date: '2026-06-02', total_bet: 10000, total_won: 9100 }),
+      makeDay({ date: '2026-06-03', total_bet: 10000, total_won: 9500 }),
+    ]
+    const processed = preprocessNetwork(days, config)
+    const signals = generateNetworkSignals(processed, config)
+    const anomalies = signals.filter(s => s.rule_id === 'NETWORK_PAYOUT_ANOMALY')
+    expect(anomalies.length).toBeGreaterThanOrEqual(1)
+    // Fired via z-score, not direct threshold
+    expect(anomalies[0].evidence.direct_fact).toBe(false)
+  })
+
+  it('NETWORK_PAYOUT_ANOMALY: bet=0 produces null payout → no signal', () => {
+    const config = { ...DEFAULT_PREPROCESSING_CONFIG, payoutWarningPct: 50, minBaselineDays: 1 }
+    const days = [
+      makeDay({ date: '2026-06-01', total_bet: 0, total_won: 0 }),
+      makeDay({ date: '2026-06-02', total_bet: 0, total_won: 0 }),
+    ]
+    const processed = preprocessNetwork(days, config)
+    const signals = generateNetworkSignals(processed, config)
+    expect(signals.filter(s => s.rule_id === 'NETWORK_PAYOUT_ANOMALY')).toHaveLength(0)
+  })
+
+  it('IDs are deterministic (same input → same ID)', () => {
+    const days = [makeDay({ date: '2026-06-17', total_rake: -500 })]
+    const processed1 = preprocessNetwork(days)
+    const signals1 = generateNetworkSignals(processed1)
+
+    const processed2 = preprocessNetwork(days)
+    const signals2 = generateNetworkSignals(processed2)
+
+    expect(signals1).toHaveLength(signals2.length)
+    expect(signals1[0].id).toBe(signals2[0].id)
+    expect(signals1[0].id).toBe('NETWORK_RAKE_NEGATIVE:network:network:2026-06-17')
+  })
+
+  it('IDs are stable regardless of execution order', () => {
+    const days1 = [makeDay({ date: '2026-06-01', total_rake: -100 })]
+    const days2 = [makeDay({ date: '2026-06-02', total_rake: -200 })]
+
+    const s1 = generateNetworkSignals(preprocessNetwork(days1))
+    const s2 = generateNetworkSignals(preprocessNetwork(days2))
+
+    // IDs should be based on date, not on global counter
+    expect(s1[0].id).toContain('2026-06-01')
+    expect(s2[0].id).toContain('2026-06-02')
+  })
+
+  it('baseline_days in evidence is real count even when baseline insufficient', () => {
+    const config = { ...DEFAULT_PREPROCESSING_CONFIG, minBaselineDays: 10 }
+    const days = [
+      makeDay({ date: '2026-06-01', total_rake: 2000 }),
+      makeDay({ date: '2026-06-02', total_rake: 2100 }),
+      makeDay({ date: '2026-06-03', total_rake: -500 }),
+    ]
+    const processed = preprocessNetwork(days, config)
+    const signals = generateNetworkSignals(processed, config)
+    expect(signals[0].rule_id).toBe('NETWORK_RAKE_NEGATIVE')
+    expect(signals[0].baseline_value).toBeNull()
+    expect(signals[0].delta_pct).toBeNull()
+    expect(signals[0].evidence.baseline_days).toBe(2) // real count, not 0
+  })
+
   it('priority score is higher for high severity', () => {
     const days = [makeDay({ date: '2026-06-01', total_rake: -500 })]
     const processed = preprocessNetwork(days)
     const signals = generateNetworkSignals(processed)
-    expect(signals[0].priority_score).toBeGreaterThan(200) // high * 1.0 * 100 = 300
+    expect(signals[0].priority_score).toBeGreaterThan(200)
   })
 
   it('every signal has all required fields', () => {
@@ -337,96 +466,45 @@ describe('generateNetworkSignals', () => {
 
 describe('buildDecisionQueue', () => {
   it('deduplicates by rule_id+scope+entity_id, keeping highest priority', () => {
-    const signals = [
-      {
-        id: 'sig-1',
-        rule_id: 'NETWORK_RAKE_DROP',
-        scope: 'network' as const,
-        entity_id: 'network',
-        date: '2026-06-01',
-        category: 'warning' as const,
-        metric: 'rake',
-        severity: 'medium' as const,
-        current_value: 1000,
-        baseline_value: 2000,
-        delta_pct: -50,
-        z_score: -2,
-        confidence: 1,
-        priority_score: 200,
-        title: 'x', explanation: 'x', recommended_action: 'x',
-        evidence: { source: 'x', baseline_days: 5, direct_fact: false },
-      },
-      {
-        id: 'sig-2',
-        rule_id: 'NETWORK_RAKE_DROP',
-        scope: 'network' as const,
-        entity_id: 'network',
-        date: '2026-06-02',
-        category: 'critical' as const,
-        metric: 'rake',
-        severity: 'high' as const,
-        current_value: 500,
-        baseline_value: 2000,
-        delta_pct: -75,
-        z_score: -3,
-        confidence: 1,
-        priority_score: 300,
-        title: 'x', explanation: 'x', recommended_action: 'x',
-        evidence: { source: 'x', baseline_days: 5, direct_fact: false },
-      },
-    ]
+    const signals = makeTwoSignals('NETWORK_RAKE_DROP', 200, 300)
     const queue = buildDecisionQueue(signals)
     expect(queue).toHaveLength(1)
-    expect(queue[0].id).toBe('sig-2') // higher priority kept
+    expect(queue[0].priority_score).toBe(300)
+  })
+
+  it('tie-break: same priority_score keeps most recent date', () => {
+    const sig1 = makeSignal('NETWORK_RAKE_DROP', '2026-06-01', 300)
+    const sig2 = makeSignal('NETWORK_RAKE_DROP', '2026-06-05', 300)
+    const queue = buildDecisionQueue([sig1, sig2])
+    expect(queue).toHaveLength(1)
+    expect(queue[0].date).toBe('2026-06-05')
   })
 
   it('sorts by priority_score descending', () => {
-    const signals = [
-      {
-        id: 'low', rule_id: 'R1', scope: 'network' as const, entity_id: 'n1',
-        date: '2026-06-01', category: 'info' as const, metric: 'm', severity: 'low' as const,
-        current_value: 1, baseline_value: 1, delta_pct: 0, z_score: 0, confidence: 1, priority_score: 100,
-        title: 'x', explanation: 'x', recommended_action: 'x',
-        evidence: { source: 'x', baseline_days: 1, direct_fact: false },
-      },
-      {
-        id: 'high', rule_id: 'R2', scope: 'network' as const, entity_id: 'n1',
-        date: '2026-06-01', category: 'critical' as const, metric: 'm', severity: 'high' as const,
-        current_value: 1, baseline_value: 1, delta_pct: 0, z_score: 0, confidence: 1, priority_score: 300,
-        title: 'x', explanation: 'x', recommended_action: 'x',
-        evidence: { source: 'x', baseline_days: 1, direct_fact: false },
-      },
-    ]
-    const queue = buildDecisionQueue(signals)
-    expect(queue[0].id).toBe('high')
-    expect(queue[1].id).toBe('low')
+    const sig1 = makeSignal('R1', '2026-06-01', 100)
+    const sig2 = makeSignal('R2', '2026-06-01', 300)
+    const queue = buildDecisionQueue([sig1, sig2])
+    expect(queue[0].priority_score).toBe(300)
+    expect(queue[1].priority_score).toBe(100)
   })
 
   it('applies limit correctly', () => {
     const signals: DecisionSignal[] = []
     for (let i = 0; i < 20; i++) {
-      signals.push({
-        id: `sig-${i}`, rule_id: `R${i}`, scope: 'network' as const, entity_id: `e${i}`,
-        date: '2026-06-01', category: 'info' as const, metric: 'm', severity: 'low' as const,
-        current_value: i, baseline_value: 0, delta_pct: 0, z_score: 0, confidence: 1, priority_score: 100 - i,
-        title: 'x', explanation: 'x', recommended_action: 'x',
-        evidence: { source: 'x', baseline_days: 1, direct_fact: false },
-      })
+      signals.push(makeSignal(`R${i}`, '2026-06-01', 100 - i))
     }
     const queue = buildDecisionQueue(signals, 5)
     expect(queue).toHaveLength(5)
   })
 
+  it('limit <= 0 returns empty array', () => {
+    const signals = [makeSignal('R1', '2026-06-01', 100)]
+    expect(buildDecisionQueue(signals, 0)).toEqual([])
+    expect(buildDecisionQueue(signals, -1)).toEqual([])
+  })
+
   it('does not mutate input array', () => {
-    const signals = [
-      {
-        id: 'sig-1', rule_id: 'R1', scope: 'network' as const, entity_id: 'n1',
-        date: '2026-06-01', category: 'info' as const, metric: 'm', severity: 'low' as const,
-        current_value: 1, baseline_value: 1, delta_pct: 0, z_score: 0, confidence: 1, priority_score: 100,
-        title: 'x', explanation: 'x', recommended_action: 'x',
-        evidence: { source: 'x', baseline_days: 1, direct_fact: false },
-      },
-    ]
+    const signals = [makeSignal('R1', '2026-06-01', 100)]
     const original = [...signals]
     buildDecisionQueue(signals)
     expect(signals).toEqual(original)
@@ -436,3 +514,35 @@ describe('buildDecisionQueue', () => {
     expect(buildDecisionQueue([])).toEqual([])
   })
 })
+
+// ─── Signal helpers ───
+
+function makeSignal(ruleId: string, date: string, priorityScore: number): DecisionSignal {
+  return {
+    id: `${ruleId}:network:network:${date}`,
+    rule_id: ruleId,
+    scope: 'network',
+    entity_id: 'network',
+    date,
+    category: 'warning',
+    metric: 'rake',
+    severity: 'medium',
+    current_value: 1000,
+    baseline_value: 2000,
+    delta_pct: -50,
+    z_score: -2,
+    confidence: 1,
+    priority_score: priorityScore,
+    title: 'x',
+    explanation: 'x',
+    recommended_action: 'x',
+    evidence: { source: 'x', baseline_days: 5, direct_fact: false },
+  }
+}
+
+function makeTwoSignals(ruleId: string, low: number, high: number): DecisionSignal[] {
+  return [
+    makeSignal(ruleId, '2026-06-01', low),
+    makeSignal(ruleId, '2026-06-02', high),
+  ]
+}
