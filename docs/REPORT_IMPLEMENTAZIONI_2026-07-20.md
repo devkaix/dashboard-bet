@@ -1,7 +1,7 @@
 # DAZN Bet AI Decision Platform — Report delle implementazioni
 
 **Data:** 20 luglio 2026
-**Versione piattaforma:** commit `1dc3a39`
+**Versione piattaforma:** commit `48dcefd`
 **Destinatario:** Management DAZN Bet
 
 ---
@@ -164,9 +164,10 @@ Coda decisionale (ordinata per priorità, deduplicata)
 
 | Verifica | Risultato |
 |----------|:---------:|
-| Typecheck (TypeScript) | ✅ Superato |
-| Test automatici | ✅ 80/80 |
+| Typecheck (TypeScript) | ✅ 0 nuovi errori (85 preesistenti) |
+| Test automatici | ✅ 86/86 |
 | Build di produzione | ✅ Completata |
+| Lint | ⚠️ 85 problemi (78 errori, 7 warning) — preesistenti, non introdotti da questo intervento |
 | Build di produzione (Vercel ready) | ✅ Ready (build locale superata) |
 | Commit GitHub | `1dc3a39` |
 
@@ -221,6 +222,7 @@ Nell'ordine:
 | `3a01d88` | 20/07 | Fondazione preprocessing | preprocessing.ts | 31 | ✅ |
 | `0dbd3c6` | 20/07 | Correzione semantica segnali | preprocessing.ts, test | 73 | ✅ |
 | `1dc3a39` | 20/07 | Integrazione nel data layer | data.ts, Dashboard, AlertItem | 80 | ✅ |
+| `48dcefd` | 20/07 | Audit integrazione e correzioni | data.ts, test, docs | 86 | ✅ |
 
 ---
 

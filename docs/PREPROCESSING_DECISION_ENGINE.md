@@ -1,15 +1,14 @@
 # Preprocessing Decision Engine — Foundation
 
-> Commit corrente — 16/07/2026
+> Commit corrente — 20/07/2026
 > Modulo: 
 > Stato: **Integrato nel data layer** — Dashboard alert e briefing usano lo stesso motore
 
 ## Stato integrazione
 
-
 - ✅ Preprocessing integrato in loadData() (data.ts)
 - ✅ Dashboard alert derivano da convertSignalsToAlerts(signals)
-- ✅ Briefing costruito da buildBriefingFromSignals(signals, queue)
+- ✅ Briefing costruito da buildBriefingFromSignals(signals, queue, rankings)
 - ✅ decision_queue calcolata ma non ancora visualizzata in UI
 - ✅ Alert giocatori disattivati (solo scope network)
 - ✅ Soglie tecniche provvisorie (non commerciali)
@@ -178,7 +177,6 @@ const config = {
 **⚠️ Queste sono soglie tecniche iniziali e non soglie commerciali definitivamente approvate.** Prima dell'attivazione operativa saranno collegate a Settings e validate sui dati storici.
 
 ## Esclusioni correnti
-
 
 - **Health Score**: non implementato, formula non approvata
 - **Agenti**: nessuna fonte dati reale
