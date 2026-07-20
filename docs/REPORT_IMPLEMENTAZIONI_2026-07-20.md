@@ -167,7 +167,7 @@ Coda decisionale (ordinata per priorità, deduplicata)
 | Typecheck (TypeScript) | ✅ Superato |
 | Test automatici | ✅ 80/80 |
 | Build di produzione | ✅ Completata |
-| Deploy (Vercel) | ✅ Pronto |
+| Build di produzione (Vercel ready) | ✅ Ready (build locale superata) |
 | Commit GitHub | `1dc3a39` |
 
 ### Test eseguiti
@@ -218,9 +218,9 @@ Nell'ordine:
 
 | Commit | Data | Descrizione | File principali | Test | Esito |
 |--------|------|-------------|-----------------|:----:|:-----:|
-| `3a01d88` | 16/07 | Fondazione preprocessing | preprocessing.ts | 31 | ✅ |
-| `0dbd3c6` | 16/07 | Correzione semantica segnali | preprocessing.ts, test | 73 | ✅ |
-| `1dc3a39` | 16/07 | Integrazione nel data layer | data.ts, Dashboard, AlertItem | 80 | ✅ |
+| `3a01d88` | 20/07 | Fondazione preprocessing | preprocessing.ts | 31 | ✅ |
+| `0dbd3c6` | 20/07 | Correzione semantica segnali | preprocessing.ts, test | 73 | ✅ |
+| `1dc3a39` | 20/07 | Integrazione nel data layer | data.ts, Dashboard, AlertItem | 80 | ✅ |
 
 ---
 

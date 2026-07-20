@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCurrency, formatPercent, formatCompact } from './data';
+import { formatCurrency, formatPercent, formatCompact, convertSignalsToAlerts, buildBriefingFromSignals, type Alert, type Rankings } from './data';
 import {
   validateNetworkObservations,
   preprocessNetwork,
@@ -188,5 +188,87 @@ describe('preprocessing integration', () => {
     const signals = generateNetworkSignals(processed);
     const negCount = signals.filter(s => s.rule_id === 'NETWORK_RAKE_NEGATIVE').length;
     expect(negCount).toBe(2);
+  })
+})
+
+describe('convertSignalsToAlerts', () => {
+  it('does not mutate input array', () => {
+    const signals = [
+      { id: 's1', rule_id: 'R1', scope: 'network' as const, entity_id: 'n1',
+        date: '2026-06-01', category: 'critical' as const, metric: 'rake',
+        severity: 'high' as const, current_value: -500, baseline_value: 2000,
+        delta_pct: -25, z_score: -2.5, confidence: 1, priority_score: 300,
+        title: 'x', explanation: 'x', recommended_action: 'x',
+        evidence: { source: 'x', baseline_days: 5, direct_fact: true } },
+    ];
+    const original = [...signals];
+    convertSignalsToAlerts(signals);
+    expect(signals).toEqual(original);
+  })
+
+  it('copies all metadata fields from DecisionSignal', () => {
+    const signals = [
+      { id: 'sig-1', rule_id: 'NETWORK_RAKE_NEGATIVE', scope: 'network' as const, entity_id: 'network',
+        date: '2026-06-17', category: 'critical' as const, metric: 'rake',
+        severity: 'high' as const, current_value: -4603.42, baseline_value: 2000,
+        delta_pct: -330, z_score: -3.5, confidence: 1, priority_score: 300,
+        title: 'Rake negativo', explanation: 'Rake negativo il 2026-06-17',
+        recommended_action: 'Aprire drill-down', evidence: { source: 'daily_network_stats', baseline_days: 5, direct_fact: true } },
+    ];
+    const alerts = convertSignalsToAlerts(signals);
+    expect(alerts).toHaveLength(1);
+    const a = alerts[0];
+    expect(a.id).toBe('sig-1');
+    expect(a.rule_id).toBe('NETWORK_RAKE_NEGATIVE');
+    expect(a.recommended_action).toBe('Aprire drill-down');
+    expect(a.confidence).toBe(1);
+    expect(a.direct_fact).toBe(true);
+    expect(a.scope).toBe('network');
+    expect(a.entity_id).toBe('network');
+    expect(a.priority_score).toBe(300);
+    expect(a.severity).toBe('critical');
+  })
+
+  it('maps severity correctly: high→critical, medium→warning, low→info', () => {
+    const sigHigh = { id: 'h', rule_id: 'R', scope: 'network' as const, entity_id: 'n', date: '2026-06-01',
+      category: 'critical' as const, metric: 'rake', severity: 'high' as const, current_value: 1,
+      baseline_value: 1, delta_pct: 0, z_score: 0, confidence: 1, priority_score: 300,
+      title: 'x', explanation: 'x', recommended_action: 'x', evidence: { source: 'x', baseline_days: 1, direct_fact: false } } as const;
+    const sigMed = { ...sigHigh, id: 'm', severity: 'medium' as const, priority_score: 200 };
+    const sigLow = { ...sigHigh, id: 'l', severity: 'low' as const, priority_score: 100 };
+    const alerts = convertSignalsToAlerts([sigHigh, sigMed, sigLow]);
+    expect(alerts.find(a => a.id === 'h')?.severity).toBe('critical');
+    expect(alerts.find(a => a.id === 'm')?.severity).toBe('warning');
+    expect(alerts.find(a => a.id === 'l')?.severity).toBe('info');
+  })
+})
+
+describe('buildBriefingFromSignals', () => {
+  it('receives rankings as parameter (no cachedData dependency)', () => {
+    const signals: any[] = [];
+    const queue: any[] = [];
+    const rankings: Rankings = { top_players_by_rake: [], top_players_by_bet: [], top_pvrs: [] };
+    const briefing = buildBriefingFromSignals(signals, queue, rankings);
+    expect(briefing.criticals).toEqual([]);
+    expect(briefing.opportunities).toEqual([]);
+    expect(briefing.suggestions).toEqual([]);
+  })
+
+  it('creates opportunity from ranking data when available', () => {
+    const signals: any[] = [];
+    const queue: any[] = [];
+    const rankings: Rankings = {
+      top_players_by_rake: [{ rank: 1, username: 'TopPlayer', total_rake: 5000, total_bet: 50000, active_days: 20, pvr_id: null }],
+      top_players_by_bet: [],
+      top_pvrs: [],
+    };
+    const briefing = buildBriefingFromSignals(signals, queue, rankings);
+    expect(briefing.opportunities).toHaveLength(1);
+    expect(briefing.opportunities[0].title).toBe('Top player identificato');
+  })
+
+  it('handles null rankings gracefully', () => {
+    const briefing = buildBriefingFromSignals([], [], null);
+    expect(briefing.opportunities).toEqual([]);
   })
 })

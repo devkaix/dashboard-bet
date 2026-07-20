@@ -6,6 +6,7 @@
 
 ## Stato integrazione
 
+
 - ✅ Preprocessing integrato in loadData() (data.ts)
 - ✅ Dashboard alert derivano da convertSignalsToAlerts(signals)
 - ✅ Briefing costruito da buildBriefingFromSignals(signals, queue)
@@ -177,6 +178,7 @@ const config = {
 **⚠️ Queste sono soglie tecniche iniziali e non soglie commerciali definitivamente approvate.** Prima dell'attivazione operativa saranno collegate a Settings e validate sui dati storici.
 
 ## Esclusioni correnti
+
 
 - **Health Score**: non implementato, formula non approvata
 - **Agenti**: nessuna fonte dati reale

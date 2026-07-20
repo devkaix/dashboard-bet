@@ -142,6 +142,13 @@ export interface Alert {
   metric: string
   value: number
   status: string
+  rule_id: string
+  recommended_action: string
+  confidence: number
+  direct_fact: boolean
+  scope: string
+  entity_id: string
+  priority_score: number
 }
 
 export interface BriefingItem {
@@ -305,7 +312,7 @@ export async function loadData(range?: DateRange): Promise<DaznBetData> {
 
   // 3. Convert signals to Alert[] and Briefing
   const alerts = convertSignalsToAlerts(signals);
-  const briefing = buildBriefingFromSignals(signals, queue);
+  const briefing = buildBriefingFromSignals(signals, queue, rankings);
 
   // ─── Metadata enrichment ───
   const totalRake = monthlyAggs.rake;
@@ -864,10 +871,10 @@ async function fetchPvrTotals(range?: DateRange): Promise<PvrTotals> {
 
 // ─── Alert conversion: DecisionSignal → Alert (pure function) ───
 
-/** Converts preprocessing DecisionSignals into UI Alert objects. */
-function convertSignalsToAlerts(signals: DecisionSignal[]): Alert[] {
+/** Converts preprocessing DecisionSignals into UI Alert objects. Does not mutate input. */
+export function convertSignalsToAlerts(signals: ReadonlyArray<DecisionSignal>): Alert[] {
   const severityMap: Record<string, string> = { high: "critical", medium: "warning", low: "info" };
-  return signals
+  return [...signals]
     .sort((a, b) => {
       if (b.priority_score !== a.priority_score) return b.priority_score - a.priority_score;
       return b.date.localeCompare(a.date);
@@ -883,13 +890,24 @@ function convertSignalsToAlerts(signals: DecisionSignal[]): Alert[] {
       metric: s.metric,
       value: s.current_value,
       status: "active",
+      rule_id: s.rule_id,
+      recommended_action: s.recommended_action,
+      confidence: s.confidence,
+      direct_fact: s.evidence.direct_fact,
+      scope: s.scope,
+      entity_id: s.entity_id,
+      priority_score: s.priority_score,
     }));
 }
 
 // ─── Briefing construction from signals (pure function) ───
 
-/** Builds Briefing from pre-generated signals and decision queue. */
-function buildBriefingFromSignals(signals: DecisionSignal[], queue: DecisionSignal[]): Briefing {
+/** Builds Briefing from pre-generated signals, decision queue, and ranking data. */
+export function buildBriefingFromSignals(
+  signals: DecisionSignal[],
+  queue: DecisionSignal[],
+  rankings: Rankings | null,
+): Briefing {
   const today = new Date().toISOString().split("T")[0];
   const criticals: BriefingItem[] = [];
   const opportunities: BriefingItem[] = [];
@@ -924,21 +942,17 @@ function buildBriefingFromSignals(signals: DecisionSignal[], queue: DecisionSign
     }
   }
 
-  // Opportunities: use ranking data if available
-  try {
-    if (cachedData) {
-      const topPlayer = cachedData.rankings?.top_players_by_rake?.[0];
-      if (topPlayer && topPlayer.total_rake > 0) {
-        opportunities.push({
-          id: 1,
-          title: "Top player identificato",
-          description: `${topPlayer.username} \u00e8 il miglior giocatore per rake`,
-          severity: "info",
-        });
-      }
+  // Opportunities: use ranking data passed as parameter
+  if (rankings) {
+    const topPlayer = rankings.top_players_by_rake?.[0];
+    if (topPlayer && topPlayer.total_rake > 0) {
+      opportunities.push({
+        id: 1,
+        title: "Top player identificato",
+        description: `${topPlayer.username} \u00e8 il miglior giocatore per rake`,
+        severity: "info",
+      });
     }
-  } catch {
-    // ranking not yet loaded
   }
 
   // Count negative rake days from signals
@@ -960,86 +974,6 @@ function buildBriefingFromSignals(signals: DecisionSignal[], queue: DecisionSign
   };
 }
 
-async function fetchBriefing(range?: DateRange): Promise<Briefing> {
-  // Briefing now built from preprocessing signals in loadData().
-  // This function is kept for interface compatibility; returns cached briefing.
-  if (cachedData) return cachedData.briefing;
-  const today = new Date().toISOString().split("T")[0];
-  const criticals: BriefingItem[] = [];
-  const opportunities: BriefingItem[] = [];
-  const suggestions: BriefingItem[] = [];
-
-  let negQ = supabase
-    .from("daily_network_stats")
-    .select("date, rake")
-    .lt("rake", 0)
-    .order("rake", { ascending: true })
-    .limit(1);
-  if (range?.start) negQ = negQ.gte("date", range.start);
-  if (range?.end) negQ = negQ.lte("date", range.end);
-  const { data: negDays, error: negErr } = await negQ;
-  if (negErr) throw negErr;
-
-  if (negDays && negDays.length > 0) {
-    const worst = negDays[0];
-    criticals.push({
-      id: 1,
-      title: `Giornata peggiore: rake negativo`,
-      description: `${worst.date}: rake di ${formatCurrency(toNumber(worst.rake))}`,
-      severity: "high",
-      value: toNumber(worst.rake),
-      metric: "rake",
-    });
-  }
-
-  // Top player by aggregated rake
-  let topQ = supabase
-    .from("daily_player_stats")
-    .select("player_id, players!inner(username), rake");
-  if (range?.start) topQ = topQ.gte("date", range.start);
-  if (range?.end) topQ = topQ.lte("date", range.end);
-  const { data: topPlayerRows, error: topErr } = await topQ;
-  if (topErr) throw topErr;
-
-  const topAgg = new Map<string, { username: string; rake: number }>();
-  for (const row of topPlayerRows || []) {
-    const pid = row.player_id;
-    if (!topAgg.has(pid)) topAgg.set(pid, { username: row.players?.username || "", rake: 0 });
-    topAgg.get(pid)!.rake += toNumber(row.rake);
-  }
-  const topPlayer = Array.from(topAgg.entries()).sort((a, b) => b[1].rake - a[1].rake)[0];
-  if (topPlayer) {
-    opportunities.push({
-      id: 1,
-      title: "Top player identificato",
-      description: `${topPlayer[1].username} è il miglior giocatore per rake`,
-      severity: "info",
-    });
-  }
-
-  const negCount = negDays?.length || 0;
-  if (negCount > 0) {
-    suggestions.push({
-      id: 1,
-      title: `${negCount} giorni con rake negativo`,
-      description: `Analizza i pattern del ${negDays?.[0]?.date || 'periodo'} per identificare le cause`,
-    });
-  } else {
-    suggestions.push({
-      id: 1,
-      title: "Rake stabile nel periodo",
-      description: "Nessun giorno con rake negativo. Continua a monitorare.",
-    });
-  }
-
-  return {
-    date: today,
-    generated_at: new Date().toISOString(),
-    criticals,
-    opportunities,
-    suggestions,
-  };
-}
 
 // ─── Compatibility helpers ───
 
