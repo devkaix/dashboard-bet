@@ -850,8 +850,8 @@ async function fetchRankings(range?: DateRange): Promise<Rankings> {
   >();
   for (const row of playerStats || []) {
     const pid = row.player_id as string;
-    const username = (row.players as any)?.username || "";
-    const pvrId = (row.players as any)?.pvr_id || null;
+    const username = row.players?.username || "";
+    const pvrId = row.players?.pvr_id || null;
     const date = row.date as string;
 
     if (!playerAgg.has(pid)) {
@@ -900,7 +900,7 @@ async function fetchRankings(range?: DateRange): Promise<Rankings> {
   const pvrAgg = new Map<string, { name: string; rake: number; bet: number }>();
   for (const row of pvrStats || []) {
     const pid = row.pvr_id as string;
-    const name = (row.pvrs as any)?.name || "";
+    const name = row.pvrs?.name || "";
     if (!pvrAgg.has(pid)) pvrAgg.set(pid, { name, rake: 0, bet: 0 });
     const p = pvrAgg.get(pid)!;
     p.rake += toNumber(row.rake);
@@ -922,7 +922,7 @@ async function fetchRankings(range?: DateRange): Promise<Rankings> {
 
   const pvrActiveMap = new Map<string, Set<string>>();
   for (const row of activePvrData || []) {
-    const pvrId = (row.players as any)?.pvr_id;
+    const pvrId = row.players?.pvr_id;
     const playerId = row.player_id;
     if (!pvrId || !playerId) continue;
     if (!pvrActiveMap.has(pvrId)) pvrActiveMap.set(pvrId, new Set());

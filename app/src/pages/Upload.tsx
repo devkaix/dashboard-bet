@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
 import { num, normalizeUsername, pDate, pDt, det, col } from "@/lib/uploadHelpers";
+import { parseRequiredNumber, parseOptionalNumber, type ImportValidationIssue } from "@/lib/importPipeline";
 
 interface UploadRecord {
   id: string; filename: string; file_type: string | null; status: string;
@@ -153,19 +154,24 @@ async function resolvePlayerIds(usernames: string[]): Promise<Map<string, { id: 
 }
 
 function getStats(row: Record<string, unknown>) {
+  // Use optional parsers: missing values → null, invalid values → 0 (legacy compat)
+  // Required metrics (bet, won, rake) use parseRequiredNumber for strict validation
+  const betVal = parseRequiredNumber(col(row, ["Bet", "bet"]), "Bet").value;
+  const wonVal = parseRequiredNumber(col(row, ["Won", "won", "Win", "win"]), "Won").value;
+  const rakeVal = parseRequiredNumber(col(row, ["Rake", "rake"]), "Rake").value;
   return {
-    buy_in: num(col(row, ["Buy In", "buy_in", "BuyIn"])),
-    buy_in_bonus: num(col(row, ["Buy In Bonus", "buy_in_bonus", "BuyInBonus"])),
-    stack: num(col(row, ["Stack", "stack"])),
-    bet: num(col(row, ["Bet", "bet"])),
-    won: num(col(row, ["Won", "won", "Win", "win"])),
-    rake: num(col(row, ["Rake", "rake"])),
-    payout: num(col(row, ["Payout", "payout"])),
-    bet_bonus: num(col(row, ["Bet Bonus", "bet_bonus", "BetBonus"])),
-    jackpot: num(col(row, ["Jackpot", "jackpot"])),
-    jackpot_won: num(col(row, ["Jackpot Won", "jackpot_won", "JackpotWon"])),
-    overlay: num(col(row, ["Overlay", "overlay"])),
-    refund: num(col(row, ["Refund", "refund"])),
+    buy_in: parseOptionalNumber(col(row, ["Buy In", "buy_in", "BuyIn"]), "Buy In").value ?? 0,
+    buy_in_bonus: parseOptionalNumber(col(row, ["Buy In Bonus", "buy_in_bonus", "BuyInBonus"]), "Buy In Bonus").value ?? 0,
+    stack: parseOptionalNumber(col(row, ["Stack", "stack"]), "Stack").value ?? 0,
+    bet: betVal,
+    won: wonVal,
+    rake: rakeVal,
+    payout: parseOptionalNumber(col(row, ["Payout", "payout"]), "Payout").value ?? 0,
+    bet_bonus: parseOptionalNumber(col(row, ["Bet Bonus", "bet_bonus", "BetBonus"]), "Bet Bonus").value ?? 0,
+    jackpot: parseOptionalNumber(col(row, ["Jackpot", "jackpot"]), "Jackpot").value ?? 0,
+    jackpot_won: parseOptionalNumber(col(row, ["Jackpot Won", "jackpot_won", "JackpotWon"]), "Jackpot Won").value ?? 0,
+    overlay: parseOptionalNumber(col(row, ["Overlay", "overlay"]), "Overlay").value ?? 0,
+    refund: parseOptionalNumber(col(row, ["Refund", "refund"]), "Refund").value ?? 0,
   };
 }
 
@@ -476,23 +482,13 @@ export default function UploadPage() {
           for (const p of created || []) pvrMap.set(p.exalogic_id, p.id);
         }
 
-        // Auto-create unverified mappings from exalogic_id -> pvr_id
+        // Record unmapped PVR codes in report (no client-side insert on pvr_reference_map)
         const { data: existingMaps, error: mapErr } = await supabase.from("pvr_reference_map").select("pvr_ref_code").in("pvr_ref_code", uniqueEids);
         if (mapErr) throw new Error(`lookup pvr_reference_map: ${mapErr.message}`);
         const existingCodes = new Set((existingMaps || []).map((m) => m.pvr_ref_code));
-        const mapInserts = uniqueEids
-          .filter((eid) => !existingCodes.has(eid))
-          .map((eid) => ({
-            pvr_ref_code: eid,
-            pvr_id: pvrMap.get(eid),
-            mapping_source: "daily_pvr_stats",
-            confidence: 1,
-            verified: false,
-            notes: "Auto-created from daily_pvr_stats import",
-          }))
-          .filter((r) => r.pvr_id);
-        if (mapInserts.length > 0) {
-          check("insert pvr_reference_map", await (supabase.from("pvr_reference_map") as any).insert(mapInserts));
+        const unmappedEids = uniqueEids.filter((eid) => !existingCodes.has(eid));
+        if (unmappedEids.length > 0) {
+          report.unmatched_pvrs.push(...unmappedEids.map(eid => `Exalogic ${eid} (${pvrKeys.find(k => k.eid === eid)?.name || 'unknown'})`));
         }
       }
 
@@ -542,22 +538,67 @@ export default function UploadPage() {
         }).filter((r) => r.player_id);
         await batchUpsert("daily_player_stats", upserts, "player_id,date", 500);
 
-        const seenMap = new Map<string, string>();
+        // Track min and max date per player for correct first_seen/last_seen
+        const playerDateRange = new Map<string, { minDate: string; maxDate: string }>();
         for (const r of dailyPlayerRows) {
           const pid = playerMap.get(r.username_normalized)?.id;
           if (!pid) continue;
-          const curr = seenMap.get(pid);
-          if (!curr || r.date > curr) seenMap.set(pid, r.date);
+          const existing = playerDateRange.get(pid);
+          if (!existing) {
+            playerDateRange.set(pid, { minDate: r.date, maxDate: r.date });
+          } else {
+            if (r.date < existing.minDate) existing.minDate = r.date;
+            if (r.date > existing.maxDate) existing.maxDate = r.date;
+          }
         }
-        // Update last_seen_date (never regress) and first_seen_date (never advance)
-        for (const [id, date] of seenMap) {
-          await (supabase as any).from("players").update({ last_seen_date: date }).eq("id", id).filter("last_seen_date", "lt", date);
-          await (supabase as any).from("players").update({ first_seen_date: date }).eq("id", id).is("first_seen_date", null);
+        // Update last_seen_date (only if new date is later) and first_seen_date (only if null)
+        for (const [id, range] of playerDateRange) {
+          await (supabase as any).from("players")
+            .update({ last_seen_date: range.maxDate })
+            .eq("id", id)
+            .or(`last_seen_date.is.null,last_seen_date.lt.${range.maxDate}`);
+          await (supabase as any).from("players")
+            .update({ first_seen_date: range.minDate })
+            .eq("id", id)
+            .is("first_seen_date", null);
         }
       }
 
       const totalRows = ticketRows.length + dailyPvrRows.length + dailyNetworkRows.length + dailyGameRows.length + dailyPlayerRows.length;
-      await insertUploadRecord(file, fileHash, fileType, totalRows, "completed", "validated", report);
+
+      // Post-import reconciliation: verify row counts and totals against DB
+      try {
+        let tableName = "";
+        let dbCount = 0;
+        if (fileType === "daily_player") tableName = "daily_player_stats";
+        else if (fileType === "daily_network") tableName = "daily_network_stats";
+        else if (fileType === "daily_pvr") tableName = "daily_pvr_stats";
+        else if (fileType === "daily_player_game") tableName = "daily_player_game_stats";
+        else if (fileType === "tickets") tableName = "tickets";
+
+        if (tableName) {
+          const dates = (report?.dates || []).filter(Boolean).sort();
+          const pStart = dates[0] || null;
+          const pEnd = dates[dates.length - 1] || null;
+          let q = (supabase as any).from(tableName).select("*", { count: "exact", head: true });
+          if (pStart) q = q.gte(fileType === "tickets" ? "emission_date" : "date", pStart);
+          if (pEnd) q = q.lte(fileType === "tickets" ? "emission_date" : "date", pEnd);
+          const { count, error: countErr } = await q;
+          if (!countErr && count !== null) {
+            dbCount = count;
+            if (Math.abs(dbCount - totalRows) > totalRows * 0.01) {
+              report.reconciliation = { db_rows: dbCount, imported_rows: totalRows, status: "mismatch" };
+            } else {
+              report.reconciliation = { db_rows: dbCount, imported_rows: totalRows, status: "ok" };
+            }
+          }
+        }
+      } catch {
+        report.reconciliation = { status: "unchecked" };
+      }
+
+      const validationStatus = report.reconciliation?.status === "mismatch" ? "mismatch" : "validated";
+      await insertUploadRecord(file, fileHash, fileType, totalRows, "completed", validationStatus, report);
       setProgress("");
       const unmatchedMsg = report.unmatched_players.length > 0 ? ` (${report.unmatched_players.length} giocatori non riconosciuti)` : "";
       setMessage({ type: "success", text: `"${file.name}" → ${totalRows} righe (${fileType})${unmatchedMsg}` });

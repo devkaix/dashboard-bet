@@ -30,19 +30,43 @@ export type Database = {
         Row: { bet: number | null; bet_bonus: number | null; buy_in: number | null; buy_in_bonus: number | null; created_at: string | null; date: string; game_name: string; game_type_id: string | null; id: string; jackpot: number | null; jackpot_won: number | null; overlay: number | null; payout: number | null; player_id: string; provider: string; rake: number | null; refund: number | null; stack: number | null; won: number | null }
         Insert: { bet?: number | null; bet_bonus?: number | null; buy_in?: number | null; buy_in_bonus?: number | null; created_at?: string | null; date: string; game_name: string; game_type_id?: string | null; id?: string; jackpot?: number | null; jackpot_won?: number | null; overlay?: number | null; payout?: number | null; player_id: string; provider: string; rake?: number | null; refund?: number | null; stack?: number | null; won?: number | null }
         Update: { bet?: number | null; bet_bonus?: number | null; buy_in?: number | null; buy_in_bonus?: number | null; created_at?: string | null; date?: string; game_name?: string; game_type_id?: string | null; id?: string; jackpot?: number | null; jackpot_won?: number | null; overlay?: number | null; payout?: number | null; player_id?: string; provider?: string; rake?: number | null; refund?: number | null; stack?: number | null; won?: number | null }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "daily_player_game_stats_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       daily_player_stats: {
         Row: { bet: number | null; bet_bonus: number | null; buy_in: number | null; buy_in_bonus: number | null; created_at: string | null; date: string; id: string; jackpot: number | null; jackpot_won: number | null; overlay: number | null; payout: number | null; player_id: string; rake: number | null; refund: number | null; stack: number | null; won: number | null }
         Insert: { bet?: number | null; bet_bonus?: number | null; buy_in?: number | null; buy_in_bonus?: number | null; created_at?: string | null; date: string; id?: string; jackpot?: number | null; jackpot_won?: number | null; overlay?: number | null; payout?: number | null; player_id: string; rake?: number | null; refund?: number | null; stack?: number | null; won?: number | null }
         Update: { bet?: number | null; bet_bonus?: number | null; buy_in?: number | null; buy_in_bonus?: number | null; created_at?: string | null; date?: string; id?: string; jackpot?: number | null; jackpot_won?: number | null; overlay?: number | null; payout?: number | null; player_id?: string; rake?: number | null; refund?: number | null; stack?: number | null; won?: number | null }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "daily_player_stats_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       daily_pvr_stats: {
         Row: { bet: number | null; bet_bonus: number | null; buy_in: number | null; buy_in_bonus: number | null; created_at: string | null; date: string; id: string; jackpot: number | null; jackpot_won: number | null; overlay: number | null; payout: number | null; pvr_id: string; rake: number | null; refund: number | null; stack: number | null; won: number | null }
         Insert: { bet?: number | null; bet_bonus?: number | null; buy_in?: number | null; buy_in_bonus?: number | null; created_at?: string | null; date: string; id?: string; jackpot?: number | null; jackpot_won?: number | null; overlay?: number | null; payout?: number | null; pvr_id: string; rake?: number | null; refund?: number | null; stack?: number | null; won?: number | null }
         Update: { bet?: number | null; bet_bonus?: number | null; buy_in?: number | null; buy_in_bonus?: number | null; created_at?: string | null; date?: string; id?: string; jackpot?: number | null; jackpot_won?: number | null; overlay?: number | null; payout?: number | null; pvr_id?: string; rake?: number | null; refund?: number | null; stack?: number | null; won?: number | null }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "daily_pvr_stats_pvr_id_fkey"
+            columns: ["pvr_id"]
+            isOneToOne: false
+            referencedRelation: "pvrs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       excel_uploads: {
         Row: { error_message: string | null; file_hash: string | null; file_type: string | null; filename: string; id: string; normalized_hash: string | null; period_end: string | null; period_start: string | null; processed_at: string | null; rows_processed: number | null; status: string | null; storage_path: string | null; uploaded_at: string | null; validation_report: Json | null; validation_status: string | null }
@@ -66,7 +90,15 @@ export type Database = {
         Row: { balance: number | null; created_at: string | null; email: string | null; first_seen_date: string | null; id: string; kyc_status: string | null; last_seen_date: string | null; pvr_id: string | null; pvr_ref_code: string | null; registration_date: string | null; updated_at: string | null; username: string; username_normalized: string | null; withdrawable_balance: number | null }
         Insert: { balance?: number | null; created_at?: string | null; email?: string | null; first_seen_date?: string | null; id?: string; kyc_status?: string | null; last_seen_date?: string | null; pvr_id?: string | null; pvr_ref_code?: string | null; registration_date?: string | null; updated_at?: string | null; username: string; username_normalized?: string | null; withdrawable_balance?: number | null }
         Update: { balance?: number | null; created_at?: string | null; email?: string | null; first_seen_date?: string | null; id?: string; kyc_status?: string | null; last_seen_date?: string | null; pvr_id?: string | null; pvr_ref_code?: string | null; registration_date?: string | null; updated_at?: string | null; username?: string; username_normalized?: string | null; withdrawable_balance?: number | null }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "players_pvr_id_fkey"
+            columns: ["pvr_id"]
+            isOneToOne: false
+            referencedRelation: "pvrs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       pvr_mapping_audit: {
         Row: { action: string; affected_players: number; created_at: string; id: string; new_pvr_id: string; players_already_correct: number; players_changed: number; players_previously_null: number; players_reassigned: number; previous_pvr_id: string | null; pvr_ref_code: string; reason: string | null; request_id: string | null; total_players: number; verified_by: string | null }
@@ -78,7 +110,15 @@ export type Database = {
         Row: { confidence: number; created_at: string; mapping_source: string; notes: string | null; pvr_id: string; pvr_ref_code: string; updated_at: string; verified: boolean }
         Insert: { confidence?: number; created_at?: string; mapping_source: string; notes?: string | null; pvr_id: string; pvr_ref_code: string; updated_at?: string; verified?: boolean }
         Update: { confidence?: number; created_at?: string; mapping_source?: string; notes?: string | null; pvr_id?: string; pvr_ref_code?: string; updated_at?: string; verified?: boolean }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "pvr_reference_map_pvr_id_fkey"
+            columns: ["pvr_id"]
+            isOneToOne: false
+            referencedRelation: "pvrs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       pvrs: {
         Row: { area_manager: string | null; created_at: string | null; exalogic_id: string; id: string; name: string; region: string | null; updated_at: string | null }
@@ -90,7 +130,15 @@ export type Database = {
         Row: { amount: number | null; competition_date: string | null; created_at: string | null; emission_date: string | null; events_count: number | null; id: string; payment_date: string | null; player_id: string | null; pvr_code: string | null; status: string | null; ticket_code: string | null; win_amount: number | null }
         Insert: { amount?: number | null; competition_date?: string | null; created_at?: string | null; emission_date?: string | null; events_count?: number | null; id?: string; payment_date?: string | null; player_id?: string | null; pvr_code?: string | null; status?: string | null; ticket_code?: string | null; win_amount?: number | null }
         Update: { amount?: number | null; competition_date?: string | null; created_at?: string | null; emission_date?: string | null; events_count?: number | null; id?: string; payment_date?: string | null; player_id?: string | null; pvr_code?: string | null; status?: string | null; ticket_code?: string | null; win_amount?: number | null }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "tickets_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
