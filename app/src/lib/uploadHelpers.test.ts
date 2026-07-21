@@ -72,7 +72,7 @@ describe('pDt', () => {
 
 describe('det', () => {
   it('detects tickets', () => {
-    expect(det(['Ticket', 'Stato', 'Importo'])).toBe('tickets');
+    expect(det(['Ticket', 'Username', 'Codice Padre', 'Data Emissione', 'Stato', 'Importo'])).toBe('tickets');
   });
 
   it('detects real players_master headers', () => {
@@ -84,11 +84,11 @@ describe('det', () => {
   });
 
   it('detects daily_network', () => {
-    expect(det(['Data', 'Rake', 'Bet'])).toBe('daily_network');
+    expect(det(['Data', 'Rake', 'Bet', 'Won'])).toBe('daily_network');
   });
 
   it('detects player_summary', () => {
-    expect(det(['Username', 'Rake', 'Bet'])).toBe('player_summary');
+    expect(det(['Username', 'Rake', 'Bet', 'Won'])).toBe('player_summary');
   });
 
   it('detects player_summary with extra columns (no data column)', () => {
@@ -96,20 +96,34 @@ describe('det', () => {
   });
 
   it('detects daily_player (data and username present)', () => {
-    expect(det(['Data', 'Username', 'Rake'])).toBe('daily_player');
+    expect(det(['Data', 'Username', 'Rake', 'Bet', 'Won'])).toBe('daily_player');
   });
 
   it('detects daily_player with extra columns', () => {
-    expect(det(['Data', 'Username', 'Rake', 'Bet'])).toBe('daily_player');
+    expect(det(['Data', 'Username', 'Rake', 'Bet', 'Won', 'Extra'])).toBe('daily_player');
   });
 
   it('detects daily_network with data but no username', () => {
-    expect(det(['Data', 'Rake', 'Bet'])).toBe('daily_network');
+    expect(det(['Data', 'Rake', 'Bet', 'Won'])).toBe('daily_network');
   });
 
   it('returns unknown for unrecognized headers', () => {
     expect(det(['SomeCol', 'AnotherCol'])).toBe('unknown');
     expect(det(['Rake', 'Bet', 'Won'])).toBe('unknown');
+  });
+
+  it('detects daily_player_game with real file 10 headers', () => {
+    const file10Headers = ['index', 'Data', 'Data.1', 'Gioco', 'Username', 'Buy In', 'Buy In Bonus', 'Stack', 'Bet', 'Won', 'Rake', 'Payout', 'Bet Bonus', 'Jackpot', 'Jackpot Won', 'Overlay', 'Refund'];
+    expect(det(file10Headers)).toBe('daily_player_game');
+  });
+
+  it('detects player_summary with file 5 headers (no Data column)', () => {
+    const file5Headers = ['index', 'Username', 'Buy In', 'Buy In Bonus', 'Stack', 'Bet', 'Won', 'Rake', 'Payout', 'Bet Bonus', 'Jackpot', 'Jackpot Won', 'Overlay', 'Refund'];
+    expect(det(file5Headers)).toBe('player_summary');
+  });
+
+  it('returns unknown for trivial headers', () => {
+    expect(det(['A', 'B', 'C'])).toBe('unknown');
   });
 });
 

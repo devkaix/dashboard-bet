@@ -230,8 +230,30 @@ export default function UploadPage() {
       const raw = (aoa[0] || []).map((h: unknown) => String(h || "").trim());
       fileType = det(raw);
 
+      // Block unknown file types immediately
+      if (fileType === "unknown") {
+        const found = raw.filter(h => h).join(", ");
+        throw new Error(
+          `Tipo file non riconosciuto. Intestazioni trovate: ${found || "(nessuna)"}. ` +
+          `Intestazioni richieste per tipo:
+` +
+          `- daily_player: Data, Username, Bet, Won, Rake
+` +
+          `- daily_network: Data, Bet, Won, Rake
+` +
+          `- daily_pvr: ID Liv 1, Liv 1, Data
+` +
+          `- daily_player_game: Data, Data.1, Gioco, Username
+` +
+          `- tickets: Ticket, Username, Codice Padre, Data Emissione, Stato
+` +
+          `- players_master: user, PVR rif., stato, saldo, saldo prel, creato
+` +
+          `- player_summary: Username, Bet, Won, Rake (senza Data)`
+        );
+      }
+
       const hdr = [...raw];
-      if (fileType === "daily_player_game") { hdr[1] = "Provider"; hdr[2] = "GameName"; }
       const rows = aoa.slice(1).map((r) => {
         const o: Record<string, unknown> = {};
         hdr.forEach((h, i) => { o[h] = r[i]; });
@@ -416,8 +438,8 @@ export default function UploadPage() {
         usernames.push(uname);
 
         if (fileType === "daily_player_game") {
-          const prov = String(col(row, ["Provider", "provider"]) || "").trim();
-          const gn = String(col(row, ["GameName", "game_name", "Gioco", "gioco"]) || "").trim();
+          const prov = String(col(row, ["Data.1", "provider", "Provider"]) || "").trim();
+          const gn = String(col(row, ["Gioco", "game_name", "GameName", "gioco"]) || "").trim();
           if (prov && gn) {
             dailyGameRows.push({
               username_normalized: normalizeUsername(uname),
@@ -527,8 +549,11 @@ export default function UploadPage() {
           const curr = seenMap.get(pid);
           if (!curr || r.date > curr) seenMap.set(pid, r.date);
         }
-        const updates = Array.from(seenMap.entries()).map(([id, date]) => ({ id, last_seen_date: date }));
-        await batchUpsert("players", updates, "id", 500);
+        // Update last_seen_date (never regress) and first_seen_date (never advance)
+        for (const [id, date] of seenMap) {
+          await (supabase as any).from("players").update({ last_seen_date: date }).eq("id", id).filter("last_seen_date", "lt", date);
+          await (supabase as any).from("players").update({ first_seen_date: date }).eq("id", id).is("first_seen_date", null);
+        }
       }
 
       const totalRows = ticketRows.length + dailyPvrRows.length + dailyNetworkRows.length + dailyGameRows.length + dailyPlayerRows.length;
@@ -549,12 +574,19 @@ export default function UploadPage() {
     }
   }
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault(); setDragOver(false);
-    Array.from(e.dataTransfer.files).filter((f) => /\.(xlsx|xls|csv)$/i.test(f.name)).forEach(processFile);
+    const files = Array.from(e.dataTransfer.files).filter((f) => /\.(xlsx|xls|csv)$/i.test(f.name));
+    for (const file of files) {
+      await processFile(file);
+    }
   }, []);
-  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    Array.from(e.target.files || []).forEach(processFile); e.target.value = "";
+  const handleFileInput = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    for (const file of files) {
+      await processFile(file);
+    }
+    e.target.value = "";
   }, []);
 
   return (

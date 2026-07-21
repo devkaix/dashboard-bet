@@ -88,31 +88,50 @@ export function pDt(v: unknown): string | null {
   }
 }
 
+type FileTypeContract = {
+  type: string;
+  required: string[]; // must ALL be present (case-insensitive)
+  forbidden?: string[]; // if ANY is present, reject this type
+}
+
+const FILE_TYPE_CONTRACTS: FileTypeContract[] = [
+  { type: "daily_player_game", required: ["Data", "Data.1", "Gioco", "Username", "Bet", "Won", "Rake"] },
+  { type: "daily_pvr", required: ["ID Liv 1", "Liv 1", "Data", "Bet", "Won", "Rake"] },
+  { type: "tickets", required: ["Ticket", "Username", "Codice Padre", "Data Emissione", "Stato"] },
+  { type: "players_master", required: ["user", "PVR rif.", "stato", "saldo", "saldo prel", "creato"] },
+  { type: "player_summary", required: ["Username", "Bet", "Won", "Rake"], forbidden: ["Data"] },
+  { type: "daily_player", required: ["Data", "Username", "Bet", "Won", "Rake"] },
+  { type: "daily_network", required: ["Data", "Bet", "Won", "Rake"], forbidden: ["Username", "ID Liv 1"] },
+];
+
+function headerMatches(headers: string[], field: string): boolean {
+  const f = field.toLowerCase().trim();
+  // Exact match (case-insensitive)
+  if (headers.some((h) => h === f)) return true;
+  // Normalized match: collapse all non-alphanumeric characters
+  const fn = f.replace(/[^a-z0-9]/g, "");
+  if (fn.length > 0 && headers.some((h) => h.replace(/[^a-z0-9]/g, "") === fn)) return true;
+  return false;
+}
+
 export function det(hdr: string[]): string {
   const h = hdr.map((x) => x.toLowerCase().trim());
-  const joined = h.join("|");
 
-  // Real players_master export: index, user, PVR rif., stato, saldo, saldo prel, creato
-  if (
-    h.includes("user") &&
-    (h.some((x) => x.includes("pvr")) || h.includes("pvr rif.")) &&
-    (h.includes("saldo") || h.includes("stato"))
-  ) {
-    return "players_master";
+  for (const contract of FILE_TYPE_CONTRACTS) {
+    const hasAllRequired = contract.required.every((r) => headerMatches(h, r));
+    if (!hasAllRequired) continue;
+
+    if (contract.forbidden) {
+      const hasForbidden = contract.forbidden.some((f) => headerMatches(h, f));
+      if (hasForbidden) continue;
+    }
+
+    return contract.type;
   }
 
-  // Legacy/English players_master headers
+  // Legacy fallback for English players_master headers
+  const joined = h.join("|");
   if (joined.includes("kyc") || joined.includes("pvr ref") || joined.includes("withdrawable")) return "players_master";
-
-  if (h.includes("ticket") && h.includes("stato")) return "tickets";
-  if (h.includes("gioco")) return "daily_player_game";
-  if (h.some((x) => x.includes("liv 1"))) return "daily_pvr";
-  const hasUsername = h.some(x => x === "username");
-  const hasData = h.some(x => x === "data");
-
-  if (hasUsername && hasData) return "daily_player";
-  if (hasUsername && !hasData) return "player_summary";
-  if (hasData && !hasUsername) return "daily_network";
 
   return "unknown";
 }
