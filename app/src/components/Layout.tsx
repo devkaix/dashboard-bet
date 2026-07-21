@@ -3,7 +3,8 @@ import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
-  '/': { title: 'Dashboard', subtitle: 'Panoramica rete — Giugno 2026' },
+  '/': { title: 'Executive Briefing', subtitle: 'Le cose più importanti da sapere oggi' },
+  '/dashboard': { title: 'Dashboard', subtitle: 'Panoramica rete — Giugno 2026' },
   '/network': { title: 'Rete', subtitle: 'Gerarchia regioni → area manager → PVR → agenti' },
   '/players': { title: 'Giocatori', subtitle: 'Elenco completo giocatori attivi' },
   '/analytics': { title: 'Analytics', subtitle: 'Analisi trend e confronti periodo' },

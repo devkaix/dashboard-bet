@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   LayoutDashboard,
+  PieChart,
   Network,
   Users,
   BarChart3,
@@ -17,7 +18,8 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/', icon: PieChart, label: 'Executive Briefing' },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/network', icon: Network, label: 'Rete' },
   { to: '/players', icon: Users, label: 'Giocatori' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
