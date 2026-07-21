@@ -165,7 +165,7 @@ Coda decisionale (ordinata per priorità, deduplicata)
 | Verifica | Risultato |
 |----------|:---------:|
 | Typecheck (TypeScript) | ✅ 0 nuovi errori (85 preesistenti) |
-| Test automatici | ✅ 86/86 |
+| Test automatici | ✅ 91/91 |
 | Build di produzione | ✅ Completata |
 | Lint | ⚠️ 85 problemi (78 errori, 7 warning) — preesistenti, non introdotti da questo intervento |
 | Build di produzione (Vercel ready) | ✅ Ready (build locale superata) |

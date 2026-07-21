@@ -12,11 +12,11 @@
 - ✅ decision_queue calcolata ma non ancora visualizzata in UI
 - ✅ Alert giocatori disattivati (solo scope network)
 - ✅ Soglie tecniche provvisorie (non commerciali)
-- ✅ Integrazione read-only (nessuna scrittura Supabase)
-- ✅ Nessuna pulizia delle righe storiche sospette
-- ⬜ Bottone decisionale (prossimo step)
-- ⬜ Collegamento Settings (prossimo step)
-- ⬜ Preprocessing PVR e giocatori (prossimo step)`app/src/lib/preprocessing.ts`
+- ✅ Severity e category distinti (high/medium/low vs critical/warning/info)
+- ✅ Rake negativo non blocca payout anomaly
+- ⬜ Bottone decisionale
+- ⬜ Collegamento Settings
+- ⬜ Preprocessing PVR e giocatori`app/src/lib/preprocessing.ts`
 
 ## Obiettivo di prodotto
 

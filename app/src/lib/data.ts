@@ -282,6 +282,74 @@ async function inferLatestMonthRange(): Promise<DateRange> {
   return { start, end };
 }
 
+// ─── Lookback helper ───
+
+/** Slim query: fetches only daily_network_stats for baseline computation. */
+async function fetchLookbackObservations(startDate: string, limit: number): Promise<{ observations: NetworkDailyObservation[]; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from("daily_network_stats")
+      .select("date, rake, bet, won")
+      .lt("date", startDate)
+      .order("date", { ascending: false })
+      .limit(limit);
+    if (error) return { observations: [], error: error.message };
+    // Return in chronological order
+    const sorted = (data || []).reverse().map((row) => ({
+      date: row.date as string,
+      total_rake: toNumber(row.rake),
+      total_bet: toNumber(row.bet),
+      total_won: toNumber(row.won),
+      active_players: 0, // Not computed from lookback; player data not certified
+    }));
+    return { observations: sorted, error: null };
+  } catch (e: unknown) {
+    return { observations: [], error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ─── Pure pipeline function ───
+
+/**
+ * Builds the full decision pipeline from observations.
+ * Pure function: no Supabase, no React, no side effects.
+ * @param historical Observations from before the period (baseline only, never exposed in output)
+ * @param period Observations from the selected period
+ * @param periodStart Optional start filter for signals
+ * @param periodEnd Optional end filter for signals
+ */
+export function buildNetworkDecisionPipeline(
+  historical: NetworkDailyObservation[],
+  period: NetworkDailyObservation[],
+  config = DEFAULT_PREPROCESSING_CONFIG,
+  periodStart?: string,
+  periodEnd?: string,
+): {
+  validation: ReturnType<typeof validateNetworkObservations>;
+  preprocessed: ReturnType<typeof preprocessNetwork>;
+  signals: DecisionSignal[];
+  queue: DecisionSignal[];
+  lookbackError: string | null;
+} {
+  const allObs = [...historical, ...period];
+  const validation = validateNetworkObservations(allObs);
+  const preprocessed = preprocessNetwork(validation.valid, config);
+  const allSignals = generateNetworkSignals(preprocessed, config);
+
+  // Filter signals to selected period only
+  const signals = periodStart || periodEnd
+    ? allSignals.filter((s) => {
+        if (periodStart && s.date < periodStart) return false;
+        if (periodEnd && s.date > periodEnd) return false;
+        return true;
+      })
+    : allSignals;
+
+  const queue = buildDecisionQueue(signals, 10);
+
+  return { validation, preprocessed, signals, queue, lookbackError: null };
+}
+
 // ─── Main loader ───
 
 export async function loadData(range?: DateRange): Promise<DaznBetData> {
@@ -298,31 +366,16 @@ export async function loadData(range?: DateRange): Promise<DaznBetData> {
   const players = await fetchPlayers(network.pvrs, effectiveRange);
 
   // ─── Preprocessing pipeline ───
-  // 1. Build full observations (selected period + historical lookback for baseline)
+  // 1. Load historical observations for baseline (slim query, no KPI/aggregate pollution)
   let historicalObs: NetworkDailyObservation[] = [];
+  let lookbackError: string | null = null;
   if (effectiveRange.start) {
-    // Load previous days for baseline computation (do not expose in KPI/aggregates)
-    const lookbackStart = new Date(effectiveRange.start + 'T12:00:00Z');
-    lookbackStart.setUTCDate(lookbackStart.getUTCDate() - DEFAULT_PREPROCESSING_CONFIG.baselineWindowDays);
-    const lookbackRange: DateRange = {
-      start: lookbackStart.toISOString().slice(0, 10),
-      end: new Date(new Date(effectiveRange.start + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10),
-    };
-    try {
-      const historicalKpis = await fetchDailyKpis(lookbackRange);
-      historicalObs = historicalKpis.map((dk) => ({
-        date: dk.date,
-        total_rake: dk.total_rake,
-        total_bet: dk.total_bet,
-        total_won: dk.total_won,
-        active_players: dk.active_players,
-      }));
-    } catch {
-      // Lookback failure is non-critical; baseline will be computed from available days
-    }
+    const result = await fetchLookbackObservations(effectiveRange.start, DEFAULT_PREPROCESSING_CONFIG.baselineWindowDays);
+    historicalObs = result.observations;
+    lookbackError = result.error;
   }
 
-  // Selected period observations
+  // Selected period observations (from already-loaded DailyKPI)
   const periodObs: NetworkDailyObservation[] = dailyKpis.map((dk) => ({
     date: dk.date,
     total_rake: dk.total_rake,
@@ -331,26 +384,27 @@ export async function loadData(range?: DateRange): Promise<DaznBetData> {
     active_players: dk.active_players,
   }));
 
-  // Combine: historical first (for baseline), then selected period
-  const allObs = [...historicalObs, ...periodObs];
+  // 2. Run pure decision pipeline
+  const pipeline = buildNetworkDecisionPipeline(
+    historicalObs,
+    periodObs,
+    DEFAULT_PREPROCESSING_CONFIG,
+    effectiveRange.start,
+    effectiveRange.end,
+  );
 
-  // 2. Validate → preprocess → signals (full range) → signals (selected period only)
-  const validation = validateNetworkObservations(allObs);
-  const preprocessed = preprocessNetwork(validation.valid);
-  const allSignals = generateNetworkSignals(preprocessed);
+  // Merge lookback error into validation issues
+  const preprocessingIssues = [...pipeline.validation.errors];
+  if (lookbackError) {
+    preprocessingIssues.push({
+      type: 'INVALID_DOMAIN_VALUE',
+      index: -1,
+      detail: `Historical lookback failed: ${lookbackError}. Baseline may be insufficient.`,
+    });
+  }
 
-  // Filter signals to selected period only
-  const periodStart = effectiveRange.start;
-  const periodEnd = effectiveRange.end;
-  const signals = periodStart || periodEnd
-    ? allSignals.filter((s) => {
-        if (periodStart && s.date < periodStart) return false;
-        if (periodEnd && s.date > periodEnd) return false;
-        return true;
-      })
-    : allSignals;
-
-  const queue = buildDecisionQueue(signals, 10);
+  const signals = pipeline.signals;
+  const queue = pipeline.queue;
 
   // 3. Convert signals to Alert[] and Briefing
   const alerts = convertSignalsToAlerts(signals);
@@ -387,7 +441,7 @@ export async function loadData(range?: DateRange): Promise<DaznBetData> {
     briefing,
     decision_signals: signals,
     decision_queue: queue,
-    preprocessing_issues: validation.errors,
+    preprocessing_issues: preprocessingIssues,
   };
 
   return cachedData;

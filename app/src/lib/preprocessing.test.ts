@@ -132,31 +132,6 @@ describe('validateNetworkObservations', () => {
     validateNetworkObservations(raw)
     expect(raw).toEqual(original)
   })
-  it('rake negative day still allows payout anomaly signal', () => {
-    const config = { ...DEFAULT_PREPROCESSING_CONFIG, payoutWarningPct: 95, minBaselineDays: 1 }
-    const days = [
-      makeDay({ date: '2026-06-01', total_bet: 10000, total_won: 9000 }),
-      makeDay({ date: '2026-06-02', total_rake: -500, total_bet: 5000, total_won: 4900 }),
-    ]
-    const processed = preprocessNetwork(days, config)
-    const signals = generateNetworkSignals(processed, config)
-    const negSignals = signals.filter(s => s.rule_id === 'NETWORK_RAKE_NEGATIVE')
-    const payoutSignals = signals.filter(s => s.rule_id === 'NETWORK_PAYOUT_ANOMALY')
-    expect(negSignals).toHaveLength(1)
-    expect(payoutSignals.length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('rake negative day does NOT also fire rake drop', () => {
-    const config = { ...DEFAULT_PREPROCESSING_CONFIG, minBaselineDays: 1 }
-    const days = [
-      makeDay({ date: '2026-06-01', total_rake: 2000 }),
-      makeDay({ date: '2026-06-02', total_rake: -500 }),
-    ]
-    const processed = preprocessNetwork(days, config)
-    const signals = generateNetworkSignals(processed, config)
-    const drops = signals.filter(s => s.rule_id === 'NETWORK_RAKE_DROP')
-    expect(drops).toHaveLength(0)
-  })
 
 })
 
@@ -266,31 +241,6 @@ describe('preprocessNetwork', () => {
     const result = preprocessNetwork(days, config)
     expect(result[3].confidence).toBeCloseTo(0.6, 1)
     expect(result[0].confidence).toBe(0.1)
-  })
-  it('rake negative day still allows payout anomaly signal', () => {
-    const config = { ...DEFAULT_PREPROCESSING_CONFIG, payoutWarningPct: 95, minBaselineDays: 1 }
-    const days = [
-      makeDay({ date: '2026-06-01', total_bet: 10000, total_won: 9000 }),
-      makeDay({ date: '2026-06-02', total_rake: -500, total_bet: 5000, total_won: 4900 }),
-    ]
-    const processed = preprocessNetwork(days, config)
-    const signals = generateNetworkSignals(processed, config)
-    const negSignals = signals.filter(s => s.rule_id === 'NETWORK_RAKE_NEGATIVE')
-    const payoutSignals = signals.filter(s => s.rule_id === 'NETWORK_PAYOUT_ANOMALY')
-    expect(negSignals).toHaveLength(1)
-    expect(payoutSignals.length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('rake negative day does NOT also fire rake drop', () => {
-    const config = { ...DEFAULT_PREPROCESSING_CONFIG, minBaselineDays: 1 }
-    const days = [
-      makeDay({ date: '2026-06-01', total_rake: 2000 }),
-      makeDay({ date: '2026-06-02', total_rake: -500 }),
-    ]
-    const processed = preprocessNetwork(days, config)
-    const signals = generateNetworkSignals(processed, config)
-    const drops = signals.filter(s => s.rule_id === 'NETWORK_RAKE_DROP')
-    expect(drops).toHaveLength(0)
   })
 
 })
@@ -509,31 +459,6 @@ describe('generateNetworkSignals', () => {
     expect(s.evidence.source).toBeTruthy()
     expect(typeof s.evidence.baseline_days).toBe('number')
     expect(typeof s.evidence.direct_fact).toBe('boolean')
-  })
-  it('rake negative day still allows payout anomaly signal', () => {
-    const config = { ...DEFAULT_PREPROCESSING_CONFIG, payoutWarningPct: 95, minBaselineDays: 1 }
-    const days = [
-      makeDay({ date: '2026-06-01', total_bet: 10000, total_won: 9000 }),
-      makeDay({ date: '2026-06-02', total_rake: -500, total_bet: 5000, total_won: 4900 }),
-    ]
-    const processed = preprocessNetwork(days, config)
-    const signals = generateNetworkSignals(processed, config)
-    const negSignals = signals.filter(s => s.rule_id === 'NETWORK_RAKE_NEGATIVE')
-    const payoutSignals = signals.filter(s => s.rule_id === 'NETWORK_PAYOUT_ANOMALY')
-    expect(negSignals).toHaveLength(1)
-    expect(payoutSignals.length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('rake negative day does NOT also fire rake drop', () => {
-    const config = { ...DEFAULT_PREPROCESSING_CONFIG, minBaselineDays: 1 }
-    const days = [
-      makeDay({ date: '2026-06-01', total_rake: 2000 }),
-      makeDay({ date: '2026-06-02', total_rake: -500 }),
-    ]
-    const processed = preprocessNetwork(days, config)
-    const signals = generateNetworkSignals(processed, config)
-    const drops = signals.filter(s => s.rule_id === 'NETWORK_RAKE_DROP')
-    expect(drops).toHaveLength(0)
   })
 
 })

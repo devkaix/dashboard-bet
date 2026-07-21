@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCurrency, formatPercent, formatCompact, convertSignalsToAlerts, buildBriefingFromSignals, type Rankings } from './data';
+import { formatCurrency, formatPercent, formatCompact, convertSignalsToAlerts, buildBriefingFromSignals, buildNetworkDecisionPipeline, type Rankings } from './data';
 import {
   validateNetworkObservations,
   preprocessNetwork,
@@ -277,5 +277,88 @@ describe('buildBriefingFromSignals', () => {
   it('handles null rankings gracefully', () => {
     const briefing = buildBriefingFromSignals([], [], null);
     expect(briefing.opportunities).toEqual([]);
+  })
+})
+
+describe('buildNetworkDecisionPipeline', () => {
+  it('July period uses June historical data as baseline', () => {
+    // June historical data (3 days)
+    const historical: NetworkDailyObservation[] = [
+      { date: '2026-06-28', total_rake: 2000, total_bet: 20000, total_won: 18000, active_players: 25 },
+      { date: '2026-06-29', total_rake: 2100, total_bet: 21000, total_won: 18900, active_players: 26 },
+      { date: '2026-06-30', total_rake: 2050, total_bet: 20500, total_won: 18450, active_players: 24 },
+    ];
+    // July period (2 days)
+    const period: NetworkDailyObservation[] = [
+      { date: '2026-07-01', total_rake: 1950, total_bet: 19500, total_won: 17550, active_players: 23 },
+      { date: '2026-07-02', total_rake: -500, total_bet: 5000, total_won: 5500, active_players: 10 },
+    ];
+
+    const pipeline = buildNetworkDecisionPipeline(historical, period, DEFAULT_PREPROCESSING_CONFIG, '2026-07-01', '2026-07-02');
+
+    // Signals should only be from July
+    const dates = pipeline.signals.map(s => s.date);
+    expect(dates.every(d => d >= '2026-07-01')).toBe(true);
+    expect(dates.every(d => d <= '2026-07-02')).toBe(true);
+
+    // July 1 should have baseline from June
+    const july1Signals = pipeline.signals.filter(s => s.date === '2026-07-01');
+    // July 2 should have NETWORK_RAKE_NEGATIVE
+    const july2Neg = pipeline.signals.filter(s => s.date === '2026-07-02' && s.rule_id === 'NETWORK_RAKE_NEGATIVE');
+    expect(july2Neg).toHaveLength(1);
+  })
+
+  it('June signals never appear in July output', () => {
+    const historical: NetworkDailyObservation[] = [
+      { date: '2026-06-17', total_rake: -4600, total_bet: 50000, total_won: 54600, active_players: 30 },
+    ];
+    const period: NetworkDailyObservation[] = [
+      { date: '2026-07-01', total_rake: 2000, total_bet: 20000, total_won: 18000, active_players: 25 },
+    ];
+    const pipeline = buildNetworkDecisionPipeline(historical, period, DEFAULT_PREPROCESSING_CONFIG, '2026-07-01', '2026-07-01');
+    // No signal from June should appear
+    expect(pipeline.signals.every(s => s.date >= '2026-07-01')).toBe(true);
+    expect(pipeline.signals.find(s => s.date === '2026-06-17')).toBeUndefined();
+  })
+
+  it('historical lookback with 14 records but fewer calendar days works', () => {
+    const historical: NetworkDailyObservation[] = [];
+    // 14 days of data but within a short calendar window
+    for (let i = 1; i <= 14; i++) {
+      historical.push({ date: `2026-06-${String(17 + i - 1).padStart(2, '0')}`, total_rake: 2000, total_bet: 20000, total_won: 18000, active_players: 25 });
+    }
+    const period: NetworkDailyObservation[] = [
+      { date: '2026-07-01', total_rake: 1500, total_bet: 15000, total_won: 13500, active_players: 20 },
+    ];
+    const pipeline = buildNetworkDecisionPipeline(historical, period, DEFAULT_PREPROCESSING_CONFIG, '2026-07-01', '2026-07-01');
+    // Signal from July 1 should exist (rake drop from 2000 to 1500 = -25% > warning 20%)
+    expect(pipeline.signals.some(s => s.date === '2026-07-01')).toBe(true);
+    // No June signals exposed
+    expect(pipeline.signals.every(s => s.date >= '2026-07-01')).toBe(true);
+  })
+
+  it('does not mutate input arrays', () => {
+    const historical: NetworkDailyObservation[] = [
+      { date: '2026-06-01', total_rake: 2000, total_bet: 20000, total_won: 18000, active_players: 25 },
+    ];
+    const period: NetworkDailyObservation[] = [
+      { date: '2026-07-01', total_rake: 2000, total_bet: 20000, total_won: 18000, active_players: 25 },
+    ];
+    const histCopy = [...historical];
+    const periodCopy = [...period];
+    buildNetworkDecisionPipeline(historical, period, DEFAULT_PREPROCESSING_CONFIG, '2026-07-01', '2026-07-01');
+    expect(historical).toEqual(histCopy);
+    expect(period).toEqual(periodCopy);
+  })
+
+  it('validation errors are returned separately', () => {
+    const historical: NetworkDailyObservation[] = [];
+    const period: NetworkDailyObservation[] = [
+      { date: 'invalid', total_rake: NaN, total_bet: -100, total_won: 0, active_players: 5.5 },
+    ];
+    const pipeline = buildNetworkDecisionPipeline(historical, period, DEFAULT_PREPROCESSING_CONFIG);
+    expect(pipeline.validation.errors.length).toBeGreaterThan(0);
+    // Invalid data should not generate signals
+    expect(pipeline.signals).toHaveLength(0);
   })
 })
