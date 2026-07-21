@@ -37,6 +37,7 @@ import {
   playerStatus,
   fetchPreviousMonthAggregates,
 } from '@/lib/data'
+import { analysisMonthToRange, normalizeAnalysisMonth } from '@/lib/analysisMonth'
 import type { BriefingItem, DailyKPI, Alert as AlertType, RankingPlayer, MonthlyAggregates } from '@/lib/data'
 import { cn } from '@/lib/utils'
 
@@ -146,7 +147,24 @@ export default function Dashboard() {
   const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
-    loadData()
+    // Support ?month=YYYY-MM and ?start=&end= URL parameters
+    const params = new URLSearchParams(window.location.search);
+    const urlMonth = params.get('month');
+    const urlStart = params.get('start');
+    const urlEnd = params.get('end');
+    
+    let range: { start?: string; end?: string } | undefined;
+    if (urlStart && urlEnd) {
+      range = { start: urlStart, end: urlEnd };
+    } else if (urlMonth) {
+      try {
+        const normalized = normalizeAnalysisMonth(urlMonth);
+        range = analysisMonthToRange(normalized);
+        localStorage.setItem('analysisMonth', normalized);
+      } catch { /* ignore invalid month */ }
+    }
+    
+    loadData(range)
       .then(() => {
         const dk = dataStore.daily_kpis
         setDailyKpis(dk)

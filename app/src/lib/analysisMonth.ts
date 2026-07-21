@@ -125,3 +125,201 @@ export function getMonthsFromDates(dates: string[]): string[] {
   }
   return Array.from(months).sort();
 }
+
+// ── Month validation for import ──────────────────────────────────────────
+
+export type ImportFileType =
+  | "players_master"
+  | "daily_player"
+  | "daily_network"
+  | "daily_pvr"
+  | "daily_player_game"
+  | "tickets"
+  | "player_summary";
+
+export interface MonthValidationResult {
+  valid: boolean;
+  selectedMonth: string | null;
+  detectedMonths: string[];
+  periodStart: string | null;
+  periodEnd: string | null;
+  validDateRows: number;
+  invalidDateRows: number;
+  status:
+    | "not_applicable"
+    | "valid"
+    | "month_mismatch"
+    | "multiple_months"
+    | "missing_date";
+}
+
+/**
+ * Validate that all dates in a file belong to the selected analysis month.
+ *
+ * Rules by file type:
+ * - daily_network, daily_pvr, daily_player: use "Data" column
+ * - daily_player_game: use "Data" column (NOT "Data.1" which is provider)
+ * - tickets: use "Data Emissione" column
+ * - player_summary: no date column, uses selected month as validation target
+ * - players_master: not applicable
+ */
+export function validateFileMonth(
+  fileType: ImportFileType,
+  rows: ReadonlyArray<Record<string, unknown>>,
+  selectedMonth: string | null,
+): MonthValidationResult {
+  // players_master: month not applicable
+  if (fileType === "players_master") {
+    return {
+      valid: true,
+      selectedMonth: null,
+      detectedMonths: [],
+      periodStart: null,
+      periodEnd: null,
+      validDateRows: 0,
+      invalidDateRows: 0,
+      status: "not_applicable",
+    };
+  }
+
+  // player_summary: uses selected month as the validation target (no date column)
+  if (fileType === "player_summary") {
+    if (!selectedMonth) {
+      return {
+        valid: false,
+        selectedMonth: null,
+        detectedMonths: [],
+        periodStart: null,
+        periodEnd: null,
+        validDateRows: 0,
+        invalidDateRows: rows.length,
+        status: "missing_date",
+      };
+    }
+    return {
+      valid: true,
+      selectedMonth,
+      detectedMonths: [selectedMonth],
+      periodStart: null,
+      periodEnd: null,
+      validDateRows: rows.length,
+      invalidDateRows: 0,
+      status: "valid",
+    };
+  }
+
+  // Determine the date column name based on file type
+  const dateColumn =
+    fileType === "tickets"
+      ? ["Data Emissione", "emission_date", "data_emissione"]
+      : ["Data", "data", "Date", "date"];
+
+  // Extract dates from rows
+  const dates: string[] = [];
+  let validDateRows = 0;
+  let invalidDateRows = 0;
+
+  for (const row of rows) {
+    let rawValue: unknown = undefined;
+    for (const col of dateColumn) {
+      if (col in row) {
+        rawValue = row[col];
+        break;
+      }
+    }
+
+    if (rawValue === undefined || rawValue === null || String(rawValue).trim() === "") {
+      invalidDateRows++;
+      continue;
+    }
+
+    // Try to parse date: YYYY-MM-DD or DD/MM/YYYY formats
+    const s = String(rawValue).trim();
+    let isoDate: string | null = null;
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      isoDate = s;
+    } else if (/^\d{4}\/\d{2}\/\d{2}$/.test(s)) {
+      isoDate = s.replace(/\//g, "-");
+    } else {
+      const parts = s.split("/");
+      if (parts.length === 3) {
+        if (parts[0].length === 4) {
+          // YYYY/MM/DD
+          isoDate = `${parts[0]}-${parts[1].padStart(2, "0")}-${parts[2].padStart(2, "0")}`;
+        } else {
+          // DD/MM/YYYY or DD/MM/YY
+          const y = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+          isoDate = `${y}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+        }
+      }
+    }
+
+    if (isoDate && YYYY_MM_DD_RE.test(isoDate)) {
+      dates.push(isoDate);
+      validDateRows++;
+    } else {
+      invalidDateRows++;
+    }
+  }
+
+  if (dates.length === 0) {
+    return {
+      valid: false,
+      selectedMonth,
+      detectedMonths: [],
+      periodStart: null,
+      periodEnd: null,
+      validDateRows,
+      invalidDateRows,
+      status: "missing_date",
+    };
+  }
+
+  // Sort dates and get period
+  dates.sort();
+  const periodStart = dates[0];
+  const periodEnd = dates[dates.length - 1];
+
+  // Get unique months from dates
+  const detectedMonths = getMonthsFromDates(dates);
+
+  // Multi-month: block
+  if (detectedMonths.length > 1) {
+    return {
+      valid: false,
+      selectedMonth,
+      detectedMonths,
+      periodStart,
+      periodEnd,
+      validDateRows,
+      invalidDateRows,
+      status: "multiple_months",
+    };
+  }
+
+  // Check month matches
+  if (selectedMonth && detectedMonths[0] !== selectedMonth) {
+    return {
+      valid: false,
+      selectedMonth,
+      detectedMonths,
+      periodStart,
+      periodEnd,
+      validDateRows,
+      invalidDateRows,
+      status: "month_mismatch",
+    };
+  }
+
+  return {
+    valid: true,
+    selectedMonth: selectedMonth || detectedMonths[0],
+    detectedMonths,
+    periodStart,
+    periodEnd,
+    validDateRows,
+    invalidDateRows,
+    status: "valid",
+  };
+}
