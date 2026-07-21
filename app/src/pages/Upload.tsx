@@ -252,6 +252,7 @@ export default function UploadPage() {
     rows: Record<string, unknown>[];
     monthResult: MonthValidationResult;
     issues: ImportValidationIssue[];
+    existingRows: number;
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -568,10 +569,15 @@ export default function UploadPage() {
           const tc = String(col(row, ["Ticket", "ticket", "Codice Ticket"]) || "");
           if (!tc) continue;
           usernames.push(uname);
+          const emissionDt = pDt(col(row, ["Data Emissione", "emission_date"]));
+          if (emissionDt) {
+            const ed = emissionDt.slice(0, 10);
+            if (/^\d{4}-\d{2}-\d{2}$/.test(ed)) report.dates.push(ed);
+          }
           ticketRows.push({
             ticket_code: tc,
             pvr_code: String(col(row, ["Codice Padre", "pvr_code", "PVR", "pvr"]) || ""),
-            emission_date: pDt(col(row, ["Data Emissione", "emission_date"])),
+            emission_date: emissionDt,
             status: String(col(row, ["Stato", "status", "stato"]) || "").trim() || null,
             competition_date: pDate(col(row, ["Data Competenza", "competition_date"])),
             amount: num(col(row, ["Importo", "amount"])),
@@ -894,6 +900,7 @@ export default function UploadPage() {
         rows,
         monthResult,
         issues,
+        existingRows,
       });
 
       setProgress("");
@@ -1054,12 +1061,9 @@ export default function UploadPage() {
         <div className="mt-4 flex justify-end">
           <button
             onClick={() => {
-              const range = analysisMonthToRange(selectedMonth);
               const url = new URL(window.location.origin);
               url.pathname = "/";
               url.searchParams.set("month", selectedMonth);
-              url.searchParams.set("start", range.start);
-              url.searchParams.set("end", range.end);
               window.open(url.toString(), "_self");
             }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent-purple/10
@@ -1085,7 +1089,7 @@ export default function UploadPage() {
         periodEnd={preview?.monthResult.periodEnd || null}
         totalRows={preview?.rows.length || 0}
         validRows={preview?.monthResult.validDateRows || 0}
-        existingRows={0}
+        existingRows={preview?.existingRows ?? 0}
         issues={preview?.issues || []}
         monthValid={preview?.monthResult.valid ?? false}
         monthStatus={preview?.monthResult.status || "missing_date"}

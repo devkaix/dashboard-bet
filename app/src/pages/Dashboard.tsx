@@ -147,16 +147,12 @@ export default function Dashboard() {
   const [refreshing, setRefreshing] = useState(false)
 
   useEffect(() => {
-    // Support ?month=YYYY-MM and ?start=&end= URL parameters
+    // Support ?month=YYYY-MM as canonical URL parameter
     const params = new URLSearchParams(window.location.search);
     const urlMonth = params.get('month');
-    const urlStart = params.get('start');
-    const urlEnd = params.get('end');
     
     let range: { start?: string; end?: string } | undefined;
-    if (urlStart && urlEnd) {
-      range = { start: urlStart, end: urlEnd };
-    } else if (urlMonth) {
+    if (urlMonth) {
       try {
         const normalized = normalizeAnalysisMonth(urlMonth);
         range = analysisMonthToRange(normalized);

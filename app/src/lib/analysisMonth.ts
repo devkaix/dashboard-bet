@@ -126,6 +126,27 @@ export function getMonthsFromDates(dates: string[]): string[] {
   return Array.from(months).sort();
 }
 
+/**
+ * Convert YYYY-MM to database date format YYYY-MM-01.
+ * Validates input before conversion.
+ */
+export function analysisMonthToDatabaseDate(month: string): string {
+  const normalized = normalizeAnalysisMonth(month);
+  return `${normalized}-01`;
+}
+
+/**
+ * Convert a database date (YYYY-MM-DD) back to YYYY-MM analysis month.
+ * Returns null for null/empty input.
+ */
+export function databaseDateToAnalysisMonth(date: string | null): string | null {
+  if (!date) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return date.slice(0, 7);
+  }
+  return null;
+}
+
 // ── Month validation for import ──────────────────────────────────────────
 
 export type ImportFileType =

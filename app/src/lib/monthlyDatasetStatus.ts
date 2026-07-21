@@ -1,7 +1,11 @@
 // ── Monthly dataset status queries (real Supabase data) ──
 
 import { supabase } from "./supabase";
-import { analysisMonthToRange } from "./analysisMonth";
+import {
+  analysisMonthToRange,
+  analysisMonthToDatabaseDate,
+  databaseDateToAnalysisMonth,
+} from "./analysisMonth";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -37,12 +41,6 @@ const LABELS: Record<ImportFileType, string> = {
   players_master: "Anagrafica giocatori",
 };
 
-/** Minimum rows expected in a complete month (feb has 28 days, most have 30-31). */
-const COMPLETE_THRESHOLDS: Partial<Record<ImportFileType, number>> = {
-  daily_network: 25,
-  daily_pvr: 300,
-};
-
 const ALL_FILE_TYPES: ImportFileType[] = [
   "daily_network",
   "daily_pvr",
@@ -69,7 +67,7 @@ async function countRows(
   column: string,
   start: string,
   end: string,
-): Promise<number> {
+): Promise<{ count: number; error: string | null }> {
   const { count, error } = await supabase
     .from(table as any)
     .select("*", { count: "exact", head: true })
@@ -77,10 +75,9 @@ async function countRows(
     .lt(column, nextDay(end));
 
   if (error) {
-    console.error(`countRows(${table}):`, error);
-    return 0;
+    return { count: 0, error: error.message };
   }
-  return count ?? 0;
+  return { count: count ?? 0, error: null };
 }
 
 async function getUploadInfo(
@@ -91,15 +88,18 @@ async function getUploadInfo(
   periodEnd: string | null;
   lastUploadAt: string | null;
   validationStatus: string | null;
+  status: string | null;
   errorMessage: string | null;
 }> {
+  const dbMonth = analysisMonthToDatabaseDate(month);
+
   const { data, error } = await supabase
     .from("excel_uploads")
     .select(
-      "period_start, period_end, uploaded_at, validation_status, error_message",
+      "period_start, period_end, uploaded_at, validation_status, error_message, status",
     )
     .eq("file_type", fileType)
-    .like("period_start", `${month}-%`)
+    .eq("analysis_month", dbMonth)
     .order("uploaded_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -110,7 +110,8 @@ async function getUploadInfo(
       periodEnd: null,
       lastUploadAt: null,
       validationStatus: null,
-      errorMessage: null,
+      status: null,
+      errorMessage: error?.message || null,
     };
   }
 
@@ -119,27 +120,33 @@ async function getUploadInfo(
     periodEnd: data.period_end ?? null,
     lastUploadAt: data.uploaded_at ?? null,
     validationStatus: data.validation_status ?? null,
+    status: data.status ?? null,
     errorMessage: data.error_message ?? null,
   };
 }
 
 function determineState(
-  fileType: ImportFileType,
   rowCount: number,
+  periodStart: string | null,
+  periodEnd: string | null,
+  uploadStatus: string | null,
   validationStatus: string | null,
   hasUploadError: boolean,
+  monthStart: string,
+  monthEnd: string,
 ): MonthlyDatasetStatus["state"] {
-  if (hasUploadError) return "error";
+  if (hasUploadError && uploadStatus === "error") return "error";
   if (validationStatus === "mismatch") return "mismatch";
-
   if (rowCount === 0) return "missing";
 
-  const threshold = COMPLETE_THRESHOLDS[fileType];
-  if (threshold !== undefined && rowCount >= threshold) return "complete";
-  if (threshold !== undefined && rowCount < threshold) return "partial";
+  // Check if period covers the month
+  if (periodStart && periodEnd) {
+    const coversStart = periodStart <= monthStart || periodStart <= monthEnd;
+    const coversEnd = periodEnd >= monthEnd;
+    if (coversStart && coversEnd) return "complete";
+  }
 
-  // For file types without a threshold: any rows → complete
-  return "complete";
+  return "partial";
 }
 
 // ── Main query ─────────────────────────────────────────────────────────────
@@ -149,111 +156,185 @@ export async function getMonthlyDatasetStatus(
 ): Promise<MonthlyDatasetStatus[]> {
   const { start, end } = analysisMonthToRange(month);
 
-  const results: MonthlyDatasetStatus[] = [];
+  // Run all independent queries in parallel
+  const [
+    networkCount,
+    pvrCount,
+    playerCount,
+    gameCount,
+    ticketCount,
+    playersCount,
+    networkUpload,
+    pvrUpload,
+    playerUpload,
+    gameUpload,
+    ticketUpload,
+    summaryUpload,
+    masterUpload,
+  ] = await Promise.all([
+    countRows("daily_network_stats", "date", start, end),
+    countRows("daily_pvr_stats", "date", start, end),
+    countRows("daily_player_stats", "date", start, end),
+    countRows("daily_player_game_stats", "date", start, end),
+    countRows("tickets", "emission_date", start, end),
+    supabase
+      .from("players")
+      .select("*", { count: "exact", head: true })
+      .then(({ count, error }) => ({
+        count: count ?? 0,
+        error: error?.message || null,
+      })),
+    getUploadInfo("daily_network", month),
+    getUploadInfo("daily_pvr", month),
+    getUploadInfo("daily_player", month),
+    getUploadInfo("daily_player_game", month),
+    getUploadInfo("tickets", month),
+    getUploadInfo("player_summary", month),
+    getUploadInfo("players_master", month),
+  ]);
 
-  for (const fileType of ALL_FILE_TYPES) {
-    let rowCount: number;
-
-    switch (fileType) {
-      case "daily_network":
-        rowCount = await countRows("daily_network_stats", "date", start, end);
-        break;
-      case "daily_pvr":
-        rowCount = await countRows("daily_pvr_stats", "date", start, end);
-        break;
-      case "daily_player":
-        rowCount = await countRows("daily_player_stats", "date", start, end);
-        break;
-      case "daily_player_game":
-        rowCount = await countRows(
-          "daily_player_game_stats",
-          "date",
-          start,
-          end,
-        );
-        break;
-      case "tickets":
-        rowCount = await countRows("tickets", "emission_date", start, end);
-        break;
-      case "player_summary": {
-        // Check excel_uploads for player_summary in this month
-        const uploadInfo = await getUploadInfo("player_summary", month);
-        rowCount = 0; // player_summary has no dedicated stats table
-        const hasUploadError = uploadInfo.errorMessage !== null;
-
-        results.push({
-          fileType,
-          label: LABELS[fileType],
-          rowCount,
-          periodStart: uploadInfo.periodStart,
-          periodEnd: uploadInfo.periodEnd,
-          lastUploadAt: uploadInfo.lastUploadAt,
-          validationStatus: uploadInfo.validationStatus,
-          state: hasUploadError
-            ? "error"
-            : uploadInfo.validationStatus === "mismatch"
-              ? "mismatch"
-              : uploadInfo.lastUploadAt !== null
-                ? "complete"
-                : "missing",
-        });
-        continue;
-      }
-      case "players_master": {
-        // Total players — not month-specific
-        const { count, error } = await supabase
-          .from("players")
-          .select("*", { count: "exact", head: true });
-
-        if (error) {
-          console.error("countRows(players):", error);
-          rowCount = 0;
-        } else {
-          rowCount = count ?? 0;
-        }
-
-        const uploadInfo = await getUploadInfo("players_master", month);
-
-        results.push({
-          fileType,
-          label: LABELS[fileType],
-          rowCount,
-          periodStart: uploadInfo.periodStart,
-          periodEnd: uploadInfo.periodEnd,
-          lastUploadAt: uploadInfo.lastUploadAt,
-          validationStatus: uploadInfo.validationStatus,
-          state: uploadInfo.errorMessage !== null
-            ? "error"
-            : rowCount > 0
-              ? "complete"
-              : "missing",
-        });
-        continue;
-      }
-      default: {
-        rowCount = 0;
-        break;
-      }
-    }
-
-    const uploadInfo = await getUploadInfo(fileType, month);
-
-    results.push({
-      fileType,
-      label: LABELS[fileType],
-      rowCount,
-      periodStart: uploadInfo.periodStart,
-      periodEnd: uploadInfo.periodEnd,
-      lastUploadAt: uploadInfo.lastUploadAt,
-      validationStatus: uploadInfo.validationStatus,
-      state: determineState(
-        fileType,
-        rowCount,
-        uploadInfo.validationStatus,
-        uploadInfo.errorMessage !== null,
-      ),
-    });
-  }
-
-  return results;
+  return [
+    // daily_network
+    {
+      fileType: "daily_network" as ImportFileType,
+      label: LABELS.daily_network,
+      rowCount: networkCount.error ? 0 : networkCount.count,
+      periodStart: networkUpload.periodStart,
+      periodEnd: networkUpload.periodEnd,
+      lastUploadAt: networkUpload.lastUploadAt,
+      validationStatus: networkUpload.validationStatus,
+      state: networkCount.error
+        ? "error"
+        : determineState(
+            networkCount.count,
+            networkUpload.periodStart,
+            networkUpload.periodEnd,
+            networkUpload.status,
+            networkUpload.validationStatus,
+            networkUpload.errorMessage !== null,
+            start,
+            end,
+          ),
+    },
+    // daily_pvr
+    {
+      fileType: "daily_pvr" as ImportFileType,
+      label: LABELS.daily_pvr,
+      rowCount: pvrCount.error ? 0 : pvrCount.count,
+      periodStart: pvrUpload.periodStart,
+      periodEnd: pvrUpload.periodEnd,
+      lastUploadAt: pvrUpload.lastUploadAt,
+      validationStatus: pvrUpload.validationStatus,
+      state: pvrCount.error
+        ? "error"
+        : determineState(
+            pvrCount.count,
+            pvrUpload.periodStart,
+            pvrUpload.periodEnd,
+            pvrUpload.status,
+            pvrUpload.validationStatus,
+            pvrUpload.errorMessage !== null,
+            start,
+            end,
+          ),
+    },
+    // daily_player
+    {
+      fileType: "daily_player" as ImportFileType,
+      label: LABELS.daily_player,
+      rowCount: playerCount.error ? 0 : playerCount.count,
+      periodStart: playerUpload.periodStart,
+      periodEnd: playerUpload.periodEnd,
+      lastUploadAt: playerUpload.lastUploadAt,
+      validationStatus: playerUpload.validationStatus,
+      state: playerCount.error
+        ? "error"
+        : determineState(
+            playerCount.count,
+            playerUpload.periodStart,
+            playerUpload.periodEnd,
+            playerUpload.status,
+            playerUpload.validationStatus,
+            playerUpload.errorMessage !== null,
+            start,
+            end,
+          ),
+    },
+    // daily_player_game
+    {
+      fileType: "daily_player_game" as ImportFileType,
+      label: LABELS.daily_player_game,
+      rowCount: gameCount.error ? 0 : gameCount.count,
+      periodStart: gameUpload.periodStart,
+      periodEnd: gameUpload.periodEnd,
+      lastUploadAt: gameUpload.lastUploadAt,
+      validationStatus: gameUpload.validationStatus,
+      state: gameCount.error
+        ? "error"
+        : determineState(
+            gameCount.count,
+            gameUpload.periodStart,
+            gameUpload.periodEnd,
+            gameUpload.status,
+            gameUpload.validationStatus,
+            gameUpload.errorMessage !== null,
+            start,
+            end,
+          ),
+    },
+    // tickets
+    {
+      fileType: "tickets" as ImportFileType,
+      label: LABELS.tickets,
+      rowCount: ticketCount.error ? 0 : ticketCount.count,
+      periodStart: ticketUpload.periodStart,
+      periodEnd: ticketUpload.periodEnd,
+      lastUploadAt: ticketUpload.lastUploadAt,
+      validationStatus: ticketUpload.validationStatus,
+      state: ticketCount.error
+        ? "error"
+        : determineState(
+            ticketCount.count,
+            ticketUpload.periodStart,
+            ticketUpload.periodEnd,
+            ticketUpload.status,
+            ticketUpload.validationStatus,
+            ticketUpload.errorMessage !== null,
+            start,
+            end,
+          ),
+    },
+    // player_summary
+    {
+      fileType: "player_summary" as ImportFileType,
+      label: LABELS.player_summary,
+      rowCount: 0,
+      periodStart: summaryUpload.periodStart,
+      periodEnd: summaryUpload.periodEnd,
+      lastUploadAt: summaryUpload.lastUploadAt,
+      validationStatus: summaryUpload.validationStatus,
+      state: summaryUpload.errorMessage !== null && summaryUpload.status === "error"
+        ? "error"
+        : summaryUpload.validationStatus === "mismatch"
+          ? "mismatch"
+          : summaryUpload.lastUploadAt !== null
+            ? "complete"
+            : "missing",
+    },
+    // players_master
+    {
+      fileType: "players_master" as ImportFileType,
+      label: LABELS.players_master,
+      rowCount: playersCount.error ? 0 : playersCount.count,
+      periodStart: masterUpload.periodStart,
+      periodEnd: masterUpload.periodEnd,
+      lastUploadAt: masterUpload.lastUploadAt,
+      validationStatus: masterUpload.validationStatus,
+      state: masterUpload.errorMessage !== null && masterUpload.status === "error"
+        ? "error"
+        : playersCount.count > 0
+          ? "complete"
+          : "missing",
+    },
+  ];
 }
