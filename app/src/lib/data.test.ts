@@ -226,23 +226,27 @@ describe('convertSignalsToAlerts', () => {
     expect(a.scope).toBe('network');
     expect(a.entity_id).toBe('network');
     expect(a.priority_score).toBe(300);
-    expect(a.severity).toBe('critical');
+    expect(a.severity).toBe('high');
+    expect(a.category).toBe('critical');
     expect(a.evidence.source).toBe('daily_network_stats');
     expect(a.evidence.baseline_days).toBe(5);
     expect(a.evidence.direct_fact).toBe(true);
   })
 
-  it('maps severity correctly: high→critical, medium→warning, low→info', () => {
+  it('preserves severity and sets correct category', () => {
     const sigHigh = { id: 'h', rule_id: 'R', scope: 'network' as const, entity_id: 'n', date: '2026-06-01',
       category: 'critical' as const, metric: 'rake', severity: 'high' as const, current_value: 1,
       baseline_value: 1, delta_pct: 0, z_score: 0, confidence: 1, priority_score: 300,
       title: 'x', explanation: 'x', recommended_action: 'x', evidence: { source: 'x', baseline_days: 1, direct_fact: false } } as const;
-    const sigMed = { ...sigHigh, id: 'm', severity: 'medium' as const, priority_score: 200 };
-    const sigLow = { ...sigHigh, id: 'l', severity: 'low' as const, priority_score: 100 };
+    const sigMed = { ...sigHigh, id: 'm', severity: 'medium' as const, category: 'warning' as const, priority_score: 200 };
+    const sigLow = { ...sigHigh, id: 'l', severity: 'low' as const, category: 'warning' as const, priority_score: 100 };
     const alerts = convertSignalsToAlerts([sigHigh, sigMed, sigLow]);
-    expect(alerts.find(a => a.id === 'h')?.severity).toBe('critical');
-    expect(alerts.find(a => a.id === 'm')?.severity).toBe('warning');
-    expect(alerts.find(a => a.id === 'l')?.severity).toBe('info');
+    expect(alerts.find(a => a.id === 'h')?.severity).toBe('high');
+    expect(alerts.find(a => a.id === 'h')?.category).toBe('critical');
+    expect(alerts.find(a => a.id === 'm')?.severity).toBe('medium');
+    expect(alerts.find(a => a.id === 'm')?.category).toBe('warning');
+    expect(alerts.find(a => a.id === 'l')?.severity).toBe('low');
+    expect(alerts.find(a => a.id === 'l')?.category).toBe('warning');
   })
 })
 

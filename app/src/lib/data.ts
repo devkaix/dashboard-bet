@@ -8,6 +8,7 @@ import {
   type DecisionSignal,
   type DataQualityError,
   type SignalEvidence,
+  DEFAULT_PREPROCESSING_CONFIG,
 } from "./preprocessing";
 import { supabase } from "./supabase";
 import { fromZonedTime, formatInTimeZone } from "date-fns-tz";
@@ -135,10 +136,10 @@ export interface RankingPVR {
 export interface Alert {
   id: string
   type: string
-  category: string
+  category: 'critical' | 'warning' | 'info'
   title: string
   description: string
-  severity: string
+  severity: 'high' | 'medium' | 'low'
   date: string
   metric: string
   value: number
@@ -297,8 +298,32 @@ export async function loadData(range?: DateRange): Promise<DaznBetData> {
   const players = await fetchPlayers(network.pvrs, effectiveRange);
 
   // ─── Preprocessing pipeline ───
-  // 1. Convert DailyKPI → NetworkObservation (explicit mapping)
-  const observations: NetworkDailyObservation[] = dailyKpis.map((dk) => ({
+  // 1. Build full observations (selected period + historical lookback for baseline)
+  let historicalObs: NetworkDailyObservation[] = [];
+  if (effectiveRange.start) {
+    // Load previous days for baseline computation (do not expose in KPI/aggregates)
+    const lookbackStart = new Date(effectiveRange.start + 'T12:00:00Z');
+    lookbackStart.setUTCDate(lookbackStart.getUTCDate() - DEFAULT_PREPROCESSING_CONFIG.baselineWindowDays);
+    const lookbackRange: DateRange = {
+      start: lookbackStart.toISOString().slice(0, 10),
+      end: new Date(new Date(effectiveRange.start + 'T12:00:00Z').getTime() - 86400000).toISOString().slice(0, 10),
+    };
+    try {
+      const historicalKpis = await fetchDailyKpis(lookbackRange);
+      historicalObs = historicalKpis.map((dk) => ({
+        date: dk.date,
+        total_rake: dk.total_rake,
+        total_bet: dk.total_bet,
+        total_won: dk.total_won,
+        active_players: dk.active_players,
+      }));
+    } catch {
+      // Lookback failure is non-critical; baseline will be computed from available days
+    }
+  }
+
+  // Selected period observations
+  const periodObs: NetworkDailyObservation[] = dailyKpis.map((dk) => ({
     date: dk.date,
     total_rake: dk.total_rake,
     total_bet: dk.total_bet,
@@ -306,10 +331,25 @@ export async function loadData(range?: DateRange): Promise<DaznBetData> {
     active_players: dk.active_players,
   }));
 
-  // 2. Validate → preprocess → signals → queue
-  const validation = validateNetworkObservations(observations);
+  // Combine: historical first (for baseline), then selected period
+  const allObs = [...historicalObs, ...periodObs];
+
+  // 2. Validate → preprocess → signals (full range) → signals (selected period only)
+  const validation = validateNetworkObservations(allObs);
   const preprocessed = preprocessNetwork(validation.valid);
-  const signals = generateNetworkSignals(preprocessed);
+  const allSignals = generateNetworkSignals(preprocessed);
+
+  // Filter signals to selected period only
+  const periodStart = effectiveRange.start;
+  const periodEnd = effectiveRange.end;
+  const signals = periodStart || periodEnd
+    ? allSignals.filter((s) => {
+        if (periodStart && s.date < periodStart) return false;
+        if (periodEnd && s.date > periodEnd) return false;
+        return true;
+      })
+    : allSignals;
+
   const queue = buildDecisionQueue(signals, 10);
 
   // 3. Convert signals to Alert[] and Briefing
@@ -875,7 +915,6 @@ async function fetchPvrTotals(range?: DateRange): Promise<PvrTotals> {
 
 /** Converts preprocessing DecisionSignals into UI Alert objects. Does not mutate input. */
 export function convertSignalsToAlerts(signals: ReadonlyArray<DecisionSignal>): Alert[] {
-  const severityMap: Record<string, string> = { high: "critical", medium: "warning", low: "info" };
   return [...signals]
     .sort((a, b) => {
       if (b.priority_score !== a.priority_score) return b.priority_score - a.priority_score;
@@ -884,10 +923,10 @@ export function convertSignalsToAlerts(signals: ReadonlyArray<DecisionSignal>): 
     .map((s) => ({
       id: s.id,
       type: s.rule_id,
-      category: s.category,
+      category: s.category as Alert['category'],
       title: s.title,
       description: s.explanation,
-      severity: severityMap[s.severity] || s.severity,
+      severity: s.severity,
       date: s.date,
       metric: s.metric,
       value: s.current_value,

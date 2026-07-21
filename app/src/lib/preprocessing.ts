@@ -370,8 +370,8 @@ export function generateNetworkSignals(
           direct_fact: true,
         },
       })
-      continue // Don't also fire RAKE_DROP for the same day
-    }
+      // RAKE_NEGATIVE emitted; skip RAKE_DROP but continue to PAYOUT_ANOMALY
+    } else {
 
     // ── RULE 2: NETWORK_RAKE_DROP ──
     // Directional: only fires when rake DECREASES (delta negative, z-score negative).
@@ -417,6 +417,7 @@ export function generateNetworkSignals(
             direct_fact: false,
           },
         })
+      }
       }
     }
 
