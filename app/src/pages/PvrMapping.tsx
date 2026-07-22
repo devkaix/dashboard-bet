@@ -255,7 +255,7 @@ export default function PvrMappingPage() {
             <Badge variant="secondary" className="ml-2">{unmappedCount} non verificati</Badge>
           </CardTitle>
           <CardDescription>
-            Seleziona il PVR numerico, usa Anteprima per verificare l'impatto, poi Salva.
+            Seleziona il PVR numerico e salva. Usa Anteprima se vuoi verificare l'impatto prima.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -322,7 +322,7 @@ export default function PvrMappingPage() {
                             <div className="flex items-center gap-1">
                               {(() => {
                                 const hasPreview = previewTimestamps[code] != null && previewPvrIds[code] === draft[code]
-                                const canSave = !!draft[code] && !saving[code] && hasPreview
+                                const canSave = !!draft[code] && !saving[code]
                                 return (
                                   <>
                                     <Button size="sm" variant="outline"
