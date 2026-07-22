@@ -301,8 +301,6 @@ describe('buildNetworkDecisionPipeline', () => {
     expect(dates.every(d => d >= '2026-07-01')).toBe(true);
     expect(dates.every(d => d <= '2026-07-02')).toBe(true);
 
-    // July 1 should have baseline from June
-    const july1Signals = pipeline.signals.filter(s => s.date === '2026-07-01');
     // July 2 should have NETWORK_RAKE_NEGATIVE
     const july2Neg = pipeline.signals.filter(s => s.date === '2026-07-02' && s.rule_id === 'NETWORK_RAKE_NEGATIVE');
     expect(july2Neg).toHaveLength(1);

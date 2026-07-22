@@ -8,13 +8,12 @@ import {
   Loader2,
   RefreshCw,
   TrendingUp,
-  Network,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
-import { num, normalizeUsername, pDate, pDt, det, col } from "@/lib/uploadHelpers";
-import { parseRequiredNumber, parseOptionalNumber, type ImportValidationIssue } from "@/lib/importPipeline";
+import { num, normalizeUsername, pDate, pDt, det, col, detectFileTypeFromFilename } from "@/lib/uploadHelpers";
+import { type ImportValidationIssue } from "@/lib/importPipeline";
 import {
   normalizeAnalysisMonth,
   analysisMonthToRange,
@@ -752,6 +751,15 @@ export default function UploadPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingExpectedType, setPendingExpectedType] = useState<ImportFileType | null>(null);
+
+  // Batch upload (single button for all month files)
+  const batchFileInputRef = useRef<HTMLInputElement>(null);
+  const [batchProgress, setBatchProgress] = useState<{
+    total: number;
+    current: number;
+    currentFile: string;
+    results: { file: string; type: string; status: "success" | "error"; message: string }[];
+  } | null>(null);
 
   // ── Fetch uploads history ──
   const fetchUploads = useCallback(async () => {
@@ -1613,6 +1621,106 @@ export default function UploadPage() {
     processFile(file, expectedType, selectedMonth);
   }
 
+  // ── Batch upload: one button for all month files ──
+  function getBatchTypePriority(type: string): number {
+    const order: Record<string, number> = {
+      pvr_hierarchy: 1,
+      daily_pvr: 2,
+      daily_player_game: 3,
+      tickets: 4,
+      daily_network: 5,
+      daily_player: 6,
+      player_summary: 7,
+      pvr_summary: 8,
+      category_summary: 9,
+      players_master: 10,
+      unknown: 99,
+    };
+    return order[type] ?? 99;
+  }
+
+  async function detectTypeForBatch(file: File): Promise<string> {
+    // First try by filename (Exalogic exports have long, numbered names).
+    const fromName = detectFileTypeFromFilename(file.name);
+    if (fromName) return fromName;
+
+    // Fallback to header detection.
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(new Uint8Array(buf), { type: "array" });
+    const sn = wb.SheetNames[0];
+    if (!sn) return "unknown";
+    const ws = wb.Sheets[sn];
+    fixSheetRange(ws);
+    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false }) as unknown[][];
+    if (aoa.length < 2) return "unknown";
+    const raw = (aoa[0] || []).map((h: unknown) => String(h || "").trim());
+    return det(raw);
+  }
+
+  function handleBatchUploadClick() {
+    batchFileInputRef.current?.click();
+  }
+
+  async function handleBatchFilesSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (files.length === 0) return;
+
+    setBatchProgress({
+      total: files.length,
+      current: 0,
+      currentFile: "",
+      results: [],
+    });
+    setMessage(null);
+
+    // Detect types first so we can warn early and order files correctly.
+    const typedFiles: { file: File; type: string }[] = [];
+    for (const file of files) {
+      const type = await detectTypeForBatch(file);
+      typedFiles.push({ file, type });
+    }
+
+    // Order by dependency: hierarchy first, operational data, then controls.
+    typedFiles.sort((a, b) => getBatchTypePriority(a.type) - getBatchTypePriority(b.type));
+
+    const results: { file: string; type: string; status: "success" | "error"; message: string }[] = [];
+
+    for (let i = 0; i < typedFiles.length; i++) {
+      const { file, type } = typedFiles[i];
+      setBatchProgress((prev) => prev ? { ...prev, current: i + 1, currentFile: file.name } : null);
+
+      if (type === "unknown") {
+        results.push({ file: file.name, type, status: "error", message: "Tipo file non riconosciuto dal nome né dalle intestazioni." });
+        continue;
+      }
+
+      try {
+        await processFile(file, type as ImportFileType, selectedMonth);
+        results.push({ file: file.name, type, status: "success", message: `Caricato come ${getTypeLabel(type)}` });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        results.push({ file: file.name, type, status: "error", message: msg });
+      }
+    }
+
+    setBatchProgress((prev) => prev ? { ...prev, results } : null);
+
+    // Build summary message
+    const successful = results.filter((r) => r.status === "success");
+    const failed = results.filter((r) => r.status === "error");
+    const failedNames = failed.map((r) => r.file).join(", ");
+
+    if (failed.length === 0) {
+      setMessage({ type: "success", text: `Caricati ${successful.length} file su ${files.length}.` });
+    } else {
+      setMessage({ type: "error", text: `Caricati ${successful.length} file su ${files.length}. Errori in: ${failedNames}` });
+    }
+
+    fetchUploads();
+    fetchMonthlyStatus();
+  }
+
   // ── Get type label ──
   function getTypeLabel(t: string): string {
     const labels: Record<string, string> = {
@@ -1642,13 +1750,21 @@ export default function UploadPage() {
   // ── Render ──
   return (
     <div className="p-6 space-y-6">
-      {/* Hidden file input for dataset cards */}
+      {/* Hidden file inputs */}
       <input
         ref={fileInputRef}
         type="file"
         accept=".xlsx,.xls,.csv"
         className="hidden"
         onChange={handleFileSelected}
+      />
+      <input
+        ref={batchFileInputRef}
+        type="file"
+        accept=".xlsx,.xls,.csv"
+        multiple
+        className="hidden"
+        onChange={handleBatchFilesSelected}
       />
 
       {/* Header */}
@@ -1657,6 +1773,68 @@ export default function UploadPage() {
         <p className="text-text-secondary mt-1">
           Elaborazione diretta nel browser — solo dati reali da Excel/CSV.
         </p>
+      </motion.div>
+
+      {/* Batch upload: single button for the whole month */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-bg-surface-elevated rounded-xl border border-border-subtle p-5"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold text-white">Carica tutto il mese</h2>
+            <p className="text-sm text-text-secondary mt-1">
+              Seleziona tutti i file Excel che hai scaricato da Exalogic. L’app riconosce automaticamente cosa contiene ogni file e lo importa nel posto giusto.
+            </p>
+          </div>
+          <button
+            onClick={handleBatchUploadClick}
+            disabled={uploading || batchProgress !== null}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent-purple text-white
+                       text-sm font-semibold hover:bg-accent-purple/90 transition-colors
+                       disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+          >
+            <Upload size={18} />
+            Seleziona file del mese
+          </button>
+        </div>
+
+        {batchProgress && (
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center gap-3 text-sm">
+              <Loader2 size={18} className="animate-spin text-accent-purple" />
+              <span className="text-text-secondary">
+                {batchProgress.current < batchProgress.total
+                  ? `Elaborazione ${batchProgress.current} di ${batchProgress.total}: ${batchProgress.currentFile}`
+                  : `Elaborazione completata: ${batchProgress.total} file analizzati`}
+              </span>
+            </div>
+            <div className="w-full h-2 bg-bg-surface rounded-full overflow-hidden">
+              <div
+                className="h-full bg-accent-purple transition-all duration-300"
+                style={{ width: `${batchProgress.total > 0 ? (batchProgress.current / batchProgress.total) * 100 : 0}%` }}
+              />
+            </div>
+            {batchProgress.results.length > 0 && (
+              <div className="max-h-48 overflow-y-auto divide-y divide-border-subtle border border-border-subtle rounded-lg">
+                {batchProgress.results.map((r, idx) => (
+                  <div key={idx} className="flex items-center gap-3 px-3 py-2 text-sm">
+                    {r.status === "success" ? (
+                      <CheckCircle2 size={16} className="text-emerald-400 flex-shrink-0" />
+                    ) : (
+                      <XCircle size={16} className="text-red-400 flex-shrink-0" />
+                    )}
+                    <span className="text-text-secondary truncate flex-1" title={r.file}>{r.file}</span>
+                    <span className={cn("text-xs px-2 py-0.5 rounded-full", r.status === "success" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400")}>
+                      {getTypeLabel(r.type)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </motion.div>
 
       {/* Message */}

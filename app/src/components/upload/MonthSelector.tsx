@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Calendar, Sparkles } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   formatAnalysisMonth,
   normalizeAnalysisMonth,
-  analysisMonthToRange,
 } from "@/lib/analysisMonth";
 
 interface MonthSelectorProps {
@@ -21,7 +20,7 @@ interface MonthSelectorProps {
 export default function MonthSelector({ selectedMonth, onMonthChange }: MonthSelectorProps) {
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [dbLatestMonth, setDbLatestMonth] = useState<string | null>(null);
-  const [initialized, setInitialized] = useState(false);
+  const initializedRef = useRef(false);
 
   // Native <input type="month"> expects YYYY-MM
   const selectedMonthValue = selectedMonth || "";
@@ -61,8 +60,8 @@ export default function MonthSelector({ selectedMonth, onMonthChange }: MonthSel
 
   // Initialization: set month based on priority
   useEffect(() => {
-    if (initialized) return;
-    setInitialized(true);
+    if (initializedRef.current) return;
+    initializedRef.current = true;
 
     // Priority 1 & 2: URL and localStorage already handled in useState initializer
     // Priority 3: latest month from DB (only if no URL/localStorage override)
@@ -76,7 +75,7 @@ export default function MonthSelector({ selectedMonth, onMonthChange }: MonthSel
         onMonthChange(normalized);
       } catch { /* ignore */ }
     }
-  }, [dbLatestMonth, initialized, onMonthChange]);
+  }, [dbLatestMonth, onMonthChange]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value; // YYYY-MM format
@@ -86,14 +85,6 @@ export default function MonthSelector({ selectedMonth, onMonthChange }: MonthSel
       onMonthChange(normalized);
     } catch { /* ignore invalid */ }
   };
-
-  const formattedMonth = (() => {
-    try {
-      return formatAnalysisMonth(selectedMonth);
-    } catch {
-      return selectedMonth;
-    }
-  })();
 
   // Filter available months to show only those different from selected
   const suggestionMonths = availableMonths.filter(

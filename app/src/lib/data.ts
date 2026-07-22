@@ -228,23 +228,9 @@ export interface DaznBetData {
 
 // ─── Helpers ───
 
-function applyDateRange<T extends { date: string }>(
-  q: ReturnType<typeof supabase.from>,
-  range: DateRange | undefined,
-  tableDateColumn = "date"
-) {
-  // Note: this helper is used only when callers build queries manually.
-  // Most queries below apply range inline via chainable filters.
-  return q;
-}
-
 function toNumber(v: unknown): number {
   const n = typeof v === "string" ? Number(v.replace(/,/g, ".")) : Number(v);
   return Number.isFinite(n) ? n : 0;
-}
-
-function normalizeUsername(s: string): string {
-  return s.trim().toLowerCase();
 }
 
 export function playerStatus(activeDays: number): string {
@@ -1166,7 +1152,7 @@ export function getPvrName(pvrId: string | null): string {
 }
 
 /** @deprecated Use playerStatus(activeDays) instead. Health score formula not yet approved. */
-export function getPlayerStatus(_healthScore: number | null): { label: string; color: string } {
+export function getPlayerStatus(healthScore: number | null): { label: string; color: string } {
   return { label: "N/D", color: "positive" };
 }
 

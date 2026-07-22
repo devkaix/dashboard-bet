@@ -4,7 +4,6 @@ import { supabase } from "./supabase";
 import {
   analysisMonthToRange,
   analysisMonthToDatabaseDate,
-  databaseDateToAnalysisMonth,
 } from "./analysisMonth";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -47,27 +46,6 @@ const LABELS: Record<ImportFileType, string> = {
   category_summary: "Giocato totale suddiviso per tipologia – controllo",
   players_master: "Anagrafica giocatori",
 };
-
-const OPERATIONAL_FILE_TYPES: ImportFileType[] = [
-  "pvr_hierarchy",
-  "players_master",
-  "tickets",
-  "daily_pvr",
-  "daily_player_game",
-];
-
-const CONTROL_FILE_TYPES: ImportFileType[] = [
-  "daily_network",
-  "daily_player",
-  "player_summary",
-  "pvr_summary",
-  "category_summary",
-];
-
-const ALL_FILE_TYPES: ImportFileType[] = [
-  ...OPERATIONAL_FILE_TYPES,
-  ...CONTROL_FILE_TYPES,
-];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { num, normalizeUsername, pDate, pDt, det, col, dateFromTimestamp } from './uploadHelpers';
+import { num, normalizeUsername, pDate, pDt, det, col, dateFromTimestamp, detectFileTypeFromFilename } from './uploadHelpers';
 
 describe('num', () => {
   it('parses plain numbers', () => {
@@ -67,6 +67,48 @@ describe('pDt', () => {
   it('returns null for invalid input', () => {
     expect(pDt('')).toBeNull();
     expect(pDt('2026-06-30')).toBeNull();
+  });
+});
+
+describe('detectFileTypeFromFilename', () => {
+  it('detects daily_network from Exalogic filename', () => {
+    expect(detectFileTypeFromFilename('export_grid_stat_all (6)_giocato totale della rete x per singolo giorno giugno.xlsx')).toBe('daily_network');
+  });
+
+  it('detects daily_player from Exalogic filename', () => {
+    expect(detectFileTypeFromFilename('export_grid_stat_all (17)giocato per conto e data maggio.xlsx')).toBe('daily_player');
+  });
+
+  it('detects daily_pvr from Exalogic filename', () => {
+    expect(detectFileTypeFromFilename('export_grid_stat_all (9) giocato per ogni singolo pvr di tutta la rete gironaliero giugno.xlsx')).toBe('daily_pvr');
+  });
+
+  it('detects pvr_summary from Exalogic filename', () => {
+    expect(detectFileTypeFromFilename('export_grid_stat_all (21) giocato totale per ogni singolo pvr di tutta la rete maggio.xlsx')).toBe('pvr_summary');
+  });
+
+  it('detects daily_player_game from Exalogic filename', () => {
+    expect(detectFileTypeFromFilename('export_grid_stat_all (23) giocato suddiviso per giocare e tipologia di gioco giornaliero maggio.xlsx')).toBe('daily_player_game');
+  });
+
+  it('detects player_summary from Exalogic filename', () => {
+    expect(detectFileTypeFromFilename('export_grid_stat_all (16)gioca player di tutta la rete maggio.xlsx')).toBe('player_summary');
+  });
+
+  it('detects category_summary from Exalogic filename', () => {
+    expect(detectFileTypeFromFilename('export_grid_stat_all (18)giocato totale suddiviso per tipologia maggio.xlsx')).toBe('category_summary');
+  });
+
+  it('detects tickets from Exalogic filename', () => {
+    expect(detectFileTypeFromFilename('Export_ticket_ticket scommesse maggio.xlsx')).toBe('tickets');
+  });
+
+  it('detects pvr_hierarchy from Exalogic filename', () => {
+    expect(detectFileTypeFromFilename('gestione_punto_gerarchia_387989 (9) sezione da scaricare giornalmente luglio 22.07.26.xlsx')).toBe('pvr_hierarchy');
+  });
+
+  it('returns null for unknown filename', () => {
+    expect(detectFileTypeFromFilename('documento_generico.xlsx')).toBeNull();
   });
 });
 

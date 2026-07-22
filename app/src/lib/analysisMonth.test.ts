@@ -229,10 +229,6 @@ describe("validateFileMonth", () => {
   function mkr(...dates: string[]): Record<string, unknown>[] {
     return dates.map((d) => ({ Data: d }));
   }
-  function mkrRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
-    return rows;
-  }
-
   it("june selected + june file → valid", () => {
     const r = validateFileMonth("daily_network", mkr("2026-06-01", "2026-06-15", "2026-06-30"), "2026-06");
     expect(r.valid).toBe(true);

@@ -41,7 +41,7 @@ export function normalizeUsername(s: string): string {
 export function pDate(v: unknown): string | null {
   if (!v) return null;
   const s = String(v).trim();
-  if (/^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/.test(s)) return s.replace(/\//g, "-");
+  if (/^\d{4}[/-]\d{2}[/-]\d{2}$/.test(s)) return s.replace(/\//g, "-");
   const sep = s.includes("-") ? "-" : "/";
   const p = s.split(sep);
   if (p.length === 3) {
@@ -67,7 +67,7 @@ export function pDt(v: unknown): string | null {
   let localIso: string | null = null;
 
   // ISO-like: 2026-06-19 02:15:39
-  const iso = s.match(/^(\d{4})[\-\/](\d{2})[\-\/](\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+  const iso = s.match(/^(\d{4})[-/](\d{2})[-/](\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
   if (iso) {
     localIso = `${iso[1]}-${iso[2]}-${iso[3]}T${iso[4]}:${iso[5]}:${iso[6]}`;
   }
@@ -150,4 +150,58 @@ export function col(row: Record<string, unknown>, names: string[]): unknown {
 export function dateFromTimestamp(ts: string | null): string | null {
   if (!ts) return null;
   return ts.split("T")[0];
+}
+
+function normalizeFileName(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[_\-()0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Tries to infer the import file type from the downloaded Excel filename.
+ * This is useful because Exalogic exports have long, numbered names and users
+ * cannot easily map them to the app's internal type names.
+ */
+export function detectFileTypeFromFilename(filename: string): string | null {
+  const n = normalizeFileName(filename);
+
+  // Order matters: more specific patterns first.
+  if (n.includes("gerarchia") || n.includes("punto gerarchia") || n.includes("gestione punto")) {
+    return "pvr_hierarchy";
+  }
+  if (n.includes("ticket") || n.includes("scommesse")) {
+    return "tickets";
+  }
+  if (n.includes("giocato suddiviso per giocare") || n.includes("tipologia di gioco giornaliero")) {
+    return "daily_player_game";
+  }
+  if (n.includes("giocato totale suddiviso per tipologia")) {
+    return "category_summary";
+  }
+  if (n.includes("gioca player di tutta la rete")) {
+    return "player_summary";
+  }
+  if (n.includes("per ogni singolo pvr") || n.includes("pvr di tutta la rete")) {
+    // Distinguish daily (per day) from monthly summary (total).
+    if (n.includes("giornaliero") || n.includes("gironaliero") || n.includes("per singolo giorno")) {
+      return "daily_pvr";
+    }
+    return "pvr_summary";
+  }
+  if (n.includes("giocato totale della rete") || n.includes("rete x per singolo giorno") || n.includes("rete x singolo giorno")) {
+    return "daily_network";
+  }
+  if (n.includes("giocato per conto e data")) {
+    return "daily_player";
+  }
+  if (n.includes("anagrafica giocatori") || n.includes("players master")) {
+    return "players_master";
+  }
+
+  return null;
 }

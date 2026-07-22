@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
-import ExecutiveBriefingPage from './ExecutiveBriefing'
+import ExecutiveBriefingPage from '@/pages/ExecutiveBriefing'
 import type { ExecutiveBriefingResult } from '@/lib/executiveBriefing'
 
 const mockNavigate = vi.fn()
