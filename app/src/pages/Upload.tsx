@@ -680,12 +680,14 @@ async function lookupPlayerIds(usernames: string[]): Promise<Map<string, { id: s
 
 async function resolvePlayerIds(usernames: string[]): Promise<Map<string, { id: string; pvr_id: string | null }>> {
   const map = await lookupPlayerIds(usernames);
-  const remaining = usernames.filter((u) => !map.has(normalizeUsername(u)));
+  const remaining = [...new Set(usernames.map(normalizeUsername))]
+    .filter((u) => !map.has(u))
+    .map((u) => usernames.find((raw) => normalizeUsername(raw) === u) || u);
 
   if (remaining.length > 0) {
-    const inserts = remaining.map((u) => ({
+    const inserts = [...new Set(remaining.map(normalizeUsername))].map((u) => ({
       username: u,
-      username_normalized: normalizeUsername(u),
+      username_normalized: u,
     }));
     const { data, error } = await supabase.from("players").insert(inserts).select("id, username_normalized, pvr_id");
     if (error) throw new Error(`resolvePlayerIds insert: ${error.message}`);
@@ -816,9 +818,9 @@ export default function UploadPage() {
       expected_file_type: expectedFileType || null,
       month_validation_status: monthValidationStatus || null,
       detected_months: detectedMonths || null,
-    }).select("id").single();
+    }).select("id");
     if (error) throw new Error(`insert excel_uploads: ${error.message}`);
-    return data?.id || null;
+    return (data as any)?.[0]?.id || null;
   }
 
   // ── Process file (existing logic, now with month context) ──
