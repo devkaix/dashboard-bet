@@ -1325,10 +1325,11 @@ export default function UploadPage() {
       if (ticketRows.length > 0) {
         const commercialPvrMap = await loadPvrMap();
         const upserts = ticketRows.map((r) => {
-          const player_id = playerMap.get(r.username_normalized)?.id;
-          if (!player_id) report.unmatched_players.push(r.username_normalized);
+          const { username_normalized, ...rest } = r;
+          const player_id = playerMap.get(username_normalized)?.id;
+          if (!player_id) report.unmatched_players.push(username_normalized);
           const pvr_id = r.pvr_code ? commercialPvrMap.get(String(r.pvr_code).toLowerCase()) || null : null;
-          return { ...r, player_id: player_id || null, pvr_id };
+          return { ...rest, player_id: player_id || null, pvr_id };
         });
         await batchUpsert("tickets", upserts, "ticket_code", 500);
       }
