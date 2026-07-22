@@ -74,7 +74,14 @@ export default function DatasetCard({ status, selectedMonth, onUpload, uploading
       onClick={onUpload}
     >
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-white">{status.label}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-white">{status.label}</span>
+          {status.category === "control" && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-500/10 text-slate-400 border border-slate-500/20">
+              Controllo
+            </span>
+          )}
+        </div>
         <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", STATE_BG[status.state])}>
           <Icon size={16} className={STATE_COLORS[status.state]} />
         </div>
@@ -119,10 +126,14 @@ export default function DatasetCard({ status, selectedMonth, onUpload, uploading
           <span className={cn(
             "text-xs font-medium px-2 py-0.5 rounded-full",
             status.state === "missing"
-              ? "bg-accent-purple/10 text-accent-purple"
+              ? status.category === "control"
+                ? "bg-slate-500/10 text-slate-400"
+                : "bg-accent-purple/10 text-accent-purple"
               : "bg-emerald-500/10 text-emerald-400"
           )}>
-            {status.state === "missing" ? "Carica" : "Aggiorna"}
+            {status.state === "missing"
+              ? status.category === "control" ? "Verifica" : "Carica"
+              : "Aggiorna"}
           </span>
         )}
       </div>

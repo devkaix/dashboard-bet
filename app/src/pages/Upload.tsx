@@ -95,6 +95,381 @@ function getStats(row: Record<string, unknown>) {
   };
 }
 
+const AGGREGABLE_METRICS = [
+  "buy_in", "buy_in_bonus", "stack", "bet", "won", "rake",
+  "bet_bonus", "jackpot", "jackpot_won", "overlay", "refund",
+];
+
+function zeroStats() {
+  return {
+    buy_in: 0, buy_in_bonus: 0, stack: 0, bet: 0, won: 0, rake: 0,
+    payout: 0, bet_bonus: 0, jackpot: 0, jackpot_won: 0, overlay: 0, refund: 0,
+  };
+}
+
+function aggregatePlayerStats(
+  gameRows: any[],
+  playerMap: Map<string, { id: string }>,
+) {
+  const grouped = new Map<string, any>();
+  for (const r of gameRows) {
+    const player = playerMap.get(r.username_normalized);
+    if (!player?.id) continue;
+    const key = `${player.id}|${r.date}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, { player_id: player.id, date: r.date, ...zeroStats() });
+    }
+    const g = grouped.get(key);
+    for (const f of AGGREGABLE_METRICS) g[f] += (r[f] || 0);
+  }
+  const result: any[] = [];
+  for (const g of grouped.values()) {
+    g.payout = g.bet !== 0 ? (g.won / g.bet) * 100 : 0;
+    result.push(g);
+  }
+  return result;
+}
+
+function aggregateNetworkStats(pvrRows: any[]) {
+  const grouped = new Map<string, any>();
+  for (const r of pvrRows) {
+    if (!grouped.has(r.date)) {
+      grouped.set(r.date, { date: r.date, ...zeroStats() });
+    }
+    const g = grouped.get(r.date);
+    for (const f of AGGREGABLE_METRICS) g[f] += (r[f] || 0);
+  }
+  const result: any[] = [];
+  for (const g of grouped.values()) {
+    g.payout = g.bet !== 0 ? (g.won / g.bet) * 100 : 0;
+    result.push(g);
+  }
+  return result;
+}
+
+type ValidationRowStatus = "PASS" | "WARNING" | "BLOCKED" | "NOT_AVAILABLE";
+
+function metricValidationStatus(
+  op: number | null | undefined,
+  ctrl: number,
+  absThreshold = 0.01,
+  warnPct = 0.1,
+  blockPct = 5,
+): ValidationRowStatus {
+  if (op === null || op === undefined) return "NOT_AVAILABLE";
+  const absDiff = Math.abs(op - ctrl);
+  if (absDiff <= absThreshold) return "PASS";
+  const pct = op !== 0 ? (absDiff / Math.abs(op)) * 100 : ctrl !== 0 ? 100 : 0;
+  if (pct > blockPct) return "BLOCKED";
+  if (pct > warnPct) return "WARNING";
+  return "PASS";
+}
+
+function buildValidationRecord(
+  uploadId: string,
+  sourceFileType: string,
+  targetFileType: string | null,
+  analysisMonth: string | null,
+  periodStart: string | null,
+  periodEnd: string | null,
+  metric: string,
+  opVal: number | null,
+  ctrlVal: number,
+  details?: any,
+) {
+  const status = metricValidationStatus(opVal, ctrlVal);
+  const absDiff = opVal !== null && opVal !== undefined ? Math.abs(opVal - ctrlVal) : null;
+  const pctDiff =
+    absDiff === null || opVal === null || opVal === undefined
+      ? null
+      : opVal !== 0
+        ? (absDiff / Math.abs(opVal)) * 100
+        : ctrlVal !== 0
+          ? 100
+          : 0;
+  return {
+    upload_id: uploadId,
+    source_file_type: sourceFileType,
+    target_file_type: targetFileType,
+    analysis_month: analysisMonth,
+    metric,
+    period_start: periodStart,
+    period_end: periodEnd,
+    operational_value: opVal,
+    control_value: ctrlVal,
+    absolute_diff: absDiff,
+    percent_diff: pctDiff,
+    status,
+    details: details || null,
+  };
+}
+
+async function writeImportValidations(validations: any[]) {
+  if (validations.length === 0) return;
+  const { error } = await (supabase.from("import_validations") as any).insert(validations);
+  if (error) throw new Error(`insert import_validations: ${error.message}`);
+}
+
+async function validateNetworkControl(
+  uploadId: string,
+  controlRows: any[],
+  analysisMonth: string | null,
+): Promise<{ status: ValidationRowStatus; validations: any[] }> {
+  if (controlRows.length === 0) return { status: "NOT_AVAILABLE", validations: [] };
+  const byDate = aggregateNetworkStats(controlRows);
+  const dates = byDate.map((r) => r.date);
+  const { data: ops } = await supabase.from("daily_network_stats").select("*").in("date", dates);
+  const opMap = new Map((ops || []).map((r: any) => [r.date, r]));
+
+  const validations: any[] = [];
+  let overall: ValidationRowStatus = "PASS";
+
+  for (const ctrl of byDate) {
+    const op = opMap.get(ctrl.date);
+    if (!op) {
+      validations.push({
+        upload_id: uploadId,
+        source_file_type: "daily_network",
+        target_file_type: "daily_pvr",
+        analysis_month: analysisMonth,
+        metric: "ALL",
+        period_start: ctrl.date,
+        period_end: ctrl.date,
+        operational_value: null,
+        control_value: null,
+        absolute_diff: null,
+        percent_diff: null,
+        status: "NOT_AVAILABLE",
+        details: { note: "No operational daily_network_stats row for this date" },
+      });
+      if (overall === "PASS") overall = "NOT_AVAILABLE";
+      continue;
+    }
+    for (const metric of [...AGGREGABLE_METRICS, "payout"]) {
+      const rec = buildValidationRecord(
+        uploadId,
+        "daily_network",
+        "daily_pvr",
+        analysisMonth,
+        ctrl.date,
+        ctrl.date,
+        metric,
+        op[metric],
+        ctrl[metric],
+        { date: ctrl.date },
+      );
+      validations.push(rec);
+      if (rec.status === "BLOCKED") overall = "BLOCKED";
+      else if (rec.status === "WARNING" && overall === "PASS") overall = "WARNING";
+      else if (rec.status === "NOT_AVAILABLE" && overall === "PASS") overall = "NOT_AVAILABLE";
+    }
+  }
+
+  return { status: overall, validations };
+}
+
+async function validateDailyPlayerControl(
+  uploadId: string,
+  controlRows: any[],
+  playerMap: Map<string, { id: string }>,
+  analysisMonth: string | null,
+): Promise<{ status: ValidationRowStatus; validations: any[] }> {
+  if (controlRows.length === 0) return { status: "NOT_AVAILABLE", validations: [] };
+  const byKey = aggregatePlayerStats(controlRows, playerMap);
+  const dates = [...new Set(byKey.map((r) => r.date))];
+  const playerIds = [...new Set(byKey.map((r) => r.player_id))].filter(Boolean);
+
+  const { data: ops } = await supabase
+    .from("daily_player_stats")
+    .select("*")
+    .in("date", dates)
+    .in("player_id", playerIds);
+  const opMap = new Map((ops || []).map((r: any) => [`${r.player_id}|${r.date}`, r]));
+
+  const validations: any[] = [];
+  let overall: ValidationRowStatus = "PASS";
+
+  for (const ctrl of byKey) {
+    const op = opMap.get(`${ctrl.player_id}|${ctrl.date}`);
+    if (!op) {
+      validations.push({
+        upload_id: uploadId,
+        source_file_type: "daily_player",
+        target_file_type: "daily_player_game",
+        analysis_month: analysisMonth,
+        metric: "ALL",
+        period_start: ctrl.date,
+        period_end: ctrl.date,
+        operational_value: null,
+        control_value: null,
+        absolute_diff: null,
+        percent_diff: null,
+        status: "NOT_AVAILABLE",
+        details: { note: "No operational daily_player_stats row for this player/date", player_id: ctrl.player_id },
+      });
+      if (overall === "PASS") overall = "NOT_AVAILABLE";
+      continue;
+    }
+    for (const metric of [...AGGREGABLE_METRICS, "payout"]) {
+      const rec = buildValidationRecord(
+        uploadId,
+        "daily_player",
+        "daily_player_game",
+        analysisMonth,
+        ctrl.date,
+        ctrl.date,
+        metric,
+        op[metric],
+        ctrl[metric],
+        { player_id: ctrl.player_id, date: ctrl.date },
+      );
+      validations.push(rec);
+      if (rec.status === "BLOCKED") overall = "BLOCKED";
+      else if (rec.status === "WARNING" && overall === "PASS") overall = "WARNING";
+      else if (rec.status === "NOT_AVAILABLE" && overall === "PASS") overall = "NOT_AVAILABLE";
+    }
+  }
+
+  return { status: overall, validations };
+}
+
+async function validatePlayerSummaryControl(
+  uploadId: string,
+  summaryRows: any[],
+  analysisMonth: string | null,
+): Promise<{ status: ValidationRowStatus; validations: any[] }> {
+  if (summaryRows.length === 0 || !analysisMonth) return { status: "NOT_AVAILABLE", validations: [] };
+  const playerMap = await lookupPlayerIds(summaryRows.map((r) => r.username));
+  const playerIds = [...new Set([...playerMap.values()].map((p) => p.id))].filter(Boolean);
+  if (playerIds.length === 0) return { status: "NOT_AVAILABLE", validations: [] };
+
+  const { start, end } = analysisMonthToRange(analysisMonth);
+  const { data: ops } = await supabase
+    .from("daily_player_stats")
+    .select("*")
+    .gte("date", start)
+    .lte("date", end)
+    .in("player_id", playerIds);
+
+  const byPlayer = new Map<string, any>();
+  for (const r of ops || []) {
+    if (!byPlayer.has(r.player_id)) byPlayer.set(r.player_id, { player_id: r.player_id, ...zeroStats() });
+    const g = byPlayer.get(r.player_id);
+    for (const f of AGGREGABLE_METRICS) g[f] += (r[f] || 0);
+  }
+  for (const g of byPlayer.values()) {
+    g.payout = g.bet !== 0 ? (g.won / g.bet) * 100 : 0;
+  }
+
+  const validations: any[] = [];
+  let overall: ValidationRowStatus = "PASS";
+
+  for (const ctrl of summaryRows) {
+    const pid = playerMap.get(ctrl.username_normalized)?.id;
+    if (!pid) {
+      validations.push({
+        upload_id: uploadId,
+        source_file_type: "player_summary",
+        target_file_type: "daily_player_game",
+        analysis_month: analysisMonth,
+        metric: "ALL",
+        period_start: start,
+        period_end: end,
+        operational_value: null,
+        control_value: null,
+        absolute_diff: null,
+        percent_diff: null,
+        status: "NOT_AVAILABLE",
+        details: { note: "Player not found in operational data", username: ctrl.username },
+      });
+      if (overall === "PASS") overall = "NOT_AVAILABLE";
+      continue;
+    }
+    const op = byPlayer.get(pid);
+    if (!op) {
+      validations.push({
+        upload_id: uploadId,
+        source_file_type: "player_summary",
+        target_file_type: "daily_player_game",
+        analysis_month: analysisMonth,
+        metric: "ALL",
+        period_start: start,
+        period_end: end,
+        operational_value: null,
+        control_value: null,
+        absolute_diff: null,
+        percent_diff: null,
+        status: "NOT_AVAILABLE",
+        details: { note: "No operational aggregate for this player/month", player_id: pid },
+      });
+      if (overall === "PASS") overall = "NOT_AVAILABLE";
+      continue;
+    }
+    for (const metric of [...AGGREGABLE_METRICS, "payout"]) {
+      const rec = buildValidationRecord(
+        uploadId,
+        "player_summary",
+        "daily_player_game",
+        analysisMonth,
+        start,
+        end,
+        metric,
+        op[metric],
+        ctrl[metric],
+        { player_id: pid, username: ctrl.username },
+      );
+      validations.push(rec);
+      if (rec.status === "BLOCKED") overall = "BLOCKED";
+      else if (rec.status === "WARNING" && overall === "PASS") overall = "WARNING";
+      else if (rec.status === "NOT_AVAILABLE" && overall === "PASS") overall = "NOT_AVAILABLE";
+    }
+  }
+
+  return { status: overall, validations };
+}
+
+function summarizeValidationStatus(validationStatus: ValidationRowStatus): string {
+  switch (validationStatus) {
+    case "PASS": return "validated";
+    case "WARNING": return "warning";
+    case "BLOCKED": return "mismatch";
+    case "NOT_AVAILABLE": return "not_available";
+    default: return "unchecked";
+  }
+}
+
+function updatePlayerDateRange(
+  rows: { username_normalized: string; date: string }[],
+  playerMap: Map<string, { id: string }>,
+) {
+  const playerDateRange = new Map<string, { minDate: string; maxDate: string }>();
+  for (const r of rows) {
+    const pid = playerMap.get(r.username_normalized)?.id;
+    if (!pid) continue;
+    const existing = playerDateRange.get(pid);
+    if (!existing) {
+      playerDateRange.set(pid, { minDate: r.date, maxDate: r.date });
+    } else {
+      if (r.date < existing.minDate) existing.minDate = r.date;
+      if (r.date > existing.maxDate) existing.maxDate = r.date;
+    }
+  }
+  return playerDateRange;
+}
+
+async function applyPlayerDateRanges(playerDateRange: Map<string, { minDate: string; maxDate: string }>) {
+  for (const [id, range] of playerDateRange) {
+    await (supabase as any).from("players")
+      .update({ last_seen_date: range.maxDate })
+      .eq("id", id)
+      .or(`last_seen_date.is.null,last_seen_date.lt.${range.maxDate}`);
+    await (supabase as any).from("players")
+      .update({ first_seen_date: range.minDate })
+      .eq("id", id)
+      .is("first_seen_date", null);
+  }
+}
+
 function normalizedContentHash(fileType: string, rows: Record<string, unknown>[]): Promise<string> {
   let normalized: string[];
   if (fileType === 'daily_player' || fileType === 'daily_network' || fileType === 'daily_pvr') {
@@ -315,30 +690,29 @@ export default function UploadPage() {
     expectedFileType?: string | null,
     monthValidationStatus?: string | null,
     detectedMonths?: string[] | null,
-  ) {
+  ): Promise<string | null> {
     const dates = (report?.dates || []).filter(Boolean).sort();
     const periodStart = dates[0] || null;
     const periodEnd = dates[dates.length - 1] || null;
-    check(
-      "insert excel_uploads",
-      await (supabase.from("excel_uploads") as any).insert({
-        filename: file.name,
-        file_hash: fileHash,
-        normalized_hash: report?.normalized_hash || null,
-        status,
-        file_type: fileType,
-        rows_processed: rows,
-        error_message: errorMsg || null,
-        period_start: periodStart,
-        period_end: periodEnd,
-        validation_status: validationStatus,
-        validation_report: report,
-        analysis_month: analysisMonth || null,
-        expected_file_type: expectedFileType || null,
-        month_validation_status: monthValidationStatus || null,
-        detected_months: detectedMonths || null,
-      })
-    );
+    const { data, error } = await (supabase.from("excel_uploads") as any).insert({
+      filename: file.name,
+      file_hash: fileHash,
+      normalized_hash: report?.normalized_hash || null,
+      status,
+      file_type: fileType,
+      rows_processed: rows,
+      error_message: errorMsg || null,
+      period_start: periodStart,
+      period_end: periodEnd,
+      validation_status: validationStatus,
+      validation_report: report,
+      analysis_month: analysisMonth || null,
+      expected_file_type: expectedFileType || null,
+      month_validation_status: monthValidationStatus || null,
+      detected_months: detectedMonths || null,
+    }).select("id").single();
+    if (error) throw new Error(`insert excel_uploads: ${error.message}`);
+    return data?.id || null;
   }
 
   // ── Process file (existing logic, now with month context) ──
@@ -481,56 +855,36 @@ export default function UploadPage() {
         const targetMonth = month || null;
         report.target_month = targetMonth;
 
-        const playerMap = await lookupPlayerIds(summaryRows.map((r) => r.username));
-        const playerIds = [...new Set([...playerMap.values()].map((p) => p.id))].filter(Boolean);
-
-        let dbTotals: any[] = [];
-        if (playerIds.length > 0 && targetMonth) {
-          const { data, error } = await supabase
-            .from("monthly_player_stats_v")
-            .select("*")
-            .in("player_id", playerIds)
-            .eq("month", targetMonth);
-          if (error) throw new Error(`monthly_player_stats_v: ${error.message}`);
-          dbTotals = data || [];
-        }
-
-        const mismatches: string[] = [];
-        for (const r of summaryRows) {
-          const pid = playerMap.get(r.username_normalized)?.id;
-          if (!pid) {
-            report.unmatched_players.push(r.username);
-            continue;
-          }
-          const db = dbTotals.find((x: any) => x.player_id === pid);
-          const eps = 0.01;
-          if (db) {
-            if (Math.abs(num(db.rake) - r.rake) > eps || Math.abs(num(db.bet) - r.bet) > eps || Math.abs(num(db.won) - r.won) > eps) {
-              mismatches.push(r.username);
-            }
-          } else {
-            mismatches.push(r.username);
-          }
-        }
-
-        report.mismatches = mismatches;
-        report.validated_rows = summaryRows.length - mismatches.length - report.unmatched_players.length;
-        const validationStatus = mismatches.length === 0 ? "validated" : "mismatch";
-
         // Month validation: player_summary uses selected month
         const monthResult = validateFileMonth("player_summary", rows, targetMonth);
 
-        await insertUploadRecord(
-          file, fileHash, fileType, summaryRows.length, "completed", validationStatus, report,
+        const uploadId = await insertUploadRecord(
+          file, fileHash, fileType, summaryRows.length, "completed", "unchecked", report,
           undefined, targetMonth, expectedType || null,
           monthResult.status, monthResult.detectedMonths
         );
+        if (!uploadId) throw new Error("Failed to create upload record");
+
+        const { status: vStatus, validations } = await validatePlayerSummaryControl(uploadId, summaryRows, targetMonth);
+        await writeImportValidations(validations);
+        report.validation_status = vStatus;
+        report.validations_count = validations.length;
+
+        const finalValidationStatus = summarizeValidationStatus(vStatus);
+        await (supabase.from("excel_uploads") as any)
+          .update({ validation_status: finalValidationStatus, validation_report: report })
+          .eq("id", uploadId);
 
         setProgress("");
-        if (mismatches.length > 0) {
-          setMessage({ type: "error", text: `"${file.name}" → ${summaryRows.length} righe; ${mismatches.length} mismatch con i dati giornalieri per ${targetMonth}.` });
+        const unmatchedCount = summaryRows.filter((r) => !r.username_normalized).length;
+        if (vStatus === "BLOCKED") {
+          setMessage({ type: "error", text: `"${file.name}" → ${summaryRows.length} righe; rilevate discrepanze con i dati operativi per ${targetMonth}.` });
+        } else if (vStatus === "WARNING") {
+          setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe validate con avvisi per ${targetMonth} (${fileType})` });
+        } else if (vStatus === "NOT_AVAILABLE") {
+          setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe caricate; dati operativi non disponibili per la quadratura (${fileType})` });
         } else {
-          setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe validate per ${targetMonth} (${fileType}, non importato)` });
+          setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe validate per ${targetMonth} (${fileType})` });
         }
         return;
       }
@@ -765,7 +1119,7 @@ export default function UploadPage() {
         await batchUpsert("tickets", upserts, "ticket_code", 500);
       }
 
-      // Upsert daily_pvr_stats
+      // Upsert daily_pvr_stats and derive daily_network_stats
       if (dailyPvrRows.length > 0) {
         const upserts = dailyPvrRows.map((r) => {
           const pvr_id = pvrMap.get(r.eid);
@@ -773,14 +1127,14 @@ export default function UploadPage() {
           return { pvr_id: pvr_id || "", date: r.date, ...getStats(r) };
         }).filter((r) => r.pvr_id);
         await batchUpsert("daily_pvr_stats", upserts, "pvr_id,date", 500);
+
+        const networkUpserts = aggregateNetworkStats(dailyPvrRows);
+        if (networkUpserts.length > 0) {
+          await batchUpsert("daily_network_stats", networkUpserts, "date", 500);
+        }
       }
 
-      // Upsert daily_network_stats
-      if (dailyNetworkRows.length > 0) {
-        await batchUpsert("daily_network_stats", dailyNetworkRows, "date", 500);
-      }
-
-      // Upsert game types and daily_player_game_stats
+      // Upsert game types and daily_player_game_stats, then derive daily_player_stats
       if (dailyGameRows.length > 0) {
         const gameTypes = [...new Map(dailyGameRows.map((r) => [`${r.provider}|${r.game_name}`, { provider: r.provider, game_name: r.game_name }])).values()];
         await batchUpsert("game_types", gameTypes, "provider,game_name", 500);
@@ -790,40 +1144,23 @@ export default function UploadPage() {
           return { player_id: player_id || "", provider: r.provider, game_name: r.game_name, date: r.date, ...getStats(r) };
         }).filter((r) => r.player_id);
         await batchUpsert("daily_player_game_stats", upserts, "player_id,provider,game_name,date", 500);
+
+        const playerStatsUpserts = aggregatePlayerStats(dailyGameRows, playerMap);
+        if (playerStatsUpserts.length > 0) {
+          await batchUpsert("daily_player_stats", playerStatsUpserts, "player_id,date", 500);
+        }
+
+        const playerDateRange = updatePlayerDateRange(dailyGameRows, playerMap);
+        await applyPlayerDateRanges(playerDateRange);
       }
 
-      // Upsert daily_player_stats and update last_seen_date
-      if (dailyPlayerRows.length > 0) {
-        const upserts = dailyPlayerRows.map((r) => {
-          const player_id = playerMap.get(r.username_normalized)?.id;
-          if (!player_id) report.unmatched_players.push(r.username_normalized);
-          return { player_id: player_id || "", date: r.date, ...getStats(r) };
-        }).filter((r) => r.player_id);
-        await batchUpsert("daily_player_stats", upserts, "player_id,date", 500);
-
-        // Track min and max date per player for correct first_seen/last_seen
-        const playerDateRange = new Map<string, { minDate: string; maxDate: string }>();
-        for (const r of dailyPlayerRows) {
-          const pid = playerMap.get(r.username_normalized)?.id;
-          if (!pid) continue;
-          const existing = playerDateRange.get(pid);
-          if (!existing) {
-            playerDateRange.set(pid, { minDate: r.date, maxDate: r.date });
-          } else {
-            if (r.date < existing.minDate) existing.minDate = r.date;
-            if (r.date > existing.maxDate) existing.maxDate = r.date;
-          }
-        }
-        for (const [id, range] of playerDateRange) {
-          await (supabase as any).from("players")
-            .update({ last_seen_date: range.maxDate })
-            .eq("id", id)
-            .or(`last_seen_date.is.null,last_seen_date.lt.${range.maxDate}`);
-          await (supabase as any).from("players")
-            .update({ first_seen_date: range.minDate })
-            .eq("id", id)
-            .is("first_seen_date", null);
-        }
+      // Control files: daily_player (17) and daily_network (22) do not write operational tables.
+      // Their data is kept in report for future validation against derived tables.
+      if (fileType === "daily_player" && dailyPlayerRows.length > 0) {
+        report.control_rows = dailyPlayerRows.length;
+      }
+      if (fileType === "daily_network" && dailyNetworkRows.length > 0) {
+        report.control_rows = dailyNetworkRows.length;
       }
 
       const totalRows = ticketRows.length + dailyPvrRows.length + dailyNetworkRows.length + dailyGameRows.length + dailyPlayerRows.length;
@@ -860,15 +1197,38 @@ export default function UploadPage() {
 
       const validationStatus = report.reconciliation?.status === "mismatch" ? "mismatch" : "validated";
 
-      await insertUploadRecord(
+      const uploadId = await insertUploadRecord(
         file, fileHash, fileType, totalRows, "completed", validationStatus, report,
         undefined, analysisMonth, expectedType || null,
         monthResult.status, monthResult.detectedMonths
       );
+      if (!uploadId) throw new Error("Failed to create upload record");
+
+      // Validate control files against derived operational tables
+      if (fileType === "daily_network") {
+        const { status: vStatus, validations } = await validateNetworkControl(uploadId, dailyNetworkRows, analysisMonth);
+        await writeImportValidations(validations);
+        report.validation_status = vStatus;
+        report.validations_count = validations.length;
+        const finalValidationStatus = summarizeValidationStatus(vStatus);
+        await (supabase.from("excel_uploads") as any)
+          .update({ validation_status: finalValidationStatus, validation_report: report })
+          .eq("id", uploadId);
+      } else if (fileType === "daily_player") {
+        const { status: vStatus, validations } = await validateDailyPlayerControl(uploadId, dailyPlayerRows, playerMap, analysisMonth);
+        await writeImportValidations(validations);
+        report.validation_status = vStatus;
+        report.validations_count = validations.length;
+        const finalValidationStatus = summarizeValidationStatus(vStatus);
+        await (supabase.from("excel_uploads") as any)
+          .update({ validation_status: finalValidationStatus, validation_report: report })
+          .eq("id", uploadId);
+      }
 
       setProgress("");
       const unmatchedMsg = report.unmatched_players.length > 0 ? ` (${report.unmatched_players.length} giocatori non riconosciuti)` : "";
-      setMessage({ type: "success", text: `"${file.name}" → ${totalRows} righe (${fileType})${unmatchedMsg}` });
+      const controlMsg = (fileType === "daily_player" || fileType === "daily_network") ? " (file di controllo)" : "";
+      setMessage({ type: "success", text: `"${file.name}" → ${totalRows} righe (${fileType})${controlMsg}${unmatchedMsg}` });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       try {
@@ -1041,11 +1401,14 @@ export default function UploadPage() {
     return labels[t] || t;
   }
 
-  // ── Players master status ──
-  const playersMasterStatus = monthlyStatuses.find(s => s.fileType === "players_master");
-
-  // ── Monthly dataset statuses (exclude players_master) ──
-  const monthlyDatasetStatuses = monthlyStatuses.filter(s => s.fileType !== "players_master");
+  // ── Grouped statuses ──
+  const configStatuses = monthlyStatuses.filter(
+    s => s.fileType === "pvr_hierarchy" || s.fileType === "players_master"
+  );
+  const operationalMonthlyStatuses = monthlyStatuses.filter(
+    s => s.category === "operational" && s.fileType !== "pvr_hierarchy" && s.fileType !== "players_master"
+  );
+  const controlStatuses = monthlyStatuses.filter(s => s.category === "control");
 
   // ── Render ──
   return (
@@ -1102,43 +1465,29 @@ export default function UploadPage() {
         </motion.div>
       )}
 
-      {/* ── Section A: Dati anagrafici ── */}
+      {/* ── Section A: Dati anagrafici e configurazione ── */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
         <h2 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
           Dati anagrafici e configurazione
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {playersMasterStatus && (
+          {configStatuses.map((ds) => (
             <DatasetCard
-              status={playersMasterStatus}
+              key={ds.fileType}
+              status={ds}
               selectedMonth={selectedMonth}
-              onUpload={() => handleCardClick("players_master")}
+              onUpload={() => handleCardClick(ds.fileType)}
               uploading={uploading}
             />
-          )}
-          <button
-            onClick={() => handleCardClick("pvr_hierarchy")}
-            disabled={uploading}
-            className="text-left rounded-xl border border-border-subtle bg-bg-surface p-4 hover:bg-bg-surface-elevated transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-accent-blue/10 text-accent-blue">
-                <Network className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-medium text-text-primary">Gerarchia PVR</h3>
-                <p className="text-xs text-text-secondary mt-0.5">Codici commerciali, fidi, saldi, struttura rete</p>
-              </div>
-            </div>
-          </button>
+          ))}
         </div>
       </motion.div>
 
-      {/* ── Section B: Dati operativi mensili ── */}
+      {/* ── Section B: Sorgenti operative mensili ── */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
         <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
           <h2 className="text-sm font-semibold text-text-muted uppercase tracking-wider">
-            Dati operativi mensili
+            Sorgenti operative mensili
           </h2>
           <MonthSelector
             selectedMonth={selectedMonth}
@@ -1153,10 +1502,10 @@ export default function UploadPage() {
           </div>
         )}
 
-        {/* Dataset cards grid */}
+        {/* Operational dataset cards grid */}
         {statusLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {Array.from({ length: 6 }).map((_, i) => (
+            {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="bg-bg-surface-elevated rounded-xl border border-border-subtle p-4 animate-pulse">
                 <div className="h-4 w-24 bg-bg-surface rounded mb-3" />
                 <div className="space-y-2">
@@ -1168,7 +1517,7 @@ export default function UploadPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {monthlyDatasetStatuses.map((ds) => (
+            {operationalMonthlyStatuses.map((ds) => (
               <DatasetCard
                 key={ds.fileType}
                 status={ds}
@@ -1197,6 +1546,38 @@ export default function UploadPage() {
             Apri analisi di {(() => { try { return formatAnalysisMonth(selectedMonth); } catch { return selectedMonth; } })()}
           </button>
         </div>
+      </motion.div>
+
+      {/* ── Section C: Controlli di quadratura ── */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+        <h2 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
+          Controlli di quadratura
+        </h2>
+        {statusLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="bg-bg-surface-elevated rounded-xl border border-border-subtle p-4 animate-pulse">
+                <div className="h-4 w-24 bg-bg-surface rounded mb-3" />
+                <div className="space-y-2">
+                  <div className="h-3 w-full bg-bg-surface rounded" />
+                  <div className="h-3 w-2/3 bg-bg-surface rounded" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {controlStatuses.map((ds) => (
+              <DatasetCard
+                key={ds.fileType}
+                status={ds}
+                selectedMonth={selectedMonth}
+                onUpload={() => handleCardClick(ds.fileType)}
+                uploading={uploading}
+              />
+            ))}
+          </div>
+        )}
       </motion.div>
 
       {/* Import preview modal */}

@@ -4,44 +4,58 @@ interface MonthCompletenessProps {
   statuses: MonthlyDatasetStatus[];
 }
 
-const ANALYSIS_RULES = [
+interface Rule {
+  label: string;
+  check: (s: MonthlyDatasetStatus[]) => boolean;
+}
+
+const OPERATIONAL_RULES: Rule[] = [
   {
-    label: "Analisi rete",
-    check: (s: MonthlyDatasetStatus[]) =>
-      s.some((x) => x.fileType === "daily_network" && x.rowCount > 0),
+    label: "Rete giornaliera",
+    check: (s) => s.some((x) => x.fileType === "daily_pvr" && x.rowCount > 0),
   },
   {
     label: "Analisi PVR",
-    check: (s: MonthlyDatasetStatus[]) =>
-      s.some((x) => x.fileType === "daily_network" && x.rowCount > 0) &&
-      s.some((x) => x.fileType === "daily_pvr" && x.rowCount > 0),
+    check: (s) => s.some((x) => x.fileType === "daily_pvr" && x.rowCount > 0),
   },
   {
-    label: "Analisi provider",
-    check: (s: MonthlyDatasetStatus[]) =>
-      s.some((x) => x.fileType === "daily_player_game" && x.rowCount > 0),
+    label: "Provider e giochi",
+    check: (s) => s.some((x) => x.fileType === "daily_player_game" && x.rowCount > 0),
   },
   {
     label: "Analisi giocatori",
-    check: (s: MonthlyDatasetStatus[]) =>
-      s.some((x) => x.fileType === "daily_player" && x.rowCount > 0),
+    check: (s) => s.some((x) => x.fileType === "daily_player_game" && x.rowCount > 0),
   },
   {
     label: "Evidenze ticket",
-    check: (s: MonthlyDatasetStatus[]) =>
-      s.some((x) => x.fileType === "tickets" && x.rowCount > 0),
+    check: (s) => s.some((x) => x.fileType === "tickets" && x.rowCount > 0),
   },
 ];
 
-export default function MonthCompleteness({ statuses }: MonthCompletenessProps) {
-  const results = ANALYSIS_RULES.map((rule) => ({
+const CONTROL_RULES: Rule[] = [
+  {
+    label: "Quadratura rete (daily_network)",
+    check: (s) => s.some((x) => x.fileType === "daily_network" && x.state === "complete"),
+  },
+  {
+    label: "Quadratura giocatori (daily_player)",
+    check: (s) => s.some((x) => x.fileType === "daily_player" && x.state === "complete"),
+  },
+  {
+    label: "Riepilogo mensile",
+    check: (s) => s.some((x) => x.fileType === "player_summary" && x.state === "complete"),
+  },
+];
+
+function RuleList({ title, rules, statuses }: { title: string; rules: Rule[]; statuses: MonthlyDatasetStatus[] }) {
+  const results = rules.map((rule) => ({
     label: rule.label,
     ready: rule.check(statuses),
   }));
 
   return (
-    <div className="bg-bg-surface rounded-xl p-4 border border-border-subtle">
-      <h3 className="text-sm font-semibold text-text-primary mb-3">Stato analisi del mese</h3>
+    <div>
+      <h4 className="text-xs font-medium text-text-muted uppercase tracking-wider mb-2">{title}</h4>
       <div className="space-y-2">
         {results.map((r) => (
           <div key={r.label} className="flex items-center justify-between text-xs">
@@ -59,6 +73,18 @@ export default function MonthCompleteness({ statuses }: MonthCompletenessProps) 
             )}
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+export default function MonthCompleteness({ statuses }: MonthCompletenessProps) {
+  return (
+    <div className="bg-bg-surface rounded-xl p-4 border border-border-subtle">
+      <h3 className="text-sm font-semibold text-text-primary mb-3">Stato analisi del mese</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <RuleList title="Dati operativi" rules={OPERATIONAL_RULES} statuses={statuses} />
+        <RuleList title="Controlli di quadratura" rules={CONTROL_RULES} statuses={statuses} />
       </div>
     </div>
   );

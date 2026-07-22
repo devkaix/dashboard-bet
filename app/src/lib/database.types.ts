@@ -366,6 +366,68 @@ export type Database = {
         }
         Relationships: []
       }
+      import_validations: {
+        Row: {
+          absolute_diff: number | null
+          analysis_month: string | null
+          control_value: number | null
+          created_at: string
+          details: Json | null
+          id: string
+          metric: string | null
+          operational_value: number | null
+          percent_diff: number | null
+          period_end: string | null
+          period_start: string | null
+          source_file_type: string
+          status: string
+          target_file_type: string | null
+          upload_id: string | null
+        }
+        Insert: {
+          absolute_diff?: number | null
+          analysis_month?: string | null
+          control_value?: number | null
+          created_at?: string
+          details?: Json | null
+          id?: string
+          metric?: string | null
+          operational_value?: number | null
+          percent_diff?: number | null
+          period_end?: string | null
+          period_start?: string | null
+          source_file_type: string
+          status: string
+          target_file_type?: string | null
+          upload_id?: string | null
+        }
+        Update: {
+          absolute_diff?: number | null
+          analysis_month?: string | null
+          control_value?: number | null
+          created_at?: string
+          details?: Json | null
+          id?: string
+          metric?: string | null
+          operational_value?: number | null
+          percent_diff?: number | null
+          period_end?: string | null
+          period_start?: string | null
+          source_file_type?: string
+          status?: string
+          target_file_type?: string | null
+          upload_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "import_validations_upload_id_fkey"
+            columns: ["upload_id"]
+            isOneToOne: false
+            referencedRelation: "excel_uploads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       player_username_aliases: {
         Row: {
           alias_normalized: string
