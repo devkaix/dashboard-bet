@@ -18,6 +18,7 @@ import { parseRequiredNumber, parseOptionalNumber, type ImportValidationIssue } 
 import {
   normalizeAnalysisMonth,
   analysisMonthToRange,
+  analysisMonthToDatabaseDate,
   getMonthsFromDates,
   validateFileMonth,
   formatAnalysisMonth,
@@ -187,11 +188,12 @@ function buildValidationRecord(
         : ctrlVal !== 0
           ? 100
           : 0;
+  const dbMonth = analysisMonth ? analysisMonthToDatabaseDate(analysisMonth) : null;
   return {
     upload_id: uploadId,
     source_file_type: sourceFileType,
     target_file_type: targetFileType,
-    analysis_month: analysisMonth,
+    analysis_month: dbMonth,
     metric,
     period_start: periodStart,
     period_end: periodEnd,
@@ -823,7 +825,7 @@ export default function UploadPage() {
       period_end: periodEnd,
       validation_status: validationStatus,
       validation_report: report,
-      analysis_month: analysisMonth || null,
+      analysis_month: analysisMonth ? analysisMonthToDatabaseDate(analysisMonth) : null,
       expected_file_type: expectedFileType || null,
       month_validation_status: monthValidationStatus || null,
       detected_months: detectedMonths || null,
@@ -1082,7 +1084,7 @@ export default function UploadPage() {
           upload_id: uploadId,
           source_file_type: "category_summary",
           target_file_type: null,
-          analysis_month: targetMonth,
+          analysis_month: targetMonth ? analysisMonthToDatabaseDate(targetMonth) : null,
           metric: "ALL",
           period_start: null,
           period_end: null,
@@ -1149,12 +1151,22 @@ export default function UploadPage() {
           }
         }
 
-        const pvrUpsertList = Array.from(pvrUpserts.values());
+        const eids = [...new Set([...pvrUpserts.keys()])];
+        const { data: existingPvrs, error: existingPvrsErr } = await supabase
+          .from("pvrs")
+          .select("id, exalogic_id")
+          .in("exalogic_id", eids);
+        if (existingPvrsErr) throw new Error(`lookup existing pvrs: ${existingPvrsErr.message}`);
+        const existingIdByEid = new Map<string, string>();
+        for (const p of existingPvrs || []) existingIdByEid.set(p.exalogic_id, p.id);
+
+        const pvrUpsertList = Array.from(pvrUpserts.values()).map((u) => ({
+          ...u,
+          id: existingIdByEid.get(u.exalogic_id) || u.id,
+        }));
         if (pvrUpsertList.length > 0) {
           await batchUpsert("pvrs", pvrUpsertList, "exalogic_id", 500);
         }
-
-        const eids = [...new Set([...mappingUpserts.values()].map((m) => m.exalogic_id))];
         const { data: pvrData, error: pvrLookupErr } = await supabase
           .from("pvrs")
           .select("id, exalogic_id")
@@ -1169,7 +1181,7 @@ export default function UploadPage() {
             pvr_id: pvrIdByEid.get(m.exalogic_id),
             mapping_source: "pvr_hierarchy",
             confidence: 1,
-            verified: true,
+            verified: false,
             notes: "Importato da gerarchia PVR",
           }))
           .filter((m) => m.pvr_id);
@@ -1231,8 +1243,8 @@ export default function UploadPage() {
         if (date) report.dates.push(date);
 
         if (fileType === "tickets") {
-          const tc = String(col(row, ["Ticket", "ticket", "Codice Ticket"]) || "");
-          if (!tc) continue;
+          const tc = String(col(row, ["Ticket", "ticket", "Codice Ticket"]) || "").trim();
+          if (!tc || tc.toLowerCase().startsWith("tot:")) continue;
           usernames.push(uname);
           const emissionDt = pDt(col(row, ["Data Emissione", "emission_date"]));
           if (emissionDt) {
@@ -1604,14 +1616,14 @@ export default function UploadPage() {
   // ── Get type label ──
   function getTypeLabel(t: string): string {
     const labels: Record<string, string> = {
-      daily_network: "Rete giornaliera",
-      daily_pvr: "PVR giornaliero",
-      daily_player: "Giocatori giornalieri",
-      daily_player_game: "Giochi per giocatore",
-      tickets: "Ticket",
-      player_summary: "Riepilogo mensile giocatori",
-      pvr_summary: "Riepilogo mensile PVR",
-      category_summary: "Riepilogo per categoria",
+      daily_network: "Giocato totale rete x giorno",
+      daily_pvr: "Giocato per singolo PVR giornaliero",
+      daily_player: "Giocato per conto e data",
+      daily_player_game: "Giocato per giocatore/tipologia/giorno",
+      tickets: "Ticket scommesse",
+      player_summary: "Gioca player di tutta la rete",
+      pvr_summary: "Giocato totale per singolo PVR",
+      category_summary: "Giocato totale suddiviso per tipologia",
       players_master: "Anagrafica giocatori",
       pvr_hierarchy: "Gerarchia PVR",
     };

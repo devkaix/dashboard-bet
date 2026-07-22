@@ -42,14 +42,15 @@ export function pDate(v: unknown): string | null {
   if (!v) return null;
   const s = String(v).trim();
   if (/^\d{4}[\/\-]\d{2}[\/\-]\d{2}$/.test(s)) return s.replace(/\//g, "-");
-  const p = s.split("/");
+  const sep = s.includes("-") ? "-" : "/";
+  const p = s.split(sep);
   if (p.length === 3) {
     if (p[0].length === 4) {
-      // YYYY/MM/DD
+      // YYYY/MM/DD or YYYY-MM-DD
       const [y, m, d] = p;
       return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
     }
-    // DD/MM/YYYY or DD/MM/YY
+    // DD/MM/YYYY or DD/MM/YY or DD-MM-YYYY or DD-MM-YY
     const d = p[0].padStart(2, "0");
     const m = p[1].padStart(2, "0");
     const y = expandTwoDigitYear(p[2]);

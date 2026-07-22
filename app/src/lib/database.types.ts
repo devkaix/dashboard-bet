@@ -719,7 +719,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "pvrs"
             referencedColumns: ["id"]
-          },
+  }
         ]
       }
     }

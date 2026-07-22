@@ -36,15 +36,15 @@ export interface MonthlyDatasetStatus {
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const LABELS: Record<ImportFileType, string> = {
-  pvr_hierarchy: "Gerarchia PVR",
-  daily_network: "Rete giornaliera (controllo)",
-  daily_pvr: "PVR giornaliero",
-  daily_player: "Giocatori giornalieri (controllo)",
-  daily_player_game: "Giochi per giocatore",
-  tickets: "Ticket",
-  player_summary: "Riepilogo mensile giocatori (controllo)",
-  pvr_summary: "Riepilogo mensile PVR (controllo)",
-  category_summary: "Riepilogo per categoria (controllo)",
+  pvr_hierarchy: "Gerarchia PVR (gestione_punto_gerarchia)",
+  daily_network: "Giocato totale rete x giorno – controllo",
+  daily_pvr: "Giocato per singolo PVR giornaliero",
+  daily_player: "Giocato per conto e data – controllo",
+  daily_player_game: "Giocato per giocatore/tipologia/giorno",
+  tickets: "Ticket scommesse",
+  player_summary: "Gioca player di tutta la rete – controllo",
+  pvr_summary: "Giocato totale per singolo PVR – controllo",
+  category_summary: "Giocato totale suddiviso per tipologia – controllo",
   players_master: "Anagrafica giocatori",
 };
 

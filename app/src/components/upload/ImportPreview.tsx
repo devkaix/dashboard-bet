@@ -26,12 +26,15 @@ interface ImportPreviewProps {
 }
 
 const TYPE_LABELS: Record<string, string> = {
-  daily_network: "Rete",
-  daily_pvr: "PVR",
-  daily_player: "Giocatori giornalieri",
-  daily_player_game: "Provider e giochi",
-  tickets: "Ticket",
-  player_summary: "Riepilogo mensile",
+  pvr_hierarchy: "Gerarchia PVR",
+  daily_network: "Giocato totale rete x giorno",
+  daily_pvr: "Giocato per singolo PVR giornaliero",
+  daily_player: "Giocato per conto e data",
+  daily_player_game: "Giocato per giocatore/tipologia/giorno",
+  tickets: "Ticket scommesse",
+  player_summary: "Gioca player di tutta la rete",
+  pvr_summary: "Giocato totale per singolo PVR",
+  category_summary: "Giocato totale suddiviso per tipologia",
   players_master: "Anagrafica giocatori",
 };
 
