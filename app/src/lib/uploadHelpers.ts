@@ -152,6 +152,21 @@ export function dateFromTimestamp(ts: string | null): string | null {
   return ts.split("T")[0];
 }
 
+/**
+ * Makes header names unique by appending a counter to duplicates.
+ * This mirrors the logic used when building row objects from Excel sheets,
+ * so detection and processing see the same column names.
+ */
+export function deduplicateHeaders(headers: string[]): string[] {
+  const seen = new Map<string, number>();
+  return headers.map((h) => {
+    const base = String(h || "").trim();
+    const count = seen.get(base) || 0;
+    seen.set(base, count + 1);
+    return count > 0 ? `${base}.${count}` : base;
+  });
+}
+
 function normalizeFileName(name: string): string {
   return name
     .toLowerCase()

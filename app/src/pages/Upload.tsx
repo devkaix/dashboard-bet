@@ -12,7 +12,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import * as XLSX from "xlsx";
-import { num, normalizeUsername, pDate, pDt, det, col, detectFileTypeFromFilename } from "@/lib/uploadHelpers";
+import { num, normalizeUsername, pDate, pDt, det, col, detectFileTypeFromFilename, deduplicateHeaders } from "@/lib/uploadHelpers";
 import { type ImportValidationIssue } from "@/lib/importPipeline";
 import {
   normalizeAnalysisMonth,
@@ -217,6 +217,7 @@ async function validateNetworkControl(
   analysisMonth: string | null,
 ): Promise<{ status: ValidationRowStatus; validations: any[] }> {
   if (controlRows.length === 0) return { status: "NOT_AVAILABLE", validations: [] };
+  const dbMonth = analysisMonth ? analysisMonthToDatabaseDate(analysisMonth) : null;
   const byDate = aggregateNetworkStats(controlRows);
   const dates = byDate.map((r) => r.date);
   const { data: ops } = await supabase.from("daily_network_stats").select("*").in("date", dates);
@@ -232,7 +233,7 @@ async function validateNetworkControl(
         upload_id: uploadId,
         source_file_type: "daily_network",
         target_file_type: "daily_pvr",
-        analysis_month: analysisMonth,
+        analysis_month: dbMonth,
         metric: "ALL",
         period_start: ctrl.date,
         period_end: ctrl.date,
@@ -276,6 +277,7 @@ async function validateDailyPlayerControl(
   analysisMonth: string | null,
 ): Promise<{ status: ValidationRowStatus; validations: any[] }> {
   if (controlRows.length === 0) return { status: "NOT_AVAILABLE", validations: [] };
+  const dbMonth = analysisMonth ? analysisMonthToDatabaseDate(analysisMonth) : null;
   const byKey = aggregatePlayerStats(controlRows, playerMap);
   const dates = [...new Set(byKey.map((r) => r.date))];
   const playerIds = [...new Set(byKey.map((r) => r.player_id))].filter(Boolean);
@@ -297,7 +299,7 @@ async function validateDailyPlayerControl(
         upload_id: uploadId,
         source_file_type: "daily_player",
         target_file_type: "daily_player_game",
-        analysis_month: analysisMonth,
+        analysis_month: dbMonth,
         metric: "ALL",
         period_start: ctrl.date,
         period_end: ctrl.date,
@@ -343,6 +345,7 @@ async function validatePlayerSummaryControl(
   const playerMap = await lookupPlayerIds(summaryRows.map((r) => r.username));
   const playerIds = [...new Set([...playerMap.values()].map((p) => p.id))].filter(Boolean);
   if (playerIds.length === 0) return { status: "NOT_AVAILABLE", validations: [] };
+  const dbMonth = analysisMonthToDatabaseDate(analysisMonth);
 
   const { start, end } = analysisMonthToRange(analysisMonth);
   const { data: ops } = await supabase
@@ -372,7 +375,7 @@ async function validatePlayerSummaryControl(
         upload_id: uploadId,
         source_file_type: "player_summary",
         target_file_type: "daily_player_game",
-        analysis_month: analysisMonth,
+        analysis_month: dbMonth,
         metric: "ALL",
         period_start: start,
         period_end: end,
@@ -392,7 +395,7 @@ async function validatePlayerSummaryControl(
         upload_id: uploadId,
         source_file_type: "player_summary",
         target_file_type: "daily_player_game",
-        analysis_month: analysisMonth,
+        analysis_month: dbMonth,
         metric: "ALL",
         period_start: start,
         period_end: end,
@@ -435,6 +438,7 @@ async function validatePvrSummaryControl(
   analysisMonth: string | null,
 ): Promise<{ status: ValidationRowStatus; validations: any[] }> {
   if (summaryRows.length === 0 || !analysisMonth) return { status: "NOT_AVAILABLE", validations: [] };
+  const dbMonth = analysisMonthToDatabaseDate(analysisMonth);
 
   const eids = [...new Set(summaryRows.map((r) => r.eid))].filter(Boolean);
   if (eids.length === 0) return { status: "NOT_AVAILABLE", validations: [] };
@@ -478,7 +482,7 @@ async function validatePvrSummaryControl(
         upload_id: uploadId,
         source_file_type: "pvr_summary",
         target_file_type: "daily_pvr",
-        analysis_month: analysisMonth,
+        analysis_month: dbMonth,
         metric: "ALL",
         period_start: start,
         period_end: end,
@@ -498,7 +502,7 @@ async function validatePvrSummaryControl(
         upload_id: uploadId,
         source_file_type: "pvr_summary",
         target_file_type: "daily_pvr",
-        analysis_month: analysisMonth,
+        analysis_month: dbMonth,
         metric: "ALL",
         period_start: start,
         period_end: end,
@@ -865,7 +869,8 @@ export default function UploadPage() {
       setProgress(`Trovate ${aoa.length - 1} righe...`);
 
       const raw = (aoa[0] || []).map((h: unknown) => String(h || "").trim());
-      fileType = det(raw);
+      const hdr = deduplicateHeaders(raw);
+      fileType = det(hdr);
 
       // Block unknown file types immediately
       if (fileType === "unknown") {
@@ -893,13 +898,6 @@ export default function UploadPage() {
         );
       }
 
-      const seen = new Map<string, number>();
-      const hdr = raw.map((h) => {
-        const base = String(h || '').trim();
-        const count = seen.get(base) || 0;
-        seen.set(base, count + 1);
-        return count > 0 ? `${base}.${count}` : base;
-      });
       const rows = aoa.slice(1).map((r) => {
         const o: Record<string, unknown> = {};
         hdr.forEach((h, i) => { o[h] = r[i]; });
@@ -1515,7 +1513,8 @@ export default function UploadPage() {
       if (aoa.length < 2) throw new Error("File vuoto: nessun dato");
 
       const raw = (aoa[0] || []).map((h: unknown) => String(h || "").trim());
-      const detectedType = det(raw);
+      const hdr = deduplicateHeaders(raw);
+      const detectedType = det(hdr);
 
       if (detectedType === "unknown") {
         const found = raw.filter(h => h).join(", ");
@@ -1534,13 +1533,6 @@ export default function UploadPage() {
         return;
       }
 
-      const seen = new Map<string, number>();
-      const hdr = raw.map((h) => {
-        const base = String(h || '').trim();
-        const count = seen.get(base) || 0;
-        seen.set(base, count + 1);
-        return count > 0 ? `${base}.${count}` : base;
-      });
       const rows = aoa.slice(1).map((r) => {
         const o: Record<string, unknown> = {};
         hdr.forEach((h, i) => { o[h] = r[i]; });
@@ -1654,7 +1646,8 @@ export default function UploadPage() {
     const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false }) as unknown[][];
     if (aoa.length < 2) return "unknown";
     const raw = (aoa[0] || []).map((h: unknown) => String(h || "").trim());
-    return det(raw);
+    const hdr = deduplicateHeaders(raw);
+    return det(hdr);
   }
 
   function handleBatchUploadClick() {
