@@ -681,31 +681,22 @@ async function lookupPlayerIds(usernames: string[]): Promise<Map<string, { id: s
 async function resolvePlayerIds(usernames: string[]): Promise<Map<string, { id: string; pvr_id: string | null }>> {
   const normalized = [...new Set(usernames.map(normalizeUsername))];
   const map = await lookupPlayerIds(normalized);
-  let remaining = normalized.filter((u) => !map.has(u));
+  const remaining = normalized.filter((u) => !map.has(u));
 
   if (remaining.length > 0) {
     const inserts = remaining.map((u) => ({ username: u, username_normalized: u }));
-    const { data: created, error } = await supabase
+    // Use upsert with ignoreDuplicates so existing usernames never cause a conflict.
+    await supabase
       .from("players")
-      .insert(inserts)
-      .select("id, username_normalized, pvr_id");
+      .upsert(inserts, { onConflict: "username", ignoreDuplicates: true });
 
-    if (!error && created) {
-      for (const row of created) {
-        map.set((row as any).username_normalized, { id: (row as any).id, pvr_id: (row as any).pvr_id });
-      }
-    }
-
-    // Re-query any still-missing players (e.g. duplicates that already exist)
-    remaining = normalized.filter((u) => !map.has(u));
-    if (remaining.length > 0) {
-      const { data: existing } = await supabase
-        .from("players")
-        .select("id, username_normalized, pvr_id")
-        .in("username_normalized", remaining);
-      for (const row of existing || []) {
-        map.set((row as any).username_normalized, { id: (row as any).id, pvr_id: (row as any).pvr_id });
-      }
+    // Re-query to get IDs for all newly created (and pre-existing) players.
+    const { data: existing } = await supabase
+      .from("players")
+      .select("id, username_normalized, pvr_id")
+      .in("username_normalized", remaining);
+    for (const row of existing || []) {
+      map.set((row as any).username_normalized, { id: (row as any).id, pvr_id: (row as any).pvr_id });
     }
 
     const stillMissing = normalized.filter((u) => !map.has(u));
