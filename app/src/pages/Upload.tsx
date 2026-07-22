@@ -679,20 +679,38 @@ async function lookupPlayerIds(usernames: string[]): Promise<Map<string, { id: s
 }
 
 async function resolvePlayerIds(usernames: string[]): Promise<Map<string, { id: string; pvr_id: string | null }>> {
-  const map = await lookupPlayerIds(usernames);
-  const remaining = [...new Set(usernames.map(normalizeUsername))]
-    .filter((u) => !map.has(u))
-    .map((u) => usernames.find((raw) => normalizeUsername(raw) === u) || u);
+  const normalized = [...new Set(usernames.map(normalizeUsername))];
+  const map = await lookupPlayerIds(normalized);
+  let remaining = normalized.filter((u) => !map.has(u));
 
   if (remaining.length > 0) {
-    const inserts = [...new Set(remaining.map(normalizeUsername))].map((u) => ({
-      username: u,
-      username_normalized: u,
-    }));
-    const { data, error } = await supabase.from("players").insert(inserts).select("id, username_normalized, pvr_id");
-    if (error) throw new Error(`resolvePlayerIds insert: ${error.message}`);
-    for (const row of data || []) {
-      map.set((row as any).username_normalized, { id: (row as any).id, pvr_id: (row as any).pvr_id });
+    const inserts = remaining.map((u) => ({ username: u, username_normalized: u }));
+    const { data: created, error } = await supabase
+      .from("players")
+      .insert(inserts)
+      .select("id, username_normalized, pvr_id");
+
+    if (!error && created) {
+      for (const row of created) {
+        map.set((row as any).username_normalized, { id: (row as any).id, pvr_id: (row as any).pvr_id });
+      }
+    }
+
+    // Re-query any still-missing players (e.g. duplicates that already exist)
+    remaining = normalized.filter((u) => !map.has(u));
+    if (remaining.length > 0) {
+      const { data: existing } = await supabase
+        .from("players")
+        .select("id, username_normalized, pvr_id")
+        .in("username_normalized", remaining);
+      for (const row of existing || []) {
+        map.set((row as any).username_normalized, { id: (row as any).id, pvr_id: (row as any).pvr_id });
+      }
+    }
+
+    const stillMissing = normalized.filter((u) => !map.has(u));
+    if (stillMissing.length > 0) {
+      throw new Error(`resolvePlayerIds: could not resolve ${stillMissing.length} players`);
     }
   }
   return map;
