@@ -257,16 +257,19 @@ export function validateFileMonth(
       continue;
     }
 
-    // Try to parse date: YYYY-MM-DD or DD/MM/YYYY formats
+    // Try to parse date: YYYY-MM-DD, DD/MM/YYYY, or datetime variants
     const s = String(rawValue).trim();
     let isoDate: string | null = null;
 
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-      isoDate = s;
-    } else if (/^\d{4}\/\d{2}\/\d{2}$/.test(s)) {
-      isoDate = s.replace(/\//g, "-");
+    // Strip time component if present: "01/06/2026 10:16:56" or "2026/06/01 10:16:56"
+    const dateOnly = s.split(/\s+/)[0];
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) {
+      isoDate = dateOnly;
+    } else if (/^\d{4}\/\d{2}\/\d{2}$/.test(dateOnly)) {
+      isoDate = dateOnly.replace(/\//g, "-");
     } else {
-      const parts = s.split("/");
+      const parts = dateOnly.split("/");
       if (parts.length === 3) {
         if (parts[0].length === 4) {
           // YYYY/MM/DD
