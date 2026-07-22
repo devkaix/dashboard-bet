@@ -95,6 +95,7 @@ type FileTypeContract = {
 }
 
 const FILE_TYPE_CONTRACTS: FileTypeContract[] = [
+  { type: "pvr_hierarchy", required: ["Cod. punto", "ID", "Ragione sociale", "Tipo punto"] },
   { type: "daily_player_game", required: ["Data", "Data.1", "Gioco", "Username", "Bet", "Won", "Rake"] },
   { type: "daily_pvr", required: ["ID Liv 1", "Liv 1", "Data", "Bet", "Won", "Rake"] },
   { type: "tickets", required: ["Ticket", "Username", "Codice Padre", "Data Emissione", "Stato"] },

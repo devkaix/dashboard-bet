@@ -156,7 +156,8 @@ export type ImportFileType =
   | "daily_pvr"
   | "daily_player_game"
   | "tickets"
-  | "player_summary";
+  | "player_summary"
+  | "pvr_hierarchy";
 
 export interface MonthValidationResult {
   valid: boolean;
@@ -189,8 +190,8 @@ export function validateFileMonth(
   rows: ReadonlyArray<Record<string, unknown>>,
   selectedMonth: string | null,
 ): MonthValidationResult {
-  // players_master: month not applicable
-  if (fileType === "players_master") {
+  // players_master and pvr_hierarchy: month not applicable
+  if (fileType === "players_master" || fileType === "pvr_hierarchy") {
     return {
       valid: true,
       selectedMonth: null,

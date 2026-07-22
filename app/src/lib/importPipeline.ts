@@ -10,6 +10,7 @@ export type ImportFileType =
   | "daily_player_game"
   | "tickets"
   | "player_summary"
+  | "pvr_hierarchy"
   | "unknown";
 
 export interface ImportValidationIssue {
@@ -236,6 +237,29 @@ function getContractByType(fileType: ImportFileType): FileTypeContract | null {
         { name: "win_amount", columnNames: ["Importo vincita", "win_amount", "Vincita"], required: true, parser: parseRequiredNumber },
         { name: "events_count", columnNames: ["Eventi", "events_count", "events"], required: true, parser: parseRequiredNumber },
         { name: "payment_date", columnNames: ["Data Pagamento", "payment_date"], required: false, parser: (raw, fn) => {
+          const d = pDate(raw);
+          return { value: d };
+        } },
+      ],
+    },
+    pvr_hierarchy: {
+      type: "pvr_hierarchy",
+      fields: [
+        { name: "cod_punto", columnNames: ["Cod. punto", "cod_punto"], required: false, parser: (raw, fn) => {
+          const s = String(raw ?? "").trim();
+          return { value: s || null };
+        } },
+        { name: "id", columnNames: ["ID", "id"], required: true, parser: parseRequiredString },
+        { name: "ragione_sociale", columnNames: ["Ragione sociale", "ragione_sociale"], required: true, parser: parseRequiredString },
+        { name: "tipo", columnNames: ["Tipo punto", "tipo"], required: true, parser: parseRequiredString },
+        { name: "stato", columnNames: ["Stato conto", "stato"], required: false, parser: (raw, fn) => {
+          const s = String(raw ?? "").trim();
+          return { value: s || null };
+        } },
+        { name: "fido", columnNames: ["Prepagato/Fido"], required: false, parser: parseOptionalNumber },
+        { name: "saldo", columnNames: ["Importo utilizzato/Saldo"], required: false, parser: parseOptionalNumber },
+        { name: "disponibile", columnNames: ["Residuo plafond / Disponibile"], required: false, parser: parseOptionalNumber },
+        { name: "data_creazione", columnNames: ["Data Creazione"], required: false, parser: (raw, fn) => {
           const d = pDate(raw);
           return { value: d };
         } },

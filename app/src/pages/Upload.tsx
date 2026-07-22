@@ -8,6 +8,7 @@ import {
   Loader2,
   RefreshCw,
   TrendingUp,
+  Network,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -377,7 +378,8 @@ export default function UploadPage() {
           `- daily_player_game: Data, Data.1, Gioco, Username\n` +
           `- tickets: Ticket, Username, Codice Padre, Data Emissione, Stato\n` +
           `- players_master: user, PVR rif., stato, saldo, saldo prel, creato\n` +
-          `- player_summary: Username, Bet, Won, Rake (senza Data)`
+          `- player_summary: Username, Bet, Won, Rake (senza Data)\n` +
+          `- pvr_hierarchy: Cod. punto, ID, Ragione sociale, Tipo punto`
         );
       }
 
@@ -388,7 +390,13 @@ export default function UploadPage() {
         );
       }
 
-      const hdr = [...raw];
+      const seen = new Map<string, number>();
+      const hdr = raw.map((h) => {
+        const base = String(h || '').trim();
+        const count = seen.get(base) || 0;
+        seen.set(base, count + 1);
+        return count > 0 ? `${base}.${count}` : base;
+      });
       const rows = aoa.slice(1).map((r) => {
         const o: Record<string, unknown> = {};
         hdr.forEach((h, i) => { o[h] = r[i]; });
@@ -527,11 +535,100 @@ export default function UploadPage() {
         return;
       }
 
+      // ─── pvr_hierarchy ───
+      if (fileType === "pvr_hierarchy") {
+        let currentRegion: string | null = null;
+        let currentAreaManager: string | null = null;
+        const pvrUpserts = new Map<string, any>();
+        const mappingUpserts = new Map<string, { pvr_ref_code: string; exalogic_id: string }>();
+
+        for (const row of rows) {
+          const codRaw = String(col(row, ["Cod. punto"]) || "").trim();
+          const cod = codRaw.replace(/^(?:\s*--\s*)+/, "").trim();
+          const tipo = String(col(row, ["Tipo punto"]) || "").trim().toUpperCase();
+          const eid = String(col(row, ["ID"]) || "").trim();
+          const ragione = String(col(row, ["Ragione sociale"]) || "").trim();
+          const stato = String(col(row, ["Stato conto"]) || "").trim() || null;
+          const fidoRaw = col(row, ["Prepagato/Fido"]);
+          const saldoRaw = col(row, ["Importo utilizzato/Saldo"]);
+          const dispRaw = col(row, ["Residuo plafond / Disponibile"]);
+          const fido = fidoRaw === undefined || fidoRaw === null || String(fidoRaw).trim() === "" ? null : num(fidoRaw);
+          const saldo = saldoRaw === undefined || saldoRaw === null || String(saldoRaw).trim() === "" ? null : num(saldoRaw);
+          const disponibile = dispRaw === undefined || dispRaw === null || String(dispRaw).trim() === "" ? null : num(dispRaw);
+          const createdOn = pDate(col(row, ["Data Creazione"]));
+
+          if (tipo === "REGIONAL") {
+            currentRegion = ragione || null;
+            currentAreaManager = null;
+          } else if (tipo === "AREA MANAGER") {
+            currentAreaManager = ragione || null;
+          } else if (tipo === "PVR" && eid) {
+            pvrUpserts.set(eid, {
+              id: crypto.randomUUID(),
+              exalogic_id: eid,
+              name: ragione,
+              status: stato,
+              fido,
+              saldo,
+              disponibile,
+              created_on: createdOn,
+              region: currentRegion,
+              area_manager: currentAreaManager,
+            });
+            if (cod) {
+              mappingUpserts.set(eid, { pvr_ref_code: cod.toUpperCase(), exalogic_id: eid });
+            }
+          }
+        }
+
+        const pvrUpsertList = Array.from(pvrUpserts.values());
+        if (pvrUpsertList.length > 0) {
+          await batchUpsert("pvrs", pvrUpsertList, "exalogic_id", 500);
+        }
+
+        const eids = [...new Set([...mappingUpserts.values()].map((m) => m.exalogic_id))];
+        const { data: pvrData, error: pvrLookupErr } = await supabase
+          .from("pvrs")
+          .select("id, exalogic_id")
+          .in("exalogic_id", eids);
+        if (pvrLookupErr) throw new Error(`lookup pvrs: ${pvrLookupErr.message}`);
+        const pvrIdByEid = new Map<string, string>();
+        for (const p of pvrData || []) pvrIdByEid.set(p.exalogic_id, p.id);
+
+        const mapRows = [...mappingUpserts.values()]
+          .map((m) => ({
+            pvr_ref_code: m.pvr_ref_code,
+            pvr_id: pvrIdByEid.get(m.exalogic_id),
+            mapping_source: "pvr_hierarchy",
+            confidence: 1,
+            verified: true,
+            notes: "Importato da gerarchia PVR",
+          }))
+          .filter((m) => m.pvr_id);
+
+        if (mapRows.length > 0) {
+          await batchUpsert("pvr_reference_map", mapRows, "pvr_ref_code", 500);
+        }
+
+        const { error: syncErr } = await (supabase as any).rpc("sync_pvr_assignments");
+        if (syncErr) throw new Error(`sync_pvr_assignments: ${syncErr.message}`);
+
+        await insertUploadRecord(
+          file, fileHash, fileType, pvrUpserts.size, "completed", "validated", report,
+          undefined, null, expectedType || null,
+          "not_applicable", null
+        );
+
+        setProgress("");
+        setMessage({ type: "success", text: `"${file.name}" → ${pvrUpserts.size} PVR importati e associati (${mapRows.length} codici commerciali)` });
+        return;
+      }
+
       // ─── Month validation for monthly file types ───
       const analysisMonth = month || null;
       const monthResult = validateFileMonth(fileType as ImportFileType, rows, analysisMonth);
 
-      if (fileType !== "players_master" && fileType !== "player_summary") {
+      if (fileType !== "players_master" && fileType !== "player_summary" && fileType !== "pvr_hierarchy") {
         if (!monthResult.valid) {
           const monthLabel = analysisMonth ? (() => { try { return formatAnalysisMonth(analysisMonth); } catch { return analysisMonth; } })() : "selezionato";
           let errMsg = "";
@@ -658,10 +755,12 @@ export default function UploadPage() {
 
       // Upsert tickets
       if (ticketRows.length > 0) {
+        const commercialPvrMap = await loadPvrMap();
         const upserts = ticketRows.map((r) => {
           const player_id = playerMap.get(r.username_normalized)?.id;
           if (!player_id) report.unmatched_players.push(r.username_normalized);
-          return { ...r, player_id: player_id || null };
+          const pvr_id = r.pvr_code ? commercialPvrMap.get(String(r.pvr_code).toLowerCase()) || null : null;
+          return { ...r, player_id: player_id || null, pvr_id };
         });
         await batchUpsert("tickets", upserts, "ticket_code", 500);
       }
@@ -840,7 +939,13 @@ export default function UploadPage() {
         return;
       }
 
-      const hdr = [...raw];
+      const seen = new Map<string, number>();
+      const hdr = raw.map((h) => {
+        const base = String(h || '').trim();
+        const count = seen.get(base) || 0;
+        seen.set(base, count + 1);
+        return count > 0 ? `${base}.${count}` : base;
+      });
       const rows = aoa.slice(1).map((r) => {
         const o: Record<string, unknown> = {};
         hdr.forEach((h, i) => { o[h] = r[i]; });
@@ -848,8 +953,10 @@ export default function UploadPage() {
       });
 
       // Month validation
-      const analysisMonth = (detectedType === "players_master") ? null : selectedMonth;
-      const monthResult = validateFileMonth(detectedType as ImportFileType, rows, analysisMonth);
+      const analysisMonth = (detectedType === "players_master" || detectedType === "pvr_hierarchy") ? null : selectedMonth;
+      const monthResult: MonthValidationResult = (detectedType === "pvr_hierarchy")
+        ? { status: "not_applicable", valid: true, selectedMonth: null, detectedMonths: [], periodStart: null, periodEnd: null, validDateRows: 0, invalidDateRows: 0 }
+        : validateFileMonth(detectedType as ImportFileType, rows, analysisMonth);
 
       // Gather validation issues
       const issues: ImportValidationIssue[] = [];
@@ -929,6 +1036,7 @@ export default function UploadPage() {
       tickets: "Ticket",
       player_summary: "Riepilogo mensile",
       players_master: "Anagrafica giocatori",
+      pvr_hierarchy: "Gerarchia PVR",
     };
     return labels[t] || t;
   }
@@ -1008,6 +1116,21 @@ export default function UploadPage() {
               uploading={uploading}
             />
           )}
+          <button
+            onClick={() => handleCardClick("pvr_hierarchy")}
+            disabled={uploading}
+            className="text-left rounded-xl border border-border-subtle bg-bg-surface p-4 hover:bg-bg-surface-elevated transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-accent-blue/10 text-accent-blue">
+                <Network className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-medium text-text-primary">Gerarchia PVR</h3>
+                <p className="text-xs text-text-secondary mt-0.5">Codici commerciali, fidi, saldi, struttura rete</p>
+              </div>
+            </div>
+          </button>
         </div>
       </motion.div>
 

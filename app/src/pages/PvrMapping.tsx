@@ -88,7 +88,6 @@ export default function PvrMappingPage() {
   const [expandedCode, setExpandedCode] = useState<string | null>(null)
   const [previewTimestamps, setPreviewTimestamps] = useState<Record<string, number>>({})
   const [previewPvrIds, setPreviewPvrIds] = useState<Record<string, string | null>>({})
-  const [reasons, setReasons] = useState<Record<string, string>>({})
 
   useEffect(() => { load() }, [])
 
@@ -107,11 +106,11 @@ export default function PvrMappingPage() {
       const mapList = (mapData || []) as Mapping[]
 
       const codeSet = new Set<string>()
-      for (const row of ticketsData || []) { const c = row.pvr_code; if (c) codeSet.add(String(c).trim()) }
-      for (const row of playersData || []) { const c = row.pvr_ref_code; if (c) codeSet.add(String(c).trim()) }
-      for (const m of mapList) codeSet.add(m.pvr_ref_code)
+      for (const row of ticketsData || []) { const c = row.pvr_code; if (c) codeSet.add(String(c).trim().toUpperCase()) }
+      for (const row of playersData || []) { const c = row.pvr_ref_code; if (c) codeSet.add(String(c).trim().toUpperCase()) }
+      for (const m of mapList) { if (m.pvr_ref_code?.toLowerCase().startsWith('mw')) codeSet.add(m.pvr_ref_code.toUpperCase()) }
 
-      const allCodes = [...codeSet].sort()
+      const allCodes = [...codeSet].filter(c => c.toLowerCase().startsWith('mw')).sort()
       const initialDraft: Record<string, string | null> = {}
       for (const code of allCodes) {
         const existing = mapList.find((m) => m.pvr_ref_code === code)
@@ -126,8 +125,8 @@ export default function PvrMappingPage() {
 
       const coverageStats: CoverageStats = {
         codici_mw_distinti: mwCodes.length,
-        mapping_verificati: mapList.filter(m => m.verified).length,
-        mapping_proposti: mapList.filter(m => !m.verified).length,
+        mapping_verificati: mapList.filter(m => m.verified && m.pvr_ref_code?.toLowerCase().startsWith('mw')).length,
+        mapping_proposti: mapList.filter(m => !m.verified && m.pvr_ref_code?.toLowerCase().startsWith('mw')).length,
         mapping_non_risolti: unresolved.length,
         giocatori_totali: players.length,
         giocatori_con_refcode: players.filter((p: any) => p.pvr_ref_code).length,
@@ -135,7 +134,8 @@ export default function PvrMappingPage() {
         giocatori_senza_pvrid: players.filter((p: any) => !p.pvr_id).length,
         giocatori_incoerenti: players.filter((p: any) => {
           if (!p.pvr_ref_code || !p.pvr_id) return false
-          const m = mapList.find(mm => mm.pvr_ref_code === p.pvr_ref_code)
+          const code = p.pvr_ref_code.toUpperCase()
+          const m = mapList.find(mm => mm.pvr_ref_code === code)
           return m && m.verified && m.pvr_id !== p.pvr_id
         }).length,
       }
@@ -174,7 +174,6 @@ export default function PvrMappingPage() {
       const { data, error } = await (supabase as any).rpc('verify_pvr_mapping', {
         p_reference_code: code,
         p_pvr_id: pvrId,
-        p_reason: reasons[code] || 'Verified via PVR mapping UI',
       })
       if (error) throw error
 
@@ -182,7 +181,6 @@ export default function PvrMappingPage() {
       setPreview(p => ({ ...p, [code]: null }))
       setPreviewTimestamps(prev => { const n = { ...prev }; delete n[code]; return n })
       setPreviewPvrIds(prev => { const n = { ...prev }; delete n[code]; return n })
-      setReasons(prev => { const n = { ...prev }; delete n[code]; return n })
       setMessage({ type: 'success', text: `Mapping ${code} verificato. ${result.affected_players} giocatori aggiornati.` })
       await load()
     } catch (e: any) {
@@ -224,7 +222,7 @@ export default function PvrMappingPage() {
             Riconciliazione PVR
           </h1>
           <p className="text-text-secondary mt-1">
-            Associa i codici commerciali (MW…) ai PVR numerici. La verifica è protetta: solo tramite RPC autorizzata.
+            Associa i codici commerciali (MW…) ai PVR numerici.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -257,7 +255,7 @@ export default function PvrMappingPage() {
             <Badge variant="secondary" className="ml-2">{unmappedCount} non verificati</Badge>
           </CardTitle>
           <CardDescription>
-            Seleziona il PVR numerico, usa Anteprima per verificare l'impatto, poi Salva. Solo l'RPC può marcare come verificato.
+            Seleziona il PVR numerico, usa Anteprima per verificare l'impatto, poi Salva.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -324,9 +322,7 @@ export default function PvrMappingPage() {
                             <div className="flex items-center gap-1">
                               {(() => {
                                 const hasPreview = previewTimestamps[code] != null && previewPvrIds[code] === draft[code]
-                                const needsReason = previewData && (previewData.was_verified || previewData.players_with_different_pvr > 0)
-                                const reasonOk = !needsReason || (reasons[code]?.length || 0) >= 5
-                                const canSave = !!draft[code] && !saving[code] && hasPreview && reasonOk
+                                const canSave = !!draft[code] && !saving[code] && hasPreview
                                 return (
                                   <>
                                     <Button size="sm" variant="outline"
@@ -361,18 +357,7 @@ export default function PvrMappingPage() {
                                   <p className="text-amber-400">⚠️ Associati a PVR diverso: <strong>{previewData.players_with_different_pvr}</strong> — saranno corretti</p>
                                 )}
                                 {previewData.was_verified && <p className="text-amber-400">⚠️ Mapping già verificato — sarà aggiornato con audit</p>}
-                                {(previewData.was_verified || previewData.players_with_different_pvr > 0) && (
-                                  <div className="mt-2">
-                                    <label className="text-xs text-text-secondary block mb-1">Motivazione (richiesta, min 5 caratteri):</label>
-                                    <input
-                                      type="text"
-                                      className="w-full max-w-md bg-bg-surface border border-border-subtle rounded px-2 py-1 text-xs text-text-primary"
-                                      placeholder="Motivo della modifica..."
-                                      value={reasons[code] || ''}
-                                      onChange={(e) => setReasons(r => ({ ...r, [code]: e.target.value }))}
-                                    />
-                                  </div>
-                                )}
+
                               </div>
                             </td>
                           </tr>
