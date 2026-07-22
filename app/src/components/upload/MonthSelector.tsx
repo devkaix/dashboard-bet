@@ -23,8 +23,8 @@ export default function MonthSelector({ selectedMonth, onMonthChange }: MonthSel
   const [dbLatestMonth, setDbLatestMonth] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
 
-  // Convert YYYY-MM to YYYY-MM-DD for input[type=month]
-  const selectedMonthValue = `${selectedMonth}-01`;
+  // Native <input type="month"> expects YYYY-MM
+  const selectedMonthValue = selectedMonth || "";
 
   // Load available months and latest DB month for initialization
   useEffect(() => {

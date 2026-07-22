@@ -40,6 +40,11 @@ function daysInMonth(year: number, month: number): number {
 export function normalizeAnalysisMonth(value: string): string {
   const trimmed = value.trim();
 
+  // Try YYYY-MM-DD → extract YYYY-MM
+  if (YYYY_MM_DD_RE.test(trimmed)) {
+    return trimmed.slice(0, 7);
+  }
+
   // Try YYYY-MM or YYYY/M
   const numMatch = trimmed.match(YYYY_MM_RE);
   if (numMatch) {
