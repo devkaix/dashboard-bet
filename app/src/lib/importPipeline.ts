@@ -10,6 +10,8 @@ export type ImportFileType =
   | "daily_player_game"
   | "tickets"
   | "player_summary"
+  | "pvr_summary"
+  | "category_summary"
   | "pvr_hierarchy"
   | "unknown";
 

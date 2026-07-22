@@ -157,6 +157,8 @@ export type ImportFileType =
   | "daily_player_game"
   | "tickets"
   | "player_summary"
+  | "pvr_summary"
+  | "category_summary"
   | "pvr_hierarchy";
 
 export interface MonthValidationResult {
@@ -204,8 +206,8 @@ export function validateFileMonth(
     };
   }
 
-  // player_summary: uses selected month as the validation target (no date column)
-  if (fileType === "player_summary") {
+  // Summary files without a date column: use selected month as validation target
+  if (fileType === "player_summary" || fileType === "pvr_summary" || fileType === "category_summary") {
     if (!selectedMonth) {
       return {
         valid: false,

@@ -100,9 +100,11 @@ const FILE_TYPE_CONTRACTS: FileTypeContract[] = [
   { type: "daily_pvr", required: ["ID Liv 1", "Liv 1", "Data", "Bet", "Won", "Rake"] },
   { type: "tickets", required: ["Ticket", "Username", "Codice Padre", "Data Emissione", "Stato"] },
   { type: "players_master", required: ["user", "PVR rif.", "stato", "saldo", "saldo prel", "creato"] },
-  { type: "player_summary", required: ["Username", "Bet", "Won", "Rake"], forbidden: ["Data"] },
+  { type: "player_summary", required: ["Username", "Bet", "Won", "Rake"], forbidden: ["Data", "ID Liv 1", "Categoria"] },
   { type: "daily_player", required: ["Data", "Username", "Bet", "Won", "Rake"] },
-  { type: "daily_network", required: ["Data", "Bet", "Won", "Rake"], forbidden: ["Username", "ID Liv 1"] },
+  { type: "daily_network", required: ["Data", "Bet", "Won", "Rake"], forbidden: ["Username", "ID Liv 1", "Categoria"] },
+  { type: "pvr_summary", required: ["ID Liv 1", "Liv 1", "Bet", "Won", "Rake"], forbidden: ["Data", "Username", "Categoria"] },
+  { type: "category_summary", required: ["Categoria", "Bet", "Won", "Rake"], forbidden: ["Data", "Username", "ID Liv 1"] },
 ];
 
 function headerMatches(headers: string[], field: string): boolean {

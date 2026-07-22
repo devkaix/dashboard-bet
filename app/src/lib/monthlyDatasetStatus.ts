@@ -17,7 +17,9 @@ export type ImportFileType =
   | "daily_pvr"
   | "daily_player_game"
   | "tickets"
-  | "player_summary";
+  | "player_summary"
+  | "pvr_summary"
+  | "category_summary";
 
 export interface MonthlyDatasetStatus {
   fileType: ImportFileType;
@@ -40,7 +42,9 @@ const LABELS: Record<ImportFileType, string> = {
   daily_player: "Giocatori giornalieri (controllo)",
   daily_player_game: "Giochi per giocatore",
   tickets: "Ticket",
-  player_summary: "Riepilogo mensile (controllo)",
+  player_summary: "Riepilogo mensile giocatori (controllo)",
+  pvr_summary: "Riepilogo mensile PVR (controllo)",
+  category_summary: "Riepilogo per categoria (controllo)",
   players_master: "Anagrafica giocatori",
 };
 
@@ -56,6 +60,8 @@ const CONTROL_FILE_TYPES: ImportFileType[] = [
   "daily_network",
   "daily_player",
   "player_summary",
+  "pvr_summary",
+  "category_summary",
 ];
 
 const ALL_FILE_TYPES: ImportFileType[] = [
@@ -195,6 +201,8 @@ export async function getMonthlyDatasetStatus(
     networkUpload,
     playerUpload,
     summaryUpload,
+    pvrSummaryUpload,
+    categorySummaryUpload,
   ] = await Promise.all([
     supabase
       .from("pvrs")
@@ -221,6 +229,8 @@ export async function getMonthlyDatasetStatus(
     getUploadInfo("daily_network", month),
     getUploadInfo("daily_player", month),
     getUploadInfo("player_summary", month),
+    getUploadInfo("pvr_summary", month),
+    getUploadInfo("category_summary", month),
   ]);
 
   return [
@@ -388,6 +398,40 @@ export async function getMonthlyDatasetStatus(
         summaryUpload.validationStatus,
         summaryUpload.errorMessage !== null,
         summaryUpload.lastUploadAt,
+      ),
+    },
+    // Control: pvr_summary
+    {
+      fileType: "pvr_summary",
+      label: LABELS.pvr_summary,
+      category: "control",
+      rowCount: 0,
+      periodStart: pvrSummaryUpload.periodStart,
+      periodEnd: pvrSummaryUpload.periodEnd,
+      lastUploadAt: pvrSummaryUpload.lastUploadAt,
+      validationStatus: pvrSummaryUpload.validationStatus,
+      state: determineControlState(
+        pvrSummaryUpload.status,
+        pvrSummaryUpload.validationStatus,
+        pvrSummaryUpload.errorMessage !== null,
+        pvrSummaryUpload.lastUploadAt,
+      ),
+    },
+    // Control: category_summary
+    {
+      fileType: "category_summary",
+      label: LABELS.category_summary,
+      category: "control",
+      rowCount: 0,
+      periodStart: categorySummaryUpload.periodStart,
+      periodEnd: categorySummaryUpload.periodEnd,
+      lastUploadAt: categorySummaryUpload.lastUploadAt,
+      validationStatus: categorySummaryUpload.validationStatus,
+      state: determineControlState(
+        categorySummaryUpload.status,
+        categorySummaryUpload.validationStatus,
+        categorySummaryUpload.errorMessage !== null,
+        categorySummaryUpload.lastUploadAt,
       ),
     },
   ];

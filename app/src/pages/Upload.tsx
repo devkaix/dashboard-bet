@@ -428,6 +428,112 @@ async function validatePlayerSummaryControl(
   return { status: overall, validations };
 }
 
+async function validatePvrSummaryControl(
+  uploadId: string,
+  summaryRows: any[],
+  analysisMonth: string | null,
+): Promise<{ status: ValidationRowStatus; validations: any[] }> {
+  if (summaryRows.length === 0 || !analysisMonth) return { status: "NOT_AVAILABLE", validations: [] };
+
+  const eids = [...new Set(summaryRows.map((r) => r.eid))].filter(Boolean);
+  if (eids.length === 0) return { status: "NOT_AVAILABLE", validations: [] };
+
+  const { data: pvrRows } = await supabase
+    .from("pvrs")
+    .select("id, exalogic_id")
+    .in("exalogic_id", eids);
+  const pvrMap = new Map((pvrRows || []).map((p: any) => [p.exalogic_id, p.id]));
+  const pvrIds = [...new Set([...pvrMap.values()])].filter(Boolean);
+
+  const { start, end } = analysisMonthToRange(analysisMonth);
+  let ops: any[] = [];
+  if (pvrIds.length > 0) {
+    const { data } = await supabase
+      .from("daily_pvr_stats")
+      .select("*")
+      .gte("date", start)
+      .lte("date", end)
+      .in("pvr_id", pvrIds);
+    ops = data || [];
+  }
+
+  const byPvr = new Map<string, any>();
+  for (const r of ops) {
+    if (!byPvr.has(r.pvr_id)) byPvr.set(r.pvr_id, { pvr_id: r.pvr_id, ...zeroStats() });
+    const g = byPvr.get(r.pvr_id);
+    for (const f of AGGREGABLE_METRICS) g[f] += (r[f] || 0);
+  }
+  for (const g of byPvr.values()) {
+    g.payout = g.bet !== 0 ? (g.won / g.bet) * 100 : 0;
+  }
+
+  const validations: any[] = [];
+  let overall: ValidationRowStatus = "PASS";
+
+  for (const ctrl of summaryRows) {
+    const pvrId = pvrMap.get(ctrl.eid);
+    if (!pvrId) {
+      validations.push({
+        upload_id: uploadId,
+        source_file_type: "pvr_summary",
+        target_file_type: "daily_pvr",
+        analysis_month: analysisMonth,
+        metric: "ALL",
+        period_start: start,
+        period_end: end,
+        operational_value: null,
+        control_value: null,
+        absolute_diff: null,
+        percent_diff: null,
+        status: "NOT_AVAILABLE",
+        details: { note: "PVR not found in hierarchy", eid: ctrl.eid, name: ctrl.name },
+      });
+      if (overall === "PASS") overall = "NOT_AVAILABLE";
+      continue;
+    }
+    const op = byPvr.get(pvrId);
+    if (!op) {
+      validations.push({
+        upload_id: uploadId,
+        source_file_type: "pvr_summary",
+        target_file_type: "daily_pvr",
+        analysis_month: analysisMonth,
+        metric: "ALL",
+        period_start: start,
+        period_end: end,
+        operational_value: null,
+        control_value: null,
+        absolute_diff: null,
+        percent_diff: null,
+        status: "NOT_AVAILABLE",
+        details: { note: "No operational aggregate for this PVR/month", pvr_id: pvrId },
+      });
+      if (overall === "PASS") overall = "NOT_AVAILABLE";
+      continue;
+    }
+    for (const metric of [...AGGREGABLE_METRICS, "payout"]) {
+      const rec = buildValidationRecord(
+        uploadId,
+        "pvr_summary",
+        "daily_pvr",
+        analysisMonth,
+        start,
+        end,
+        metric,
+        op[metric],
+        ctrl[metric],
+        { pvr_id: pvrId, eid: ctrl.eid, name: ctrl.name },
+      );
+      validations.push(rec);
+      if (rec.status === "BLOCKED") overall = "BLOCKED";
+      else if (rec.status === "WARNING" && overall === "PASS") overall = "WARNING";
+      else if (rec.status === "NOT_AVAILABLE" && overall === "PASS") overall = "NOT_AVAILABLE";
+    }
+  }
+
+  return { status: overall, validations };
+}
+
 function summarizeValidationStatus(validationStatus: ValidationRowStatus): string {
   switch (validationStatus) {
     case "PASS": return "validated";
@@ -753,6 +859,8 @@ export default function UploadPage() {
           `- tickets: Ticket, Username, Codice Padre, Data Emissione, Stato\n` +
           `- players_master: user, PVR rif., stato, saldo, saldo prel, creato\n` +
           `- player_summary: Username, Bet, Won, Rake (senza Data)\n` +
+          `- pvr_summary: ID Liv 1, Liv 1, Bet, Won, Rake (senza Data)\n` +
+          `- category_summary: Categoria, Bet, Won, Rake (senza Data)\n` +
           `- pvr_hierarchy: Cod. punto, ID, Ragione sociale, Tipo punto`
         );
       }
@@ -886,6 +994,101 @@ export default function UploadPage() {
         } else {
           setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe validate per ${targetMonth} (${fileType})` });
         }
+        return;
+      }
+
+      // ─── pvr_summary ───
+      if (fileType === "pvr_summary") {
+        const summaryRows = rows.map((row) => {
+          const eid = String(col(row, ["ID Liv 1", "id_liv_1"]) || "").trim();
+          const name = String(col(row, ["Liv 1", "liv_1"]) || "").trim();
+          return {
+            eid,
+            name,
+            ...getStats(row),
+          };
+        }).filter((r) => r.eid);
+
+        const targetMonth = month || null;
+        report.target_month = targetMonth;
+
+        const monthResult = validateFileMonth("pvr_summary", rows, targetMonth);
+
+        const uploadId = await insertUploadRecord(
+          file, fileHash, fileType, summaryRows.length, "completed", "unchecked", report,
+          undefined, targetMonth, expectedType || null,
+          monthResult.status, monthResult.detectedMonths
+        );
+        if (!uploadId) throw new Error("Failed to create upload record");
+
+        const { status: vStatus, validations } = await validatePvrSummaryControl(uploadId, summaryRows, targetMonth);
+        await writeImportValidations(validations);
+        report.validation_status = vStatus;
+        report.validations_count = validations.length;
+
+        const finalValidationStatus = summarizeValidationStatus(vStatus);
+        await (supabase.from("excel_uploads") as any)
+          .update({ validation_status: finalValidationStatus, validation_report: report })
+          .eq("id", uploadId);
+
+        setProgress("");
+        if (vStatus === "BLOCKED") {
+          setMessage({ type: "error", text: `"${file.name}" → ${summaryRows.length} righe; rilevate discrepanze con i dati operativi per ${targetMonth}.` });
+        } else if (vStatus === "WARNING") {
+          setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe validate con avvisi per ${targetMonth} (${fileType})` });
+        } else if (vStatus === "NOT_AVAILABLE") {
+          setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe caricate; dati operativi non disponibili per la quadratura (${fileType})` });
+        } else {
+          setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe validate per ${targetMonth} (${fileType})` });
+        }
+        return;
+      }
+
+      // ─── category_summary ───
+      if (fileType === "category_summary") {
+        const summaryRows = rows.map((row) => {
+          const category = String(col(row, ["Categoria", "categoria", "Category"]) || "").trim();
+          return {
+            category,
+            ...getStats(row),
+          };
+        }).filter((r) => r.category);
+
+        const targetMonth = month || null;
+        report.target_month = targetMonth;
+        report.dates = [];
+
+        const monthResult = validateFileMonth("category_summary", rows, targetMonth);
+
+        const uploadId = await insertUploadRecord(
+          file, fileHash, fileType, summaryRows.length, "completed", "unchecked", report,
+          undefined, targetMonth, expectedType || null,
+          monthResult.status, monthResult.detectedMonths
+        );
+        if (!uploadId) throw new Error("Failed to create upload record");
+
+        await writeImportValidations([{
+          upload_id: uploadId,
+          source_file_type: "category_summary",
+          target_file_type: null,
+          analysis_month: targetMonth,
+          metric: "ALL",
+          period_start: null,
+          period_end: null,
+          operational_value: null,
+          control_value: null,
+          absolute_diff: null,
+          percent_diff: null,
+          status: "NOT_AVAILABLE",
+          details: { note: "Category dimension not available in operational tables", row_count: summaryRows.length },
+        }]);
+
+        await (supabase.from("excel_uploads") as any)
+          .update({ validation_status: "not_available", validation_report: report })
+          .eq("id", uploadId);
+
+        setProgress("");
+        setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe caricate come controllo categoria (${fileType})` });
         return;
       }
 
@@ -1389,12 +1592,14 @@ export default function UploadPage() {
   // ── Get type label ──
   function getTypeLabel(t: string): string {
     const labels: Record<string, string> = {
-      daily_network: "Rete",
-      daily_pvr: "PVR",
+      daily_network: "Rete giornaliera",
+      daily_pvr: "PVR giornaliero",
       daily_player: "Giocatori giornalieri",
-      daily_player_game: "Provider e giochi",
+      daily_player_game: "Giochi per giocatore",
       tickets: "Ticket",
-      player_summary: "Riepilogo mensile",
+      player_summary: "Riepilogo mensile giocatori",
+      pvr_summary: "Riepilogo mensile PVR",
+      category_summary: "Riepilogo per categoria",
       players_master: "Anagrafica giocatori",
       pvr_hierarchy: "Gerarchia PVR",
     };
