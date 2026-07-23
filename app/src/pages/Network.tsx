@@ -210,7 +210,7 @@ function buildTree(): TreeNode[] {
       }))
 
     if (agents.length > 0) {
-      const pvrAgents = agents.filter((a) => a.pvr_id === pvr.id)
+      const pvrAgents = agents.filter((a) => a.pvrIds?.includes(pvr.id) || a.pvr_id === pvr.id)
       const agentNodes: TreeNode[] = pvrAgents.map((agent) => {
         const agentPlayers = players.filter((pl) => pl.agent_id === agent.id)
         const agentPlayerNodes: TreeNode[] = agentPlayers.map((pl) => ({

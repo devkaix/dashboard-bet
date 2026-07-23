@@ -83,6 +83,7 @@ export interface Agent {
   code: string
   name: string
   pvr_id: string
+  pvrIds: string[]
   email: string
   phone: string
   commission_rate: number
@@ -537,17 +538,32 @@ async function fetchNetworkHierarchy(range?: DateRange): Promise<{
     };
   });
 
-  // Agents from AREA MANAGER entries in pvr_hierarchy data.
-  // Raw pvrs query includes all rows; AREA MANAGER rows are identified by having
-  // a non-PVR exalogic_id pattern or by role metadata stored in status/notes.
-  // For now, agents are derived from area_manager names on PVR rows.
-  const agents: Agent[] = areaManagers.map((am, idx) => ({
-    id: am.id,
-    code: `AM-${String(idx + 1).padStart(3, "0")}`,
-    name: am.name,
-    pvr_id: "",
-    email: am.email,
-    phone: am.phone,
+  // Agents from pvr_hierarchy: PVR rows with "area_manager | agent_name"
+  // indicate the PVR is under that agent. Extract unique agents with their PVR.
+  const agentMap = new Map<string, { name: string; pvrIds: string[]; areaManager: string }>();
+  for (const p of rawPvrs) {
+    const am = (p.area_manager as string) || "";
+    const parts = am.split(" | ");
+    if (parts.length >= 2) {
+      const agentName = parts[parts.length - 1].trim();
+      const areaMgr = parts.slice(0, -1).join(" | ").trim();
+      if (agentName && p.id) {
+        if (!agentMap.has(agentName)) {
+          agentMap.set(agentName, { name: agentName, pvrIds: [], areaManager: areaMgr });
+        }
+        agentMap.get(agentName)!.pvrIds.push(p.id as string);
+      }
+    }
+  }
+
+  const agents: Agent[] = Array.from(agentMap.entries()).map(([name, info], idx) => ({
+    id: idx + 1,
+    code: `AG-${String(idx + 1).padStart(3, "0")}`,
+    name: info.name,
+    pvr_id: info.pvrIds[0] || "",
+    pvrIds: info.pvrIds,
+    email: "",
+    phone: "",
     commission_rate: 0,
     created_at: new Date().toISOString(),
   }));
