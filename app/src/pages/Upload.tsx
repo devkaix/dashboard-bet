@@ -1886,144 +1886,18 @@ export default function UploadPage() {
         </motion.div>
       )}
 
-      {/* ── Section A: Dati anagrafici e configurazione ── */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-        <h2 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
-          Dati anagrafici e configurazione
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {configStatuses.map((ds) => (
-            <DatasetCard
-              key={ds.fileType}
-              status={ds}
-              selectedMonth={selectedMonth}
-              onUpload={() => handleCardClick(ds.fileType)}
-              uploading={uploading}
-            />
-          ))}
-        </div>
-      </motion.div>
-
-      {/* ── Section B: Sorgenti operative mensili ── */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
-          <h2 className="text-sm font-semibold text-text-muted uppercase tracking-wider">
-            Sorgenti operative mensili
-          </h2>
-        </div>
-
-        {/* Month completeness */}
-        {monthlyStatuses.length > 0 && (
-          <div className="mb-4">
-            <MonthCompleteness statuses={monthlyStatuses} />
-          </div>
-        )}
-
-        {/* Operational dataset cards grid */}
-        {statusLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="bg-bg-surface-elevated rounded-xl border border-border-subtle p-4 animate-pulse">
-                <div className="h-4 w-24 bg-bg-surface rounded mb-3" />
-                <div className="space-y-2">
-                  <div className="h-3 w-full bg-bg-surface rounded" />
-                  <div className="h-3 w-2/3 bg-bg-surface rounded" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {operationalMonthlyStatuses.map((ds) => (
-              <DatasetCard
-                key={ds.fileType}
-                status={ds}
-                selectedMonth={selectedMonth}
-                onUpload={() => handleCardClick(ds.fileType)}
-                uploading={uploading}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Open dashboard button */}
-        <div className="mt-4 flex justify-end">
-          <button
-            onClick={() => {
-              window.open("/", "_self");
-            }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent-purple/10
-                       text-accent-purple text-sm font-semibold hover:bg-accent-purple/20
-                       transition-colors border border-accent-purple/20"
-          >
-            <TrendingUp size={16} />
-            Vai alla Dashboard
-          </button>
-        </div>
-      </motion.div>
-
-      {/* ── Section C: Controlli di quadratura ── */}
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-        <h2 className="text-sm font-semibold text-text-muted uppercase tracking-wider mb-3">
-          Controlli di quadratura
-        </h2>
-        {statusLoading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="bg-bg-surface-elevated rounded-xl border border-border-subtle p-4 animate-pulse">
-                <div className="h-4 w-24 bg-bg-surface rounded mb-3" />
-                <div className="space-y-2">
-                  <div className="h-3 w-full bg-bg-surface rounded" />
-                  <div className="h-3 w-2/3 bg-bg-surface rounded" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {controlStatuses.map((ds) => (
-              <DatasetCard
-                key={ds.fileType}
-                status={ds}
-                selectedMonth={selectedMonth}
-                onUpload={() => handleCardClick(ds.fileType)}
-                uploading={uploading}
-              />
-            ))}
-          </div>
-        )}
-      </motion.div>
-
-      {/* Import preview modal */}
-      <ImportPreview
-        open={preview !== null}
-        onClose={() => setPreview(null)}
-        onConfirm={handleConfirmImport}
-        fileName={preview?.file.name || ""}
-        expectedType={preview?.expectedType || "daily_network"}
-        detectedType={preview?.fileType || ""}
-        selectedMonth={selectedMonth}
-        periodStart={preview?.monthResult.periodStart || null}
-        periodEnd={preview?.monthResult.periodEnd || null}
-        totalRows={preview?.rows.length || 0}
-        validRows={preview?.monthResult.validDateRows || 0}
-        existingRows={preview?.existingRows ?? 0}
-        issues={preview?.issues || []}
-        monthValid={preview?.monthResult.valid ?? false}
-        monthStatus={preview?.monthResult.status || "missing_date"}
-        monthMessage={
-          preview?.monthResult.status === "valid"
-            ? "Tutte le date appartengono al mese selezionato."
-            : preview?.monthResult.status === "month_mismatch"
-            ? `Il file contiene dati del mese ${preview.monthResult.detectedMonths[0]}. Cambiare il mese selezionato o caricare il file corretto.`
-            : preview?.monthResult.status === "multiple_months"
-            ? `Il file contiene più mesi: ${preview.monthResult.detectedMonths.join(", ")}. Dividere il file prima del caricamento.`
-            : preview?.monthResult.status === "missing_date"
-            ? "Nessuna data valida trovata nel file."
-            : "Non applicabile."
-        }
-        loading={uploading}
-      />
+      {/* Spazio:Upload completato */}
+      <div className="flex justify-end">
+        <button
+          onClick={() => window.open("/", "_self")}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-accent-purple/10
+                     text-accent-purple text-sm font-semibold hover:bg-accent-purple/20
+                     transition-colors border border-accent-purple/20"
+        >
+          <TrendingUp size={16} />
+          Vai alla Dashboard
+        </button>
+      </div>
 
       {/* ── Upload history ── */}
       <motion.div
