@@ -1128,6 +1128,48 @@ export function getPvrs(): PVR[] {
   return getData().pvrs;
 }
 
+export interface MonthAvailability {
+  month: string;          // YYYY-MM
+  label: string;          // "Giugno 2026"
+  hasNetwork: boolean;    // daily_network_stats presenti
+  hasPvr: boolean;        // daily_pvr_stats presenti
+  hasPlayers: boolean;    // daily_player_stats presenti
+  hasTickets: boolean;    // tickets presenti
+}
+
+export async function fetchAvailableMonths(): Promise<MonthAvailability[]> {
+  const [{ data: netData }, { data: pvrData }, { data: playerData }, { data: ticketData }] = await Promise.all([
+    supabase.from("daily_network_stats").select("date"),
+    supabase.from("daily_pvr_stats").select("date"),
+    supabase.from("daily_player_stats").select("date"),
+    supabase.from("tickets").select("emission_date"),
+  ]);
+
+  const months = new Map<string, { net: boolean; pvr: boolean; player: boolean; ticket: boolean }>();
+
+  const addMonth = (date: string | null, key: "net" | "pvr" | "player" | "ticket") => {
+    if (!date) return;
+    const m = date.slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(m)) return;
+    if (!months.has(m)) months.set(m, { net: false, pvr: false, player: false, ticket: false });
+    months.get(m)![key] = true;
+  };
+
+  (netData || []).forEach((r: any) => addMonth(r.date, "net"));
+  (pvrData || []).forEach((r: any) => addMonth(r.date, "pvr"));
+  (playerData || []).forEach((r: any) => addMonth(r.date, "player"));
+  (ticketData || []).forEach((r: any) => addMonth(r.emission_date, "ticket"));
+
+  const names = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
+  return Array.from(months.entries())
+    .sort(([a], [b]) => b.localeCompare(a)) // più recente prima
+    .map(([month, flags]) => {
+      const [y, m] = month.split("-");
+      const label = `${names[parseInt(m) - 1]} ${y}`;
+      return { month, label, hasNetwork: flags.net, hasPvr: flags.pvr, hasPlayers: flags.player, hasTickets: flags.ticket };
+    });
+}
+
 export function getMetadata(): Metadata {
   return getData().metadata;
 }

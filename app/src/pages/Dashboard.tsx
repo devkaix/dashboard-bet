@@ -12,8 +12,7 @@ import {
   Lightbulb,
   Bell,
   Trophy,
-  Download,
-  RefreshCw,
+  ChevronDown,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -36,8 +35,10 @@ import {
   getPvrName,
   playerStatus,
   fetchPreviousMonthAggregates,
+  fetchAvailableMonths,
+  type MonthAvailability,
 } from '@/lib/data'
-import { analysisMonthToRange, normalizeAnalysisMonth } from '@/lib/analysisMonth'
+import { analysisMonthToRange, normalizeAnalysisMonth, formatAnalysisMonth } from '@/lib/analysisMonth'
 import type { BriefingItem, DailyKPI, Alert as AlertType, RankingPlayer, MonthlyAggregates } from '@/lib/data'
 import { cn } from '@/lib/utils'
 
@@ -144,21 +145,51 @@ export default function Dashboard() {
   const [chartSubtitle, setChartSubtitle] = useState('')
 
   const [alertFilter, setAlertFilter] = useState<'all' | 'high' | 'medium'>('all')
-  const [refreshing, setRefreshing] = useState(false)
+
+  // Month selector
+  const [availableMonths, setAvailableMonths] = useState<MonthAvailability[]>([])
+  const [selectedMonth, setSelectedMonth] = useState<string>('')
+  const [monthOpen, setMonthOpen] = useState(false)
 
   useEffect(() => {
-    // Support ?month=YYYY-MM as canonical URL parameter
-    const params = new URLSearchParams(window.location.search);
-    const urlMonth = params.get('month');
-    
-    let range: { start?: string; end?: string } | undefined;
-    if (urlMonth) {
-      try {
-        const normalized = normalizeAnalysisMonth(urlMonth);
-        range = analysisMonthToRange(normalized);
-        localStorage.setItem('analysisMonth', normalized);
-      } catch { /* ignore invalid month */ }
-    }
+    // Fetch available months and determine selected month
+    fetchAvailableMonths().then((months) => {
+      setAvailableMonths(months);
+      
+      // Priority: URL > localStorage > ultimo mese con dati rete > primo disponibile
+      const params = new URLSearchParams(window.location.search);
+      const urlMonth = params.get('month');
+      let targetMonth = '';
+      
+      if (urlMonth) {
+        try { targetMonth = normalizeAnalysisMonth(urlMonth); } catch { /* ignore */ }
+      }
+      if (!targetMonth) {
+        const stored = localStorage.getItem('analysisMonth');
+        if (stored) {
+          try { targetMonth = normalizeAnalysisMonth(stored); } catch { /* ignore */ }
+        }
+      }
+      if (!targetMonth && months.length > 0) {
+        // Prefer the latest month with network data, fallback to latest any
+        const withNetwork = months.find(m => m.hasNetwork);
+        targetMonth = withNetwork?.month || months[0].month;
+      }
+      
+      if (targetMonth) {
+        setSelectedMonth(targetMonth);
+        localStorage.setItem('analysisMonth', targetMonth);
+        loadMonth(targetMonth);
+      } else {
+        setLoading(false);
+      }
+    });
+  }, []);
+
+  const loadMonth = (month: string) => {
+    setLoading(true);
+    setLoadError(null);
+    const range = analysisMonthToRange(month);
     
     loadData(range)
       .then(() => {
@@ -173,7 +204,6 @@ export default function Dashboard() {
         setAvgPayout(dk.length > 0 ? dk.reduce((s: number, d: { avg_payout: number }) => s + d.avg_payout, 0) / dk.length : 0)
         setAvgActivePerDay(dk.length > 0 ? dk.reduce((s: number, d: { active_players: number }) => s + d.active_players, 0) / dk.length : 0)
 
-        // Dynamic period labels from real data
         const meta = dataStore.metadata
         if (meta.period_end) {
           const end = new Date(meta.period_end)
@@ -191,13 +221,14 @@ export default function Dashboard() {
           const m = last.toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
           setPeriodLabel(m)
           setChartSubtitle('Rake vs Bet — ' + first.getDate() + '-' + last.getDate() + ' ' + m)
+        } else {
+          try { setPeriodLabel(formatAnalysisMonth(month)); } catch { setPeriodLabel(month); }
+          setChartSubtitle('Nessun dato giornaliero disponibile')
         }
 
-        // Fetch previous month for delta computation
         if (dk.length > 0) {
           const firstDate = dk[0].date
-          const lastDate = dk[dk.length - 1].date
-          fetchPreviousMonthAggregates({ start: firstDate, end: lastDate }).then((prev) => {
+          fetchPreviousMonthAggregates({ start: firstDate, end: dk[dk.length - 1].date }).then((prev) => {
             if (prev) {
               setPrevMonthAggs(prev)
               const [y, m] = firstDate.split('-').map(Number)
@@ -205,8 +236,14 @@ export default function Dashboard() {
               const prevY = m === 1 ? y - 1 : y
               const prevLabel = new Date(prevY, prevM - 1, 1).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' })
               setPrevMonthLabel(prevLabel)
+            } else {
+              setPrevMonthAggs(null)
+              setPrevMonthLabel('')
             }
           })
+        } else {
+          setPrevMonthAggs(null)
+          setPrevMonthLabel('')
         }
 
         setLoading(false)
@@ -215,8 +252,19 @@ export default function Dashboard() {
         console.error('Failed to load data:', err)
         setLoadError(err.message)
         setLoading(false)
-      })
-  }, [])
+      });
+  };
+
+  const handleMonthSelect = (month: string) => {
+    setMonthOpen(false);
+    if (month === selectedMonth) return;
+    setSelectedMonth(month);
+    localStorage.setItem('analysisMonth', month);
+    const url = new URL(window.location.href);
+    url.searchParams.set('month', month);
+    window.history.replaceState({}, '', url.toString());
+    loadMonth(month);
+  };
 
   const sparkData = useMemo(() => {
     if (dailyKpis.length === 0) return { rakeData: [], betData: [], wonData: [], activeData: [], payoutData: [] }
@@ -269,11 +317,6 @@ export default function Dashboard() {
     if (alertFilter === 'medium') return a.severity === 'medium' || a.severity === 'low'
     return true
   })
-
-  const handleRefresh = () => {
-    setRefreshing(true)
-    setTimeout(() => setRefreshing(false), 1000)
-  }
 
   // ─── Computed deltas: current vs previous month ───
   const deltas = useMemo(() => {
@@ -359,17 +402,37 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 h-9 px-4 rounded-lg bg-bg-surface-elevated border border-border-default text-[14px] text-text-primary hover:bg-bg-surface-highlight transition-colors">
-            <Download size={16} />
-            <span>Esporta Report</span>
-          </button>
-          <button
-            onClick={handleRefresh}
-            className="flex items-center gap-2 h-9 px-4 rounded-lg text-[14px] text-text-secondary hover:bg-bg-surface-elevated transition-colors"
-          >
-            <RefreshCw size={16} className={cn(refreshing && 'animate-spin')} />
-            <span>Aggiorna Dati</span>
-          </button>
+          {/* Month selector */}
+          <div className="relative">
+            <button
+              onClick={() => setMonthOpen(!monthOpen)}
+              className="flex items-center gap-2 h-9 px-4 rounded-lg bg-bg-surface-elevated border border-border-default text-[14px] text-text-primary hover:bg-bg-surface-highlight transition-colors"
+            >
+              <span>{selectedMonth ? (() => { try { return formatAnalysisMonth(selectedMonth); } catch { return selectedMonth; } })() : 'Seleziona mese'}</span>
+              <ChevronDown size={14} className={cn("text-text-muted transition-transform", monthOpen && "rotate-180")} />
+            </button>
+            {monthOpen && (
+              <div className="absolute right-0 top-full mt-1 w-56 bg-bg-surface-elevated border border-border-default rounded-lg shadow-lg z-50 py-1 max-h-64 overflow-y-auto">
+                {availableMonths.map((m) => {
+                  const completo = m.hasNetwork && m.hasPvr && m.hasPlayers;
+                  const badge = completo ? '🟢' : m.hasNetwork || m.hasPlayers ? '🟡' : '🔴';
+                  return (
+                    <button
+                      key={m.month}
+                      onClick={() => handleMonthSelect(m.month)}
+                      className={cn(
+                        "w-full text-left px-4 py-2 text-sm hover:bg-bg-surface flex items-center gap-2 transition-colors",
+                        m.month === selectedMonth ? "text-white bg-bg-surface" : "text-text-secondary"
+                      )}
+                    >
+                      <span>{badge}</span>
+                      <span>{m.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </motion.div>
 
