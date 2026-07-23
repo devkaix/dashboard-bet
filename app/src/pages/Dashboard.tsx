@@ -450,13 +450,13 @@ export default function Dashboard() {
       </motion.div>
 
       {/* ── Section 2: KPI Cards ── */}
-      <div className="grid grid-cols-5 gap-4">
-        {dailyKpis.length === 0 ? (
-          <div className="col-span-5 bg-bg-surface rounded-xl border border-border-subtle p-6 text-center">
-            <p className="text-text-secondary text-sm">Nessun dato di rete disponibile per questo mese.</p>
-            <p className="text-text-muted text-xs mt-1">Carica il file "giocato totale della rete" o "giocato per singolo PVR giornaliero" da Exalogic.</p>
-          </div>
-        ) : (
+      {dailyKpis.length === 0 ? (
+        <div className="bg-bg-surface rounded-xl border border-border-subtle p-6 text-center mb-6">
+          <p className="text-text-secondary text-sm">Nessun dato di rete disponibile per questo mese.</p>
+          <p className="text-text-muted text-xs mt-1">Carica il file "giocato totale della rete" o "giocato per singolo PVR giornaliero" da Exalogic.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-5 gap-4">
         <KpiCard
           icon={Wallet}
           iconColor="text-positive"
@@ -527,7 +527,7 @@ export default function Dashboard() {
           }
           index={4}
         />
-      </div>
+        </div>
       )}
 
       {/* ── Section 3+4: Trend Chart + AI Briefing ── */}
