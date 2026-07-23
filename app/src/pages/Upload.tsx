@@ -959,7 +959,7 @@ export default function UploadPage() {
 
         await insertUploadRecord(
           file, fileHash, fileType, masterRows.length, "completed", "validated", report,
-          undefined, month || null, expectedType || null,
+          undefined, null, expectedType || null,
           "not_applicable", null
         );
 
@@ -979,10 +979,10 @@ export default function UploadPage() {
           };
         }).filter((r) => r.username);
 
-        const targetMonth = month || null;
+        // Auto-detect month: player_summary has no date column, use null
+        const targetMonth = null;
         report.target_month = targetMonth;
 
-        // Month validation: player_summary uses selected month
         const monthResult = validateFileMonth("player_summary", rows, targetMonth);
 
         const uploadId = await insertUploadRecord(
@@ -1028,7 +1028,7 @@ export default function UploadPage() {
           };
         }).filter((r) => r.eid);
 
-        const targetMonth = month || null;
+        const targetMonth = null;
         report.target_month = targetMonth;
 
         const monthResult = validateFileMonth("pvr_summary", rows, targetMonth);
@@ -1073,7 +1073,7 @@ export default function UploadPage() {
           };
         }).filter((r) => r.category);
 
-        const targetMonth = month || null;
+        const targetMonth = null;
         report.target_month = targetMonth;
         report.dates = [];
 
@@ -1239,22 +1239,16 @@ export default function UploadPage() {
         return;
       }
 
-      // ─── Month validation for monthly file types ───
+      // ─── Auto-detect month from file contents ───
       const analysisMonth = month || null;
       const monthResult = validateFileMonth(fileType as ImportFileType, rows, analysisMonth);
+      // Auto-detected month: use what the file contains, ignore selected month.
+      const detectedMonth = monthResult.detectedMonths?.[0] || monthResult.selectedMonth || null;
 
+      // Block only if file has NO valid dates (for types that require dates)
       if (fileType !== "players_master" && fileType !== "player_summary" && fileType !== "pvr_hierarchy") {
-        if (!monthResult.valid) {
-          const monthLabel = analysisMonth ? (() => { try { return formatAnalysisMonth(analysisMonth); } catch { return analysisMonth; } })() : "selezionato";
-          let errMsg = "";
-          if (monthResult.status === "multiple_months") {
-            errMsg = `Il file contiene più mesi (${monthResult.detectedMonths.join(", ")}). Dividere il file prima del caricamento.`;
-          } else if (monthResult.status === "month_mismatch") {
-            errMsg = `Il file contiene dati del mese ${monthResult.detectedMonths[0]}, ma hai selezionato ${monthLabel}.`;
-          } else if (monthResult.status === "missing_date") {
-            errMsg = "Nessuna data valida trovata nel file.";
-          }
-          throw new Error(`Importazione bloccata. ${errMsg}`);
+        if (monthResult.status === "missing_date") {
+          throw new Error("Importazione bloccata. Nessuna data valida trovata nel file.");
         }
       }
 
@@ -1461,14 +1455,14 @@ export default function UploadPage() {
 
       const uploadId = await insertUploadRecord(
         file, fileHash, fileType, totalRows, "completed", validationStatus, report,
-        undefined, analysisMonth, expectedType || null,
+        undefined, detectedMonth, expectedType || null,
         monthResult.status, monthResult.detectedMonths
       );
       if (!uploadId) throw new Error("Failed to create upload record");
 
       // Validate control files against derived operational tables
       if (fileType === "daily_network") {
-        const { status: vStatus, validations } = await validateNetworkControl(uploadId, dailyNetworkRows, analysisMonth);
+        const { status: vStatus, validations } = await validateNetworkControl(uploadId, dailyNetworkRows, detectedMonth);
         await writeImportValidations(validations);
         report.validation_status = vStatus;
         report.validations_count = validations.length;
@@ -1477,7 +1471,7 @@ export default function UploadPage() {
           .update({ validation_status: finalValidationStatus, validation_report: report })
           .eq("id", uploadId);
       } else if (fileType === "daily_player") {
-        const { status: vStatus, validations } = await validateDailyPlayerControl(uploadId, dailyPlayerRows, playerMap, analysisMonth);
+        const { status: vStatus, validations } = await validateDailyPlayerControl(uploadId, dailyPlayerRows, playerMap, detectedMonth);
         await writeImportValidations(validations);
         report.validation_status = vStatus;
         report.validations_count = validations.length;
@@ -1489,8 +1483,9 @@ export default function UploadPage() {
 
       setProgress("");
       const unmatchedMsg = report.unmatched_players.length > 0 ? ` (${report.unmatched_players.length} giocatori non riconosciuti)` : "";
-      const controlMsg = (fileType === "daily_player" || fileType === "daily_network") ? " (file di controllo)" : "";
-      setMessage({ type: "success", text: `"${file.name}" → ${totalRows} righe (${fileType})${controlMsg}${unmatchedMsg}` });
+      const monthInfo = detectedMonth ? ` · ${(() => { try { return formatAnalysisMonth(detectedMonth); } catch { return detectedMonth; } })()}` : "";
+      const controlInfo = (fileType === "daily_player" || fileType === "daily_network") ? " · controllo" : "";
+      setMessage({ type: "success", text: `"${file.name}" → ${totalRows} righe${monthInfo}${controlInfo}${unmatchedMsg}` });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       try {
@@ -1718,8 +1713,8 @@ export default function UploadPage() {
       }
 
       try {
-        await processFile(file, type as ImportFileType, selectedMonth);
-        results.push({ file: file.name, type, status: "success", message: `Caricato come ${getTypeLabel(type)}` });
+        await processFile(file, type as ImportFileType);
+        results.push({ file: file.name, type, status: "success", message: `Importato` });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         results.push({ file: file.name, type, status: "error", message: msg });
@@ -1797,30 +1792,27 @@ export default function UploadPage() {
         </p>
       </motion.div>
 
-      {/* Batch upload: single button for the whole month */}
+      {/* Main upload area */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-bg-surface-elevated rounded-xl border border-border-subtle p-5"
+        className="bg-bg-surface-elevated rounded-xl border-2 border-dashed border-accent-purple/30 p-8 text-center hover:border-accent-purple/60 transition-colors"
       >
-        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="flex-1">
-            <h2 className="text-lg font-semibold text-white">Carica tutto il mese</h2>
-            <p className="text-sm text-text-secondary mt-1">
-              Seleziona tutti i file Excel che hai scaricato da Exalogic. L’app riconosce automaticamente cosa contiene ogni file e lo importa nel posto giusto.
-            </p>
-          </div>
-          <button
-            onClick={handleBatchUploadClick}
-            disabled={uploading || batchProgress !== null}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent-purple text-white
-                       text-sm font-semibold hover:bg-accent-purple/90 transition-colors
-                       disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-          >
-            <Upload size={18} />
-            Seleziona file del mese
-          </button>
-        </div>
+        <Upload size={40} className="mx-auto mb-4 text-accent-purple" />
+        <h2 className="text-xl font-semibold text-white mb-2">Carica i file Excel</h2>
+        <p className="text-sm text-text-secondary mb-6 max-w-lg mx-auto">
+          Seleziona tutti i file che hai scaricato da Exalogic. Il sistema riconosce automaticamente il contenuto e il mese di ogni file.
+        </p>
+        <button
+          onClick={handleBatchUploadClick}
+          disabled={uploading || batchProgress !== null}
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-accent-purple text-white
+                     text-base font-semibold hover:bg-accent-purple/90 transition-colors
+                     disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Upload size={20} />
+          Scegli i file
+        </button>
 
         {batchProgress && (
           <div className="mt-4 space-y-3">
@@ -1918,10 +1910,6 @@ export default function UploadPage() {
           <h2 className="text-sm font-semibold text-text-muted uppercase tracking-wider">
             Sorgenti operative mensili
           </h2>
-          <MonthSelector
-            selectedMonth={selectedMonth}
-            onMonthChange={handleMonthChange}
-          />
         </div>
 
         {/* Month completeness */}
@@ -1958,21 +1946,18 @@ export default function UploadPage() {
           </div>
         )}
 
-        {/* Open analysis button */}
+        {/* Open dashboard button */}
         <div className="mt-4 flex justify-end">
           <button
             onClick={() => {
-              const url = new URL(window.location.origin);
-              url.pathname = "/";
-              url.searchParams.set("month", selectedMonth);
-              window.open(url.toString(), "_self");
+              window.open("/", "_self");
             }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent-purple/10
                        text-accent-purple text-sm font-semibold hover:bg-accent-purple/20
                        transition-colors border border-accent-purple/20"
           >
             <TrendingUp size={16} />
-            Apri analisi di {(() => { try { return formatAnalysisMonth(selectedMonth); } catch { return selectedMonth; } })()}
+            Vai alla Dashboard
           </button>
         </div>
       </motion.div>
