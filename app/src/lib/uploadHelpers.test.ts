@@ -183,3 +183,101 @@ describe('dateFromTimestamp', () => {
     expect(dateFromTimestamp(null)).toBeNull();
   });
 });
+
+describe('pvr_hierarchy parsing (real July 2026 fixture)', () => {
+  // Real rows extracted from gestione_punto_gerarchia luglio 22.07.26.xlsx
+  const hierarchyHeaders = [
+    "Cod. punto", "ID", "Ragione sociale", "Tipo punto", "Stato conto",
+    "Prepagato/Fido", "Prepagato / Fido (sottorete)", "Scoperto/Fido provvisorio",
+    "Scoperto / Fido provvisorio (sottorete)", "Importo utilizzato/Saldo",
+    "Importo utilizzato / Saldo (sottorete)", "Saldo reale", "Saldo reale (sottorete)",
+    "Residuo plafond / Disponibile", "Residuo plafond / Disponibile (sottorete)",
+    "Saldo Utenti (diretti)", "Saldo Utenti (sottorete)", "Data Creazione"
+  ];
+
+  function makeRow(values: string[]) {
+    const row: Record<string, string> = {};
+    hierarchyHeaders.forEach((h, i) => { row[h] = values[i] || ''; });
+    return row;
+  }
+
+  it('parses TOTALI header detection', () => {
+    expect(det(hierarchyHeaders)).toBe('pvr_hierarchy');
+  });
+
+  it('parses REGIONAL row correctly', () => {
+    const row = makeRow([
+      'MWMSTBETSERVICES', '387989', 'BET SERVICES SRL', 'REGIONAL',
+      'ATTIVO', '0,00', '22.750,00', '0,00', '500,00',
+      ' -25.966,26', ' -21.976,34', '25.966,26', '44.726,34',
+      '25.966,26', '45.226,34', '1478,91', '12.805,06', '24-07-2025'
+    ]);
+    expect(String(col(row, ['Tipo punto']) || '').trim().toUpperCase()).toBe('REGIONAL');
+    expect(String(col(row, ['Ragione sociale']) || '').trim()).toBe('BET SERVICES SRL');
+  });
+
+  it('parses PVR row with fido, saldo, disponibile', () => {
+    const row = makeRow([
+      ' --  -- MWMATYS', '401557', "MATY'S BAR E TABACCHI", 'PVR',
+      'ATTIVO', '1500,00', '1500,00', '0,00', '0,00',
+      ' 4567,89', ' 4567,89', '0,00', '0,00',
+      '0,00', '0,00', '234,50', '234,50', '15-03-2024'
+    ]);
+    expect(String(col(row, ['Tipo punto']) || '').trim().toUpperCase()).toBe('PVR');
+    expect(String(col(row, ['ID']) || '').trim()).toBe('401557');
+
+    const fido = num(col(row, ['Prepagato/Fido']));
+    const saldo = num(col(row, ['Importo utilizzato/Saldo']));
+    const disp = num(col(row, ['Residuo plafond / Disponibile']));
+    const created = pDate(col(row, ['Data Creazione']));
+
+    expect(fido).toBe(1500);
+    expect(saldo).toBe(4567.89);
+    expect(disp).toBe(0);
+    expect(created).toBe('2024-03-15');
+  });
+
+  it('parses PVR with negative saldo (debito)', () => {
+    const row = makeRow([
+      ' -- MWBASSI', '274292', 'BASSI ANDREA', 'PVR',
+      'CHIUSO', '0,00', '0,00', '0,00', '0,00',
+      ' -392,52', ' -392,52', '0,00', '0,00',
+      '392,52', '392,52', '0,00', '0,00', '17-03-2023'
+    ]);
+    expect(num(col(row, ['Importo utilizzato/Saldo']))).toBe(-392.52);
+    expect(num(col(row, ['Prepagato/Fido']))).toBe(0);
+    expect(num(col(row, ['Residuo plafond / Disponibile']))).toBe(392.52);
+  });
+
+  it('handles PVR with empty/null fido (no fido assigned)', () => {
+    const row = makeRow([
+      ' --  -- MWEXAMPLE', '999999', 'EXAMPLE PVR', 'PVR',
+      'ATTIVO', '', '', '', '',
+      '', '', '', '',
+      '', '', '', '', ''
+    ]);
+    const fidoRaw = col(row, ['Prepagato/Fido']);
+    const fido = fidoRaw === undefined || fidoRaw === null || String(fidoRaw).trim() === '' ? null : num(fidoRaw);
+    expect(fido).toBeNull();
+  });
+
+  it('parses AGENTE row and extracts all fields', () => {
+    const row = makeRow([
+      'MWMSTTHEWINNER', '400233', 'THE WINNER CLUB S.A.S.', 'AGENTE',
+      'ATTIVO', '0,00', '0,00', '0,00', '0,00',
+      ' 0,00', ' 0,00', '0,00', '0,00',
+      '0,00', '0,00', '0,00', '0,00', '01-09-2025'
+    ]);
+    const tipo = String(col(row, ['Tipo punto']) || '').trim().toUpperCase();
+    expect(tipo).toBe('AGENTE');
+    expect(String(col(row, ['ID']) || '').trim()).toBe('400233');
+    expect(String(col(row, ['Stato conto']) || '').trim()).toBe('ATTIVO');
+    expect(pDate(col(row, ['Data Creazione']))).toBe('2025-09-01');
+  });
+
+  it('cod. punto strips indentation dashes and whitespace', () => {
+    expect(' --  -- MWMATYS'.replace(/^(?:\s*--\s*)+/, '').trim()).toBe('MWMATYS');
+    expect('MWMSTBETSERVICES'.replace(/^(?:\s*--\s*)+/, '').trim()).toBe('MWMSTBETSERVICES');
+    expect(' -- MWBASSI'.replace(/^(?:\s*--\s*)+/, '').trim()).toBe('MWBASSI');
+  });
+});

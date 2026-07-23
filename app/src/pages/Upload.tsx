@@ -1115,6 +1115,7 @@ export default function UploadPage() {
       if (fileType === "pvr_hierarchy") {
         let currentRegion: string | null = null;
         let currentAreaManager: string | null = null;
+        let currentAgent: string | null = null;
         const pvrUpserts = new Map<string, any>();
         const mappingUpserts = new Map<string, { pvr_ref_code: string; exalogic_id: string }>();
 
@@ -1136,9 +1137,37 @@ export default function UploadPage() {
           if (tipo === "REGIONAL") {
             currentRegion = ragione || null;
             currentAreaManager = null;
+            currentAgent = null;
           } else if (tipo === "AREA MANAGER") {
             currentAreaManager = ragione || null;
+            currentAgent = null;
+          } else if (tipo === "AGENTE") {
+            // Agent sits between Area Manager and PVR; track for subsequent PVR
+            // rows and also save as a pvrs entry (agents have exalogic_id + financials).
+            currentAgent = ragione || null;
+            if (eid) {
+              pvrUpserts.set(eid, {
+                id: crypto.randomUUID(),
+                exalogic_id: eid,
+                name: ragione,
+                status: stato,
+                fido,
+                saldo,
+                disponibile,
+                created_on: createdOn,
+                region: currentRegion,
+                area_manager: currentAreaManager,
+              });
+              if (cod) {
+                mappingUpserts.set(eid, { pvr_ref_code: cod.toUpperCase(), exalogic_id: eid });
+              }
+            }
           } else if (tipo === "PVR" && eid) {
+            // PVR sotto un agente: concatena agente all'area_manager
+            // per preservare la gerarchia completa (4 livelli).
+            const effectiveAreaManager = currentAgent
+              ? [currentAreaManager, currentAgent].filter(Boolean).join(" | ")
+              : currentAreaManager;
             pvrUpserts.set(eid, {
               id: crypto.randomUUID(),
               exalogic_id: eid,
@@ -1149,7 +1178,7 @@ export default function UploadPage() {
               disponibile,
               created_on: createdOn,
               region: currentRegion,
-              area_manager: currentAreaManager,
+              area_manager: effectiveAreaManager,
             });
             if (cod) {
               mappingUpserts.set(eid, { pvr_ref_code: cod.toUpperCase(), exalogic_id: eid });

@@ -528,17 +528,29 @@ async function fetchNetworkHierarchy(range?: DateRange): Promise<{
       address: null,
       city: null,
       cap: null,
-      fido: null,
-      fido_used: null,
-      saldo: null,
-      status: "active",
+      fido: (p.fido as number) ?? null,
+      fido_used: (p.disponibile as number) ?? null,
+      saldo: (p.saldo as number) ?? null,
+      status: (p.status as string) || "active",
       health_score: null,
       created_at: (p.created_at as string) || new Date().toISOString(),
     };
   });
 
-  // No synthetic agents until a real agent data source is introduced.
-  const agents: Agent[] = [];
+  // Agents from AREA MANAGER entries in pvr_hierarchy data.
+  // Raw pvrs query includes all rows; AREA MANAGER rows are identified by having
+  // a non-PVR exalogic_id pattern or by role metadata stored in status/notes.
+  // For now, agents are derived from area_manager names on PVR rows.
+  const agents: Agent[] = areaManagers.map((am, idx) => ({
+    id: am.id,
+    code: `AM-${String(idx + 1).padStart(3, "0")}`,
+    name: am.name,
+    pvr_id: "",
+    email: am.email,
+    phone: am.phone,
+    commission_rate: 0,
+    created_at: new Date().toISOString(),
+  }));
 
   return { pvrs, regions, area_managers: areaManagers, agents };
 }
