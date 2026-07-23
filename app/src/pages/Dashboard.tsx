@@ -150,11 +150,15 @@ export default function Dashboard() {
   const [availableMonths, setAvailableMonths] = useState<MonthAvailability[]>([])
   const [selectedMonth, setSelectedMonth] = useState<string>('')
   const [monthOpen, setMonthOpen] = useState(false)
+  const [lastUpdate, setLastUpdate] = useState<string | null>(null)
 
   useEffect(() => {
     // Fetch available months and determine selected month
     fetchAvailableMonths().then((months) => {
       setAvailableMonths(months);
+      if (months.length > 0 && months[0].lastUpdate) {
+        setLastUpdate(months[0].lastUpdate);
+      }
       
       // Priority: URL > localStorage > ultimo mese con dati rete > primo disponibile
       const params = new URLSearchParams(window.location.search);
@@ -399,6 +403,7 @@ export default function Dashboard() {
           </h1>
           <p className="text-[15px] text-text-secondary mt-0.5">
             {periodLabel ? `Panoramica rete — ${periodLabel}` : "Caricamento dati..."}
+            {lastUpdate ? ` · Aggiornato ${new Date(lastUpdate).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -408,25 +413,32 @@ export default function Dashboard() {
               onClick={() => setMonthOpen(!monthOpen)}
               className="flex items-center gap-2 h-9 px-4 rounded-lg bg-bg-surface-elevated border border-border-default text-[14px] text-text-primary hover:bg-bg-surface-highlight transition-colors"
             >
-              <span>{selectedMonth ? (() => { try { return formatAnalysisMonth(selectedMonth); } catch { return selectedMonth; } })() : 'Seleziona mese'}</span>
+              {(() => {
+                const current = availableMonths.find(m => m.month === selectedMonth);
+                const badge = current?.completo ? '🟢' : current?.hasNetwork || current?.hasPlayers ? '🟡' : '⚪';
+                return <><span className="text-xs">{badge}</span><span>{selectedMonth ? (() => { try { return formatAnalysisMonth(selectedMonth); } catch { return selectedMonth; } })() : 'Seleziona mese'}</span></>;
+              })()}
               <ChevronDown size={14} className={cn("text-text-muted transition-transform", monthOpen && "rotate-180")} />
             </button>
             {monthOpen && (
               <div className="absolute right-0 top-full mt-1 w-56 bg-bg-surface-elevated border border-border-default rounded-lg shadow-lg z-50 py-1 max-h-64 overflow-y-auto">
                 {availableMonths.map((m) => {
-                  const completo = m.hasNetwork && m.hasPvr && m.hasPlayers;
-                  const badge = completo ? '🟢' : m.hasNetwork || m.hasPlayers ? '🟡' : '🔴';
+                  const badge = m.completo ? '🟢' : m.hasNetwork || m.hasPlayers ? '🟡' : '⚪';
+                  const sub = m.completo ? 'Completo' : m.hasNetwork ? 'Parziale (manca PVR o giocatori)' : m.hasPlayers ? 'Solo giocatori' : 'Nessun dato';
                   return (
                     <button
                       key={m.month}
                       onClick={() => handleMonthSelect(m.month)}
                       className={cn(
-                        "w-full text-left px-4 py-2 text-sm hover:bg-bg-surface flex items-center gap-2 transition-colors",
+                        "w-full text-left px-4 py-2 text-sm hover:bg-bg-surface transition-colors",
                         m.month === selectedMonth ? "text-white bg-bg-surface" : "text-text-secondary"
                       )}
                     >
-                      <span>{badge}</span>
-                      <span>{m.label}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs">{badge}</span>
+                        <span>{m.label}</span>
+                      </div>
+                      <div className="text-[11px] text-text-muted ml-5">{sub}</div>
                     </button>
                   );
                 })}
@@ -438,6 +450,12 @@ export default function Dashboard() {
 
       {/* ── Section 2: KPI Cards ── */}
       <div className="grid grid-cols-5 gap-4">
+        {dailyKpis.length === 0 ? (
+          <div className="col-span-5 bg-bg-surface rounded-xl border border-border-subtle p-6 text-center">
+            <p className="text-text-secondary text-sm">Nessun dato di rete disponibile per questo mese.</p>
+            <p className="text-text-muted text-xs mt-1">Carica il file "giocato totale della rete" o "giocato per singolo PVR giornaliero" da Exalogic.</p>
+          </div>
+        ) : (
         <KpiCard
           icon={Wallet}
           iconColor="text-positive"
@@ -509,6 +527,7 @@ export default function Dashboard() {
           index={4}
         />
       </div>
+      )}
 
       {/* ── Section 3+4: Trend Chart + AI Briefing ── */}
       <div className="grid grid-cols-[2fr_1fr] gap-4">
@@ -603,7 +622,9 @@ export default function Dashboard() {
                 <Sparkles size={16} className="text-accent-purple" />
                 <h2 className="text-[20px] font-semibold text-accent-purple">AI Briefing</h2>
               </div>
-              <span className="text-[11px] text-text-muted">Generato oggi, 08:30</span>
+              <span className="text-[11px] text-text-muted">
+                {lastUpdate ? new Date(lastUpdate).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'In attesa dati'}
+              </span>
             </div>
             <p className="text-[13px] text-text-muted mb-4 flex-shrink-0">
               Analisi automatica della rete

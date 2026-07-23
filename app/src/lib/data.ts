@@ -1129,21 +1129,26 @@ export function getPvrs(): PVR[] {
 }
 
 export interface MonthAvailability {
-  month: string;          // YYYY-MM
-  label: string;          // "Giugno 2026"
-  hasNetwork: boolean;    // daily_network_stats presenti
-  hasPvr: boolean;        // daily_pvr_stats presenti
-  hasPlayers: boolean;    // daily_player_stats presenti
-  hasTickets: boolean;    // tickets presenti
+  month: string;
+  label: string;
+  hasNetwork: boolean;
+  hasPvr: boolean;
+  hasPlayers: boolean;
+  hasTickets: boolean;
+  completo: boolean;
+  lastUpdate: string | null;
 }
 
 export async function fetchAvailableMonths(): Promise<MonthAvailability[]> {
-  const [{ data: netData }, { data: pvrData }, { data: playerData }, { data: ticketData }] = await Promise.all([
+  const [{ data: netData }, { data: pvrData }, { data: playerData }, { data: ticketData }, { data: lastUpload }] = await Promise.all([
     supabase.from("daily_network_stats").select("date"),
     supabase.from("daily_pvr_stats").select("date"),
     supabase.from("daily_player_stats").select("date"),
     supabase.from("tickets").select("emission_date"),
+    supabase.from("excel_uploads").select("uploaded_at").eq("status", "completed").order("uploaded_at", { ascending: false }).limit(1),
   ]);
+
+  const lastUpdate = (lastUpload?.[0] as any)?.uploaded_at || null;
 
   const months = new Map<string, { net: boolean; pvr: boolean; player: boolean; ticket: boolean }>();
 
@@ -1162,11 +1167,12 @@ export async function fetchAvailableMonths(): Promise<MonthAvailability[]> {
 
   const names = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
   return Array.from(months.entries())
-    .sort(([a], [b]) => b.localeCompare(a)) // più recente prima
+    .sort(([a], [b]) => b.localeCompare(a))
     .map(([month, flags]) => {
       const [y, m] = month.split("-");
       const label = `${names[parseInt(m) - 1]} ${y}`;
-      return { month, label, hasNetwork: flags.net, hasPvr: flags.pvr, hasPlayers: flags.player, hasTickets: flags.ticket };
+      const completo = flags.net && flags.pvr && flags.player;
+      return { month, label, hasNetwork: flags.net, hasPvr: flags.pvr, hasPlayers: flags.player, hasTickets: flags.ticket, completo, lastUpdate };
     });
 }
 
