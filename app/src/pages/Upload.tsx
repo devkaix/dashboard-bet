@@ -1841,7 +1841,7 @@ export default function UploadPage() {
                     )}
                     <span className="text-text-secondary truncate flex-1" title={r.file}>{r.file}</span>
                     <span className={cn("text-xs px-2 py-0.5 rounded-full", r.status === "success" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400")}>
-                      {getTypeLabel(r.type)}
+                      {r.status === "success" ? "OK" : "Errore"}
                     </span>
                   </div>
                 ))}
@@ -1934,8 +1934,10 @@ export default function UploadPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-white truncate">{u.filename}</p>
                     <p className="text-xs text-text-secondary">
-                      {u.file_type} · {u.rows_processed} righe · {new Date(u.uploaded_at).toLocaleDateString("it-IT")}
+                      {u.file_type ? getTypeLabel(u.file_type) : 'Sconosciuto'}
+                      {u.rows_processed > 0 && ` · ${u.rows_processed} righe`}
                       {u.analysis_month && ` · ${(() => { try { return formatAnalysisMonth(u.analysis_month); } catch { return u.analysis_month; } })()}`}
+                      {u.status === 'error' && u.error_message && ` — ${u.error_message.length > 80 ? u.error_message.slice(0, 80) + '...' : u.error_message}`}
                     </p>
                   </div>
                   <span className={cn(
