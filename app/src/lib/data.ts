@@ -489,6 +489,13 @@ async function fetchNetworkHierarchy(range?: DateRange): Promise<{
   const { data } = await supabase.from("pvrs").select("*").order("name");
   const rawPvrs = (data || []) as Array<Record<string, unknown>>;
 
+  // Fetch commercial codes (MWxxx) from pvr_reference_map
+  const { data: refData } = await supabase.from("pvr_reference_map").select("pvr_id, pvr_ref_code");
+  const codeByPvrId = new Map<string, string>();
+  for (const r of refData || []) {
+    if (r.pvr_id && r.pvr_ref_code) codeByPvrId.set(r.pvr_id as string, r.pvr_ref_code as string);
+  }
+
   const regionNames = Array.from(new Set(rawPvrs.map((p) => p.region as string).filter(Boolean)));
   const amNames = Array.from(new Set(rawPvrs.map((p) => p.area_manager as string).filter(Boolean)));
 
@@ -520,9 +527,10 @@ async function fetchNetworkHierarchy(range?: DateRange): Promise<{
   const pvrs: PVR[] = rawPvrs.map((p) => {
     const am = areaManagers.find((am) => am.name === p.area_manager);
     const region = regions.find((r) => r.name === p.region);
+    const commercialCode = codeByPvrId.get(p.id as string) || (p.exalogic_id as string) || "";
     return {
       id: p.id as string,
-      code: (p.exalogic_id as string) || "",
+      code: commercialCode,
       name: p.name as string,
       area_manager_id: am?.id || 0,
       region_id: region?.id || 0,
