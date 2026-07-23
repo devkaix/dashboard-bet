@@ -1907,7 +1907,7 @@ export default function UploadPage() {
         className="bg-bg-surface-elevated rounded-xl border border-border-subtle overflow-hidden"
       >
         <div className="px-5 py-3 border-b border-border-subtle flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white">Storico Upload</h2>
+          <h2 className="text-sm font-semibold text-white">Caricamenti recenti</h2>
           <button
             onClick={fetchUploads}
             className="p-1.5 rounded-lg hover:bg-white/5 text-text-secondary hover:text-white"
@@ -1916,38 +1916,31 @@ export default function UploadPage() {
           </button>
         </div>
         {uploads.length === 0 ? (
-          <div className="p-8 text-center text-text-secondary text-sm">
-            <FileSpreadsheet className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            Nessun upload
+          <div className="p-6 text-center text-text-secondary text-sm">
+            Nessun file caricato
           </div>
         ) : (
           <div className="divide-y divide-border-subtle">
-            {uploads.map((u) => {
-              const Icon = ICONS[u.status] || FileSpreadsheet;
+            {uploads.slice(0, 12).map((u) => {
+              const ok = u.status === "completed";
+              const mese = u.analysis_month
+                ? (() => { try { return formatAnalysisMonth(u.analysis_month); } catch { return ""; } })()
+                : "";
+              const descr = u.file_type ? getTypeLabel(u.file_type) : "";
+              const data = new Date(u.uploaded_at).toLocaleDateString("it-IT", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
               return (
-                <div key={u.id} className="px-5 py-3 flex items-center gap-3 hover:bg-white/[0.02]">
-                  <Icon className={cn(
-                    "w-5 h-5 flex-shrink-0",
-                    COLS[u.status] || "text-slate-400",
-                    (u.status === "processing" || u.status === "pending") ? "animate-spin" : ""
-                  )} />
+                <div key={u.id} className="px-5 py-2.5 flex items-center gap-3">
+                  <span className={cn("w-2 h-2 rounded-full flex-shrink-0", ok ? "bg-emerald-400" : "bg-red-400")} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white truncate">{u.filename}</p>
-                    <p className="text-xs text-text-secondary">
-                      {u.file_type ? getTypeLabel(u.file_type) : 'Sconosciuto'}
-                      {u.rows_processed > 0 && ` · ${u.rows_processed} righe`}
-                      {u.analysis_month && ` · ${(() => { try { return formatAnalysisMonth(u.analysis_month); } catch { return u.analysis_month; } })()}`}
-                      {u.status === 'error' && u.error_message && ` — ${u.error_message.length > 80 ? u.error_message.slice(0, 80) + '...' : u.error_message}`}
-                    </p>
+                    <span className="text-sm text-white">{descr || u.filename.slice(0, 50)}</span>
+                    {mese ? <span className="text-xs text-text-secondary ml-2">{mese}</span> : null}
+                    {!ok && u.error_message ? (
+                      <span className="text-xs text-red-400 ml-2">
+                        — {u.error_message.length > 60 ? u.error_message.slice(0, 60) + '...' : u.error_message}
+                      </span>
+                    ) : null}
                   </div>
-                  <span className={cn(
-                    "text-xs px-2 py-0.5 rounded-full font-medium",
-                    u.status === "completed" && "bg-emerald-500/10 text-emerald-400",
-                    u.status === "processing" && "bg-amber-500/10 text-amber-400",
-                    u.status === "error" && "bg-red-500/10 text-red-400"
-                  )}>
-                    {LABS[u.status] || u.status}
-                  </span>
+                  <span className="text-xs text-text-muted flex-shrink-0">{data}</span>
                 </div>
               );
             })}
