@@ -209,21 +209,6 @@ function buildTree(): TreeNode[] {
         children: [],
       }))
 
-    if (agents.length > 0) {
-      const pvrAgents = agents.filter((a) => a.pvrIds?.includes(pvr.id) || a.pvr_id === pvr.id)
-      const agentNodes: TreeNode[] = pvrAgents.map((agent) => {
-        const agentPlayers = players.filter((pl) => pl.agent_id === agent.id)
-        const agentPlayerNodes: TreeNode[] = agentPlayers.map((pl) => ({
-          id: pl.id,
-          type: 'player' as EntityType,
-          data: pl,
-          children: [],
-        }))
-        return { id: agent.id, type: 'agent' as EntityType, data: agent, children: agentPlayerNodes }
-      })
-      return { id: pvr.id, type: 'pvr' as EntityType, data: pvr, children: agentNodes }
-    }
-
     return { id: pvr.id, type: 'pvr' as EntityType, data: pvr, children: playerNodes }
   }
 
@@ -361,10 +346,12 @@ function DetailPanel({
           {node.type === 'pvr' && (
             <>
               <KpiCard label="Rake Totale" value={formatCurrency(getPvrTotalRake(node))} />
-              <KpiCard label="Giocatori" value={String(sumPlayerRake(node) > 0 ? node.children.reduce((sum, c) => sum + (c.type === 'player' ? 1 : c.children.length), 0) : 0)} />
-              <KpiCard label="Agenti" value={String(dataStore.agents.length)} />
+              <KpiCard label="Giocatori" value={String(node.children.length)} />
               {(node.data as PVR).fido != null && (
                 <KpiCard label="Fido" value={formatCurrency(num(node.data, 'fido'))} />
+              )}
+              {(node.data as PVR).saldo != null && (
+                <KpiCard label="Saldo" value={formatCurrency(num(node.data, 'saldo'))} />
               )}
             </>
           )}
@@ -387,13 +374,11 @@ function DetailPanel({
             <>
               <KpiCard label="Area Manager" value={String(node.children.length)} />
               <KpiCard label="PVR" value={String(node.children.reduce((s, am) => s + am.children.length, 0))} />
-              <KpiCard label="Agenti" value={String(node.children.reduce((s, am) => s + am.children.reduce((t, p) => t + p.children.length, 0), 0))} />
             </>
           )}
           {node.type === 'area_manager' && (
             <>
               <KpiCard label="PVR" value={String(node.children.length)} />
-              <KpiCard label="Agenti" value={String(node.children.reduce((s, p) => s + p.children.length, 0))} />
             </>
           )}
         </motion.div>
@@ -611,16 +596,7 @@ function TreeRow({
             )}
             {node.type === 'pvr' && (
               <>
-                {dataStore.agents.length > 0 ? (
-                  <>
-                    <span>{node.children.length} Agenti</span>
-                    <span>
-                      {node.children.reduce((s, a) => s + a.children.length, 0)} Giocatori
-                    </span>
-                  </>
-                ) : (
-                  <span>{node.children.length} Giocatori</span>
-                )}
+                <span>{node.children.length} Giocatori</span>
                 <span className="text-text-primary font-mono">
                   {formatCurrency(getPvrTotalRake(node))}
                 </span>
