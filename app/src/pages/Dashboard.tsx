@@ -352,9 +352,10 @@ export default function Dashboard() {
   }, [prevMonthAggs, totalRake, totalBet, totalWon, avgActivePerDay])
 
   const comparisonLabel = useMemo(() => {
-    if (!prevMonthLabel) return 'nessun periodo precedente'
-    return `vs ${prevMonthLabel}`
-  }, [prevMonthLabel])
+    if (!prevMonthLabel && prevMonthAggs === null) return 'dati mese precedente non disponibili';
+    if (!prevMonthLabel) return 'nessun periodo precedente';
+    return `vs ${prevMonthLabel}`;
+  }, [prevMonthLabel, prevMonthAggs]);
 
   if (loading) {
     return (
