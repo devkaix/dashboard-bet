@@ -11,7 +11,7 @@ function expandTwoDigitYear(y: string): string {
 export function num(v: unknown): number {
   if (v === null || v === undefined) return 0;
   if (typeof v === "number") return v;
-  const s = String(v).trim();
+  const s = String(v).trim().replace(/[€\s]/g, "");
   if (s === "" || s === "None") return 0;
   const lastComma = s.lastIndexOf(",");
   const lastDot = s.lastIndexOf(".");
@@ -214,7 +214,7 @@ export function detectFileTypeFromFilename(filename: string): string | null {
   if (n.includes("giocato per conto e data")) {
     return "daily_player";
   }
-  if (n.includes("anagrafica giocatori") || n.includes("players master")) {
+  if (n.includes("anagrafica giocatori") || n.includes("players master") || n.includes("players export")) {
     return "players_master";
   }
 
