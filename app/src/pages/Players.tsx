@@ -571,7 +571,7 @@ export default function PlayersPage() {
 
   // PVR options
   const pvrOptions = useMemo(() => {
-    const opts: { id: number; name: string }[] = []
+    const opts: { id: string; name: string }[] = []
     pvrs.forEach((name, id) => opts.push({ id, name }))
     return opts.sort((a, b) => a.name.localeCompare(b.name))
   }, [pvrs])
@@ -759,7 +759,7 @@ export default function PlayersPage() {
                 <FilterPill label={`Cerca: ${globalFilter}`} onRemove={() => setGlobalFilter('')} />
               )}
               {pvrFilter !== 'all' && (
-                <FilterPill label={`PVR: ${pvrs.get(Number(pvrFilter)) || pvrFilter}`} onRemove={() => setPvrFilter('all')} />
+                <FilterPill label={`PVR: ${pvrs.get(pvrFilter) || pvrFilter}`} onRemove={() => setPvrFilter('all')} />
               )}
               {statusFilter !== 'all' && (
                 <FilterPill label={`Stato: ${statusFilter === 'active' ? 'Attivo' : 'Inattivo'}`} onRemove={() => setStatusFilter('all')} />
