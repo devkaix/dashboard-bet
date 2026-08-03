@@ -337,21 +337,6 @@ function DetailPanel({
 
       {/* Content */}
       <div className="p-6 space-y-6">
-        {/* Health Score */}
-        {'health_score' in node.data && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.1 }}
-            className="flex flex-col items-center py-4"
-          >
-            <HealthRing score={(node.data as { health_score?: number | null }).health_score ?? null} size={96} strokeWidth={6} />
-            <p className="text-[14px] text-text-secondary mt-3">
-              {getHealthLabel((node.data as { health_score?: number | null }).health_score ?? null)}
-            </p>
-          </motion.div>
-        )}
-
         {/* KPI Grid */}
         <motion.div
           initial={{ opacity: 0, y: 8 }}
@@ -398,29 +383,7 @@ function DetailPanel({
           )}
         </motion.div>
 
-        {/* Player AI Insight */}
-        {node.type === 'player' && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="bg-accent-purple/5 border border-accent-purple/15 rounded-xl p-4"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles size={14} className="text-accent-purple" />
-              <span className="text-[13px] font-medium text-accent-purple">AI Insight</span>
-            </div>
-            <p className="text-[13px] text-text-secondary">
-              {(node.data as Player).health_score == null
-                ? 'Dati insufficienti per una valutazione automatica.'
-                : num(node.data, 'health_score') >= 80
-                ? 'Top performer \u2014 Considerare offerta VIP'
-                : num(node.data, 'health_score') >= 50
-                ? 'Giocatore stabile \u2014 Monitorare attivit\u00E0'
-                : 'Giocatore a rischio \u2014 Richiede attenzione'}
-            </p>
-          </motion.div>
-        )}
+        {/* Player AI Insight — removed: health_score always null */}
 
         {/* Agent Player List — removed: agent children are PVRs, not players */}
       </div>
@@ -526,9 +489,6 @@ function TreeRow({
             >
               {getNodeName(node)}
             </span>
-            {node.type === 'pvr' && (
-              <PvrStatusBadge trend={getPvrTrend(node)} />
-            )}
           </div>
           {node.type === 'area_manager' && (
             <p className="text-[11px] text-text-muted truncate">
@@ -542,34 +502,13 @@ function TreeRow({
           )}
           {node.type === 'agent' && (
             <p className="text-[11px] text-text-muted">
-              {(node.data as Agent).code} &middot; Commissione {(node.data as Agent).commission_rate}%
+              {(node.data as Agent).code}
             </p>
           )}
         </div>
 
         {/* Right stats */}
         <div className="flex items-center gap-4 flex-shrink-0">
-          {/* Health */}
-          {'health_score' in node.data &&
-            (node.data as { health_score?: number | null }).health_score != null &&
-            node.type !== 'agent' && (
-              <div className="flex-shrink-0">
-                {node.type === 'player' ? (
-                  <div
-                    className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: getHealthColor((node.data as { health_score?: number | null }).health_score ?? null) }}
-                  />
-                ) : (
-                  <HealthRing
-                    score={(node.data as { health_score?: number | null }).health_score ?? null}
-                    size={depth === 0 ? 48 : depth === 1 ? 40 : 36}
-                    strokeWidth={3}
-                    showLabel={depth < 3}
-                  />
-                )}
-              </div>
-            )}
-
           {/* Metrics */}
           <div className="flex items-center gap-4 text-[12px] text-text-muted">
             {node.type === 'region' && (
