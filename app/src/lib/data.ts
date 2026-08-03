@@ -496,8 +496,8 @@ async function fetchNetworkHierarchy(range?: DateRange): Promise<{
     if (r.pvr_id && r.pvr_ref_code) codeByPvrId.set(r.pvr_id as string, r.pvr_ref_code as string);
   }
 
-  const regionNames = Array.from(new Set(rawPvrs.map((p) => p.region as string).filter(Boolean)));
-  const amNames = Array.from(new Set(rawPvrs.map((p) => p.area_manager as string).filter(Boolean)));
+  const regionNames = Array.from(new Set(rawPvrs.filter(p => (p.tipo as string) !== 'agent').map((p) => p.region as string).filter(Boolean)));
+  const amNames = Array.from(new Set(rawPvrs.filter(p => (p.tipo as string) !== 'agent').map((p) => p.area_manager as string).filter(Boolean)));
 
   const regions: Region[] = regionNames.map((name, idx) => ({
     id: idx + 1,
@@ -524,7 +524,9 @@ async function fetchNetworkHierarchy(range?: DateRange): Promise<{
     region.area_manager_id = am?.id || 0;
   });
 
-  const pvrs: PVR[] = rawPvrs.map((p) => {
+  const pvrs: PVR[] = rawPvrs
+    .filter(p => (p.tipo as string) !== 'agent' && (p.tipo as string) !== 'regional')
+    .map((p) => {
     // Extract AM name (before " | " if agent is present)
     const rawAm = (p.area_manager as string) || "";
     const amName = rawAm.split(" | ")[0].trim();
@@ -549,22 +551,19 @@ async function fetchNetworkHierarchy(range?: DateRange): Promise<{
     };
   });
 
-  // Agents from pvr_hierarchy: PVR rows with "area_manager | agent_name"
-  // indicate the PVR is under that agent. Extract unique agents with their PVR.
-  const agentMap = new Map<string, { name: string; pvrIds: string[]; areaManager: string }>();
-  for (const p of rawPvrs) {
-    const am = (p.area_manager as string) || "";
-    const parts = am.split(" | ");
-    if (parts.length >= 2) {
-      const agentName = parts[parts.length - 1].trim();
-      const areaMgr = parts.slice(0, -1).join(" | ").trim();
-      if (agentName && p.id) {
-        if (!agentMap.has(agentName)) {
-          agentMap.set(agentName, { name: agentName, pvrIds: [], areaManager: areaMgr });
-        }
-        agentMap.get(agentName)!.pvrIds.push(p.id as string);
-      }
-    }
+  // Agents from pvrs entries with tipo='agent'
+  const agentPvrs = rawPvrs.filter(p => (p.tipo as string) === 'agent');
+  const agentMap = new Map<string, { name: string; pvrIds: string[] }>();
+  
+  for (const agent of agentPvrs) {
+    const agentName = agent.name as string;
+    const childPvrs = rawPvrs.filter(p => 
+      (p.tipo as string) === 'pvr' && (p.area_manager as string) === agentName
+    );
+    agentMap.set(agentName, {
+      name: agentName,
+      pvrIds: childPvrs.map(p => p.id as string),
+    });
   }
 
   const agents: Agent[] = Array.from(agentMap.entries()).map(([name, info], idx) => ({

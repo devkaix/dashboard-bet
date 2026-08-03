@@ -1153,6 +1153,7 @@ export default function UploadPage() {
                 id: crypto.randomUUID(),
                 exalogic_id: eid,
                 name: ragione,
+                tipo: 'agent',
                 status: stato,
                 fido,
                 saldo,
@@ -1175,6 +1176,7 @@ export default function UploadPage() {
               id: crypto.randomUUID(),
               exalogic_id: eid,
               name: ragione,
+              tipo: 'pvr',
               status: stato,
               fido,
               saldo,
@@ -1184,8 +1186,18 @@ export default function UploadPage() {
               area_manager: effectiveAreaManager,
             });
             if (cod) {
+              // Only create commercial code mapping for PVRs, not agents
               mappingUpserts.set(eid, { pvr_ref_code: cod.toUpperCase(), exalogic_id: eid });
             }
+          }
+        }
+
+        // Filter mappings to only include PVR entries (not agents)
+        const pvrOnlyMappings = new Map<string, { pvr_ref_code: string; exalogic_id: string }>();
+        for (const [eid, m] of mappingUpserts) {
+          const entry = pvrUpserts.get(eid);
+          if (entry && entry.tipo === 'pvr') {
+            pvrOnlyMappings.set(eid, m);
           }
         }
 
@@ -1213,7 +1225,7 @@ export default function UploadPage() {
         const pvrIdByEid = new Map<string, string>();
         for (const p of pvrData || []) pvrIdByEid.set(p.exalogic_id, p.id);
 
-        const mapRows = [...mappingUpserts.values()]
+        const mapRows = [...pvrOnlyMappings.values()]
           .map((m) => ({
             pvr_ref_code: m.pvr_ref_code,
             pvr_id: pvrIdByEid.get(m.exalogic_id),
