@@ -67,6 +67,9 @@ export interface Player {
   registration_date: string | null
   last_activity_date: string | null
   status: string | null
+  kyc_status: string | null
+  balance: number | null
+  withdrawable_balance: number | null
   health_score: number | null
   total_buy_in: number
   total_bet: number
@@ -586,7 +589,7 @@ async function fetchPlayers(pvrs: PVR[], range?: DateRange): Promise<Player[]> {
   // 1. Player metadata (real PVR mapping from players_master / pvr_reference_map)
   const { data: playersData, error: playersError } = await supabase
     .from("players")
-    .select("id, username, pvr_id, pvr_ref_code, email, registration_date, created_at, updated_at");
+    .select("id, username, pvr_id, pvr_ref_code, email, registration_date, kyc_status, balance, withdrawable_balance, created_at, updated_at");
   if (playersError) throw playersError;
 
   const playerMeta = new Map<
@@ -597,6 +600,9 @@ async function fetchPlayers(pvrs: PVR[], range?: DateRange): Promise<Player[]> {
       pvr_ref_code: string | null;
       email: string | null;
       registration_date: string | null;
+      kyc_status: string | null;
+      balance: number | null;
+      withdrawable_balance: number | null;
       created_at: string;
       updated_at: string;
     }
@@ -608,6 +614,9 @@ async function fetchPlayers(pvrs: PVR[], range?: DateRange): Promise<Player[]> {
       pvr_ref_code: p.pvr_ref_code,
       email: p.email,
       registration_date: p.registration_date ? p.registration_date.split("T")[0] : null,
+      kyc_status: p.kyc_status || null,
+      balance: p.balance != null ? Number(p.balance) : null,
+      withdrawable_balance: p.withdrawable_balance != null ? Number(p.withdrawable_balance) : null,
       created_at: p.created_at || new Date().toISOString(),
       updated_at: p.updated_at || p.created_at || new Date().toISOString(),
     });

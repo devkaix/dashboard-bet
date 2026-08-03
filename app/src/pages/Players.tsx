@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -31,52 +30,9 @@ import {
   dataStore,
   formatCurrency,
   formatPercent,
+  getPvrName,
 } from '@/lib/data'
 import type { Player } from '@/lib/data'
-
-// ─── Health Score Ring ───
-function HealthRing({ score, size = 36 }: { score: number; size?: number }) {
-  const strokeWidth = 3
-  const radius = (size - strokeWidth * 2) / 2
-  const circumference = 2 * Math.PI * radius
-  const offset = circumference - (score / 100) * circumference
-  const color =
-    score >= 80 ? '#10b981' : score >= 50 ? '#f59e0b' : '#ef4444'
-
-  return (
-    <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke="#1e293b"
-          strokeWidth={strokeWidth}
-        />
-        <motion.circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          initial={{ strokeDashoffset: circumference }}
-          animate={{ strokeDashoffset: offset }}
-          transition={{ duration: 0.8, ease: [0.25, 0.1, 0.25, 1] as [number, number, number, number] }}
-        />
-      </svg>
-      <span
-        className="absolute text-[10px] font-mono font-semibold"
-        style={{ color }}
-      >
-        {Math.round(score)}
-      </span>
-    </div>
-  )
-}
 
 // ─── Mini Sparkline ───
 function MiniSparkline({ data, color }: { data: number[]; color: string }) {
@@ -194,20 +150,19 @@ function PlayerSheet({
             transition={{ delay: 0.1 }}
             className="flex items-center gap-5"
           >
-            <HealthRing score={player.health_score} size={80} />
+            <div className="w-20 h-20 rounded-full bg-accent-purple/20 flex items-center justify-center">
+              <span className="text-2xl font-bold text-accent-purple">{player.username.charAt(0).toUpperCase()}</span>
+            </div>
             <div>
-              <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-[18px] font-semibold text-text-primary">{player.username}</h2>
+              <div className="flex items-center gap-2 mt-1">
                 <StatusBadge status={player.status} />
-                {player.active_days >= 25 && (
-                  <span className="px-2 py-0.5 rounded-full bg-accent-purple/15 text-accent-purple text-[11px] font-medium flex items-center gap-1">
-                    <Sparkles size={10} /> Top 1%
-                  </span>
-                )}
+                <span className="text-[12px] text-text-muted">PVR: {getPvrName(player.pvr_id)}</span>
               </div>
-              <p className="text-[13px] text-text-secondary">
-                {player.first_name} {player.last_name}
+              <p className="text-[12px] text-text-muted mt-1">
+                {player.kyc_status && `KYC: ${player.kyc_status}`}
+                {player.registration_date && ` · Dal ${new Date(player.registration_date).toLocaleDateString('it-IT')}`}
               </p>
-              <p className="text-[12px] text-text-muted">Ultima attività: {player.last_activity_date}</p>
             </div>
           </motion.div>
 
@@ -320,30 +275,31 @@ function PlayerSheet({
             </div>
           </motion.div>
 
-          {/* AI Insight */}
+          {/* Player Info */}
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5 }}
-            className="rounded-lg border border-accent-purple/20 p-4"
-            style={{
-              background: 'rgba(17, 24, 39, 0.7)',
-              boxShadow: '0 0 20px rgba(139,92,246,0.15)',
-            }}
+            className="rounded-lg border border-border-subtle p-4 bg-bg-surface-elevated"
           >
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles size={14} className="text-accent-purple" />
-              <span className="text-[13px] font-semibold text-accent-purple">Insight AI</span>
+            <div className="grid grid-cols-2 gap-3 text-[13px]">
+              <div>
+                <span className="text-text-muted">KYC: </span>
+                <span className="text-text-primary">{player.kyc_status || '—'}</span>
+              </div>
+              <div>
+                <span className="text-text-muted">Registrato: </span>
+                <span className="text-text-primary">{player.registration_date ? new Date(player.registration_date).toLocaleDateString('it-IT') : '—'}</span>
+              </div>
+              <div>
+                <span className="text-text-muted">Saldo: </span>
+                <span className="text-text-primary">{player.balance != null ? formatCurrency(player.balance) : '—'}</span>
+              </div>
+              <div>
+                <span className="text-text-muted">Prelevabile: </span>
+                <span className="text-text-primary">{player.withdrawable_balance != null ? formatCurrency(player.withdrawable_balance) : '—'}</span>
+              </div>
             </div>
-            <p className="text-[13px] text-text-secondary leading-relaxed">
-              {player.total_rake > 10000
-                ? `Top performer della rete. Genera il ${((player.total_rake / 61964.77) * 100).toFixed(1)}% del rake totale da solo. Considerare un programma VIP dedicato per la retention.`
-                : player.health_score < 30
-                  ? 'Giocatore a rischio. Health score molto basso con attività intermittente. Intervento di retention consigliato entro 7 giorni.'
-                  : player.active_days > 20
-                    ? 'Giocatore molto attivo con buona regolarità. Monitorare il payout medio per ottimizzare il margine.'
-                    : 'Giocatore con potenziale di crescita. Strategia di engagement raccomandata per aumentare la frequenza di gioco.'}
-            </p>
           </motion.div>
         </div>
       </motion.div>
@@ -474,16 +430,7 @@ export default function PlayersPage() {
         header: 'PVR',
         cell: (info) => (
           <span className="text-[12px] text-text-secondary">
-            {pvrs.get(info.row.original.pvr_id) || `PVR ${info.row.original.pvr_id}`}
-          </span>
-        ),
-      }),
-      columnHelper.display({
-        id: 'agent',
-        header: 'Agente',
-        cell: (info) => (
-          <span className="text-[12px] text-text-secondary">
-            {agents.get(info.row.original.agent_id) || `Agent ${info.row.original.agent_id}`}
+            {getPvrName(info.row.original.pvr_id)}
           </span>
         ),
       }),
@@ -535,9 +482,18 @@ export default function PlayersPage() {
           )
         },
       }),
-      columnHelper.accessor('health_score', {
-        header: 'Health',
-        cell: (info) => <HealthRing score={info.getValue()} size={36} />,
+      columnHelper.display({
+        id: 'kyc',
+        header: 'KYC',
+        cell: (info) => {
+          const kyc = info.row.original.kyc_status
+          const ok = kyc && kyc.toUpperCase().includes('OK')
+          return (
+            <span className={cn('text-[12px] px-2 py-0.5 rounded-full', ok ? 'bg-positive/10 text-positive' : 'bg-warning/10 text-warning')}>
+              {kyc || '—'}
+            </span>
+          )
+        },
       }),
       columnHelper.accessor('status', {
         header: 'Stato',
@@ -554,9 +510,7 @@ export default function PlayersPage() {
           const playerStats = dailyStats.get(info.row.original.id) || []
           const last14 = playerStats.slice(0, 14).reverse()
           const scores = last14.map((s) => s.rake)
-          const score = info.row.original.health_score
-          const color = score >= 80 ? '#10b981' : score >= 50 ? '#f59e0b' : '#ef4444'
-          return <MiniSparkline data={scores} color={color} />
+          return <MiniSparkline data={scores} color="#8b5cf6" />
         },
       }),
       columnHelper.display({
@@ -589,21 +543,19 @@ export default function PlayersPage() {
   // Export CSV
   const exportCSV = useCallback(() => {
     const rows = filteredData
-    const headers = ['Username', 'Nome', 'PVR', 'Agente', 'Rake', 'Bet', 'Won', 'Payout', 'Giorni Attivi', 'Health Score', 'Stato']
+    const headers = ['Username', 'PVR', 'Rake', 'Bet', 'Won', 'Payout', 'Giorni Attivi', 'KYC', 'Stato']
     const csv = [
       headers.join(','),
       ...rows.map((p) =>
         [
           p.username,
-          `${p.first_name} ${p.last_name}`,
-          pvrs.get(p.pvr_id) || '',
-          agents.get(p.agent_id) || '',
+          getPvrName(p.pvr_id),
           p.total_rake.toFixed(2),
           p.total_bet.toFixed(2),
           p.total_won.toFixed(2),
           p.avg_payout.toFixed(2),
           p.active_days,
-          p.health_score.toFixed(2),
+          p.kyc_status || '',
           p.status,
         ].join(','),
       ),
