@@ -193,8 +193,6 @@ function PvrStatusBadge({ trend }: { trend: 'up' | 'down' | 'stable' | null }) {
 
 /* ─── Build tree from flat data ─── */
 function buildTree(): TreeNode[] {
-  const regions = dataStore.regions
-  const areaManagers = dataStore.area_managers
   const pvrs = dataStore.pvrs
   const agents = dataStore.agents
   const players = dataStore.players
@@ -211,72 +209,48 @@ function buildTree(): TreeNode[] {
     return { id: pvr.id, type: 'pvr' as EntityType, data: pvr, children: playerNodes }
   }
 
-  // Flat fallback: no AM data
-  if (areaManagers.length === 0) {
-    const pvrNodes = pvrs.map(buildPvrNode)
-    const unassignedPlayers = players.filter((pl) => !pl.pvr_id)
-    if (unassignedPlayers.length > 0) {
-      pvrNodes.push({
-        id: '__unassigned__', type: 'pvr',
-        data: { id: '__unassigned__', code: '', name: 'Non assegnati', area_manager_id: 0, region_id: 0 } as PVR,
-        children: unassignedPlayers.map((pl) => ({ id: pl.id, type: 'player' as EntityType, data: pl, children: [] })),
-      })
-    }
-    return [{ id: 'network', type: 'area_manager', data: { id: 0, name: 'Rete', region_id: 0, email: '', phone: '' } as AreaManager, children: pvrNodes }]
-  }
-
-  // Build agent lookup
+  // Build agent lookup by name
   const agentByName = new Map<string, Agent>()
   for (const a of agents) { agentByName.set(a.name, a) }
 
-  // Single root: the company → area managers directly
-  const amNodes: TreeNode[] = areaManagers.map((am) => {
-    const amPvrs = pvrs.filter((p) => p.area_manager_id === am.id)
+  // Track which PVRs are already assigned to agents
+  const assignedPvrIds = new Set<string>()
+  const agentNodes: TreeNode[] = []
 
-    const agentPvrMap = new Map<string, string[]>()
-    for (const a of agents) {
-      for (const pvrId of a.pvrIds || []) {
-        if (!agentPvrMap.has(a.name)) agentPvrMap.set(a.name, [])
-        agentPvrMap.get(a.name)!.push(pvrId)
-      }
-    }
+  for (const agent of agents) {
+    // PVRs under this agent (matched by pvrIds from fetchNetworkHierarchy)
+    const agentPvrs = agent.pvrIds
+      .map((pid: string) => pvrs.find((p) => p.id === pid))
+      .filter(Boolean) as PVR[]
+    for (const p of agentPvrs) assignedPvrIds.add(p.id)
+    agentNodes.push({
+      id: agent.id,
+      type: 'agent' as EntityType,
+      data: agent,
+      children: agentPvrs.map(buildPvrNode),
+    })
+  }
 
-    const assignedPvrIds = new Set<string>()
-    const children: TreeNode[] = []
+  // Direct PVRs (not under any agent)
+  const directPvrs = pvrs.filter((p) => !assignedPvrIds.has(p.id))
+  const directPvrNodes = directPvrs.map(buildPvrNode)
 
-    for (const [agentName, pvrIds] of agentPvrMap) {
-      const agentPvrs = amPvrs.filter(p => pvrIds.includes(p.id))
-      if (agentPvrs.length === 0) continue
-      for (const pid of pvrIds) assignedPvrIds.add(pid)
-      const agent = agentByName.get(agentName)
-      children.push({
-        id: agent?.id || agentName,
-        type: 'agent' as EntityType,
-        data: agent || { id: 0, code: '', name: agentName, pvr_id: '', email: '', phone: '', commission_rate: 0, created_at: '' } as Agent,
-        children: agentPvrs.map(buildPvrNode),
-      })
-    }
-
-    children.push(...amPvrs.filter(p => !assignedPvrIds.has(p.id)).map(buildPvrNode))
-
-    return { id: am.id, type: 'area_manager' as EntityType, data: am, children }
-  })
-
-  // Giocatori senza PVR (se presenti)
+  // Giocatori senza PVR
   const unassignedPlayers = players.filter((pl) => !pl.pvr_id)
   if (unassignedPlayers.length > 0) {
-    amNodes.push({
-      id: '__unassigned__', type: 'area_manager' as EntityType,
-      data: { id: 0, name: 'Senza PVR (' + unassignedPlayers.length + ')', region_id: 0, email: '', phone: '' } as AreaManager,
+    directPvrNodes.push({
+      id: '__unassigned__', type: 'pvr',
+      data: { id: '__unassigned__', code: '', name: 'Senza PVR (' + unassignedPlayers.length + ')', area_manager_id: 0, region_id: 0 } as PVR,
       children: unassignedPlayers.map((pl) => ({ id: pl.id, type: 'player' as EntityType, data: pl, children: [] })),
     })
   }
 
+  // Root: company → agents + direct PVRs
   return [{
     id: 'company',
     type: 'area_manager' as EntityType,
     data: { id: 0, name: 'BET SERVICES SRL', region_id: 0, email: '', phone: '' } as AreaManager,
-    children: amNodes,
+    children: [...agentNodes, ...directPvrNodes],
   }]
 }
 
