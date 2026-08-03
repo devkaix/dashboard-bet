@@ -1141,6 +1141,25 @@ export default function UploadPage() {
             currentAreaManager = null;
             currentAgent = null;
             currentAgentDepth = 0;
+            // Also save regional as pvrs entry (it's a real PVR with players)
+            if (eid) {
+              pvrUpserts.set(eid, {
+                id: crypto.randomUUID(),
+                exalogic_id: eid,
+                name: ragione,
+                tipo: 'regional',
+                status: stato,
+                fido,
+                saldo,
+                disponibile,
+                created_on: createdOn,
+                region: ragione,
+                area_manager: ragione,
+              });
+              if (cod) {
+                mappingUpserts.set(eid, { pvr_ref_code: cod.toUpperCase(), exalogic_id: eid });
+              }
+            }
           } else if (tipo === "AREA MANAGER") {
             currentAreaManager = ragione || null;
             currentAgent = null;
@@ -1192,11 +1211,11 @@ export default function UploadPage() {
           }
         }
 
-        // Filter mappings to only include PVR entries (not agents)
+        // Filter mappings to only include PVR and REGIONAL entries (not agents)
         const pvrOnlyMappings = new Map<string, { pvr_ref_code: string; exalogic_id: string }>();
         for (const [eid, m] of mappingUpserts) {
           const entry = pvrUpserts.get(eid);
-          if (entry && entry.tipo === 'pvr') {
+          if (entry && (entry.tipo === 'pvr' || entry.tipo === 'regional')) {
             pvrOnlyMappings.set(eid, m);
           }
         }
