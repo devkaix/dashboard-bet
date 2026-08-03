@@ -1161,9 +1161,28 @@ export default function UploadPage() {
               }
             }
           } else if (tipo === "AREA MANAGER") {
+            // AREA MANAGER is an organizational level with sub-PVRs, treat as agent
             currentAreaManager = ragione || null;
-            currentAgent = null;
-            currentAgentDepth = 0;
+            currentAgent = ragione || null;
+            currentAgentDepth = dashes;
+            if (eid) {
+              pvrUpserts.set(eid, {
+                id: crypto.randomUUID(),
+                exalogic_id: eid,
+                name: ragione,
+                tipo: 'agent',
+                status: stato,
+                fido,
+                saldo,
+                disponibile,
+                created_on: createdOn,
+                region: currentRegion,
+                area_manager: ragione,
+              });
+              if (cod) {
+                mappingUpserts.set(eid, { pvr_ref_code: cod.toUpperCase(), exalogic_id: eid });
+              }
+            }
           } else if (tipo === "AGENTE") {
             currentAgent = ragione || null;
             currentAgentDepth = dashes;
@@ -1201,7 +1220,7 @@ export default function UploadPage() {
               saldo,
               disponibile,
               created_on: createdOn,
-              region: currentRegion,
+              region: underAgent ? currentAgent : currentRegion,
               area_manager: effectiveAreaManager,
             });
             if (cod) {
