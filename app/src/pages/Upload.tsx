@@ -1116,12 +1116,14 @@ export default function UploadPage() {
         let currentRegion: string | null = null;
         let currentAreaManager: string | null = null;
         let currentAgent: string | null = null;
+        let currentAgentDepth = 0; // dash count of the agent
         const pvrUpserts = new Map<string, any>();
         const mappingUpserts = new Map<string, { pvr_ref_code: string; exalogic_id: string }>();
 
         for (const row of rows) {
           const codRaw = String(col(row, ["Cod. punto"]) || "").trim();
           const cod = codRaw.replace(/^(?:\s*--\s*)+/, "").trim();
+          const dashes = (codRaw.match(/--/g) || []).length; // indent depth
           const tipo = String(col(row, ["Tipo punto"]) || "").trim().toUpperCase();
           const eid = String(col(row, ["ID"]) || "").trim();
           const ragione = String(col(row, ["Ragione sociale"]) || "").trim();
@@ -1138,13 +1140,14 @@ export default function UploadPage() {
             currentRegion = ragione || null;
             currentAreaManager = null;
             currentAgent = null;
+            currentAgentDepth = 0;
           } else if (tipo === "AREA MANAGER") {
             currentAreaManager = ragione || null;
             currentAgent = null;
+            currentAgentDepth = 0;
           } else if (tipo === "AGENTE") {
-            // Agent sits between Area Manager and PVR; track for subsequent PVR
-            // rows and also save as a pvrs entry (agents have exalogic_id + financials).
             currentAgent = ragione || null;
+            currentAgentDepth = dashes;
             if (eid) {
               pvrUpserts.set(eid, {
                 id: crypto.randomUUID(),
@@ -1163,9 +1166,9 @@ export default function UploadPage() {
               }
             }
           } else if (tipo === "PVR" && eid) {
-            // PVR sotto un agente: concatena agente all'area_manager
-            // per preservare la gerarchia completa (4 livelli).
-            const effectiveAreaManager = currentAgent
+            // PVR is under agent only if it has MORE dashes than the agent
+            const underAgent = currentAgent && dashes > currentAgentDepth;
+            const effectiveAreaManager = underAgent
               ? [currentAreaManager, currentAgent].filter(Boolean).join(" | ")
               : currentAreaManager;
             pvrUpserts.set(eid, {
