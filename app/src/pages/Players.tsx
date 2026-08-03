@@ -156,7 +156,7 @@ function PlayerSheet({
             <div>
               <h2 className="text-[18px] font-semibold text-text-primary">{player.username}</h2>
               <div className="flex items-center gap-2 mt-1">
-                <StatusBadge status={player.status} />
+                <StatusBadge status={player.status || 'unknown'} />
                 <span className="text-[12px] text-text-muted">PVR: {getPvrName(player.pvr_id)}</span>
               </div>
               <p className="text-[12px] text-text-muted mt-1">
@@ -311,8 +311,8 @@ function PlayerSheet({
 export default function PlayersPage() {
   const [data, setData] = useState<Player[]>([])
   const [agents, setAgents] = useState<Map<number, string>>(new Map())
-  const [pvrs, setPvrs] = useState<Map<number, string>>(new Map())
-  const [dailyStats, setDailyStats] = useState<Map<number, { date: string; buy_in: number; bet: number; won: number; rake: number; payout: number }[]>>(new Map())
+  const [pvrs, setPvrs] = useState<Map<string, string>>(new Map())
+  const [dailyStats, setDailyStats] = useState<Map<string, { date: string; buy_in: number; bet: number; won: number; rake: number; payout: number }[]>>(new Map())
   const [loading, setLoading] = useState(true)
 
   const [globalFilter, setGlobalFilter] = useState('')
@@ -334,11 +334,11 @@ export default function PlayersPage() {
         ds.agents.forEach((a) => agentMap.set(a.id, a.name))
         setAgents(agentMap)
 
-        const pvrMap = new Map<number, string>()
+        const pvrMap = new Map<string, string>()
         ds.pvrs.forEach((p) => pvrMap.set(p.id, p.name))
         setPvrs(pvrMap)
 
-        const statsMap = new Map<number, { date: string; buy_in: number; bet: number; won: number; rake: number; payout: number }[]>()
+        const statsMap = new Map<string, { date: string; buy_in: number; bet: number; won: number; rake: number; payout: number }[]>()
         ds.daily_stats.forEach((s) => {
           const arr = statsMap.get(s.player_id) || []
           arr.push({
@@ -383,18 +383,18 @@ export default function PlayersPage() {
     return data.filter((player) => {
       if (globalFilter) {
         const q = globalFilter.toLowerCase()
-        const pvrName = pvrs.get(player.pvr_id) || ''
-        const agentName = agents.get(player.agent_id) || ''
+        const pvrName = pvrs.get(player.pvr_id ?? '') || ''
+        const agentName = agents.get(player.agent_id ?? 0) || ''
         if (
           !player.username.toLowerCase().includes(q) &&
-          !player.first_name.toLowerCase().includes(q) &&
-          !player.last_name.toLowerCase().includes(q) &&
+          !(player.first_name || '').toLowerCase().includes(q) &&
+          !(player.last_name || '').toLowerCase().includes(q) &&
           !pvrName.toLowerCase().includes(q) &&
           !agentName.toLowerCase().includes(q)
         )
           return false
       }
-      if (pvrFilter !== 'all' && String(player.pvr_id) !== pvrFilter) return false
+      if (pvrFilter !== 'all' && (player.pvr_id ?? '') !== pvrFilter) return false
       if (statusFilter !== 'all' && player.status !== statusFilter) return false
       if (activityFilter !== 'all') {
         if (activityFilter === 'high' && player.active_days < 20) return false
@@ -937,8 +937,8 @@ export default function PlayersPage() {
         {selectedPlayer && (
           <PlayerSheet
             player={selectedPlayer}
-            agentName={agents.get(selectedPlayer.agent_id) || `Agent ${selectedPlayer.agent_id}`}
-            pvrName={pvrs.get(selectedPlayer.pvr_id) || `PVR ${selectedPlayer.pvr_id}`}
+            agentName={agents.get(selectedPlayer.agent_id ?? 0) || `Agent ${selectedPlayer.agent_id}`}
+            pvrName={pvrs.get(selectedPlayer.pvr_id ?? '') || `PVR ${selectedPlayer.pvr_id}`}
             dailyData={dailyStats.get(selectedPlayer.id) || []}
             onClose={() => setSelectedPlayer(null)}
           />
