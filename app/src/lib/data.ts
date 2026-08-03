@@ -525,7 +525,7 @@ async function fetchNetworkHierarchy(range?: DateRange): Promise<{
   });
 
   const pvrs: PVR[] = rawPvrs
-    .filter(p => (p.tipo as string) !== 'agent' && (p.tipo as string) !== 'regional')
+    .filter(p => (p.tipo as string) !== 'agent')
     .map((p) => {
     // Extract AM name (before " | " if agent is present) — legacy compat
     const rawAm = (p.area_manager as string) || "";
