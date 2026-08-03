@@ -557,9 +557,11 @@ async function fetchNetworkHierarchy(range?: DateRange): Promise<{
   
   for (const agent of agentPvrs) {
     const agentName = agent.name as string;
-    const childPvrs = rawPvrs.filter(p => 
-      (p.tipo as string) === 'pvr' && (p.area_manager as string) === agentName
-    );
+    const childPvrs = rawPvrs.filter(p => {
+      if ((p.tipo as string) !== 'pvr') return false;
+      const am = (p.area_manager as string) || '';
+      return am === agentName || am.endsWith(' | ' + agentName);
+    });
     agentMap.set(agentName, {
       name: agentName,
       pvrIds: childPvrs.map(p => p.id as string),
