@@ -262,6 +262,38 @@ function buildTree(): TreeNode[] {
     return { id: am.id, type: 'area_manager' as EntityType, data: am, children }
   })
 
+  // Add unassigned PVRs (no area_manager match) and unassigned players
+  const assignedPvrs = new Set<string>()
+  for (const am of amNodes) {
+    for (const child of am.children) {
+      if (child.type === 'pvr') assignedPvrs.add(child.id as string)
+      if (child.type === 'agent') {
+        for (const pvr of child.children) assignedPvrs.add(pvr.id as string)
+      }
+    }
+  }
+  const unassignedPvrs = pvrs.filter(p => !assignedPvrs.has(p.id))
+  if (unassignedPvrs.length > 0) {
+    amNodes.push({
+      id: '__other__', type: 'area_manager' as EntityType,
+      data: { id: 0, name: 'Altri PVR', region_id: 0, email: '', phone: '' } as AreaManager,
+      children: unassignedPvrs.map(buildPvrNode),
+    })
+  }
+
+  const unassignedPlayers = players.filter((pl) => !pl.pvr_id)
+  if (unassignedPlayers.length > 0) {
+    amNodes.push({
+      id: '__unassigned__', type: 'area_manager' as EntityType,
+      data: { id: 0, name: 'Giocatori non assegnati', region_id: 0, email: '', phone: '' } as AreaManager,
+      children: [{
+        id: '__unassigned_pvr__', type: 'pvr',
+        data: { id: '__unassigned_pvr__', code: '', name: 'Senza PVR', area_manager_id: 0, region_id: 0 } as PVR,
+        children: unassignedPlayers.map((pl) => ({ id: pl.id, type: 'player' as EntityType, data: pl, children: [] })),
+      }],
+    })
+  }
+
   return [{
     id: 'company',
     type: 'area_manager' as EntityType,
