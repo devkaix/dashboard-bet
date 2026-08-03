@@ -208,39 +208,28 @@ function buildTree(): TreeNode[] {
         data: pl,
         children: [],
       }))
-
     return { id: pvr.id, type: 'pvr' as EntityType, data: pvr, children: playerNodes }
   }
 
   // Fallback: if no regions/area managers are defined, show flat PVR → Players tree
   if (regions.length === 0 || areaManagers.length === 0) {
     const pvrNodes = pvrs.map(buildPvrNode)
-
     const unassignedPlayers = players.filter((pl) => !pl.pvr_id)
     if (unassignedPlayers.length > 0) {
-      const unassignedNode: TreeNode = {
-        id: '__unassigned__',
-        type: 'pvr',
+      pvrNodes.push({
+        id: '__unassigned__', type: 'pvr',
         data: { id: '__unassigned__', code: '', name: 'Non assegnati', area_manager_id: 0, region_id: 0 } as PVR,
-        children: unassignedPlayers.map((pl) => ({
-          id: pl.id,
-          type: 'player' as EntityType,
-          data: pl,
-          children: [],
-        })),
-      }
-      pvrNodes.push(unassignedNode)
+        children: unassignedPlayers.map((pl) => ({ id: pl.id, type: 'player' as EntityType, data: pl, children: [] })),
+      })
     }
-
-    return [{
-      id: 'network',
-      type: 'region',
-      data: { id: 0, name: 'Rete', area_manager_id: 0 } as Region,
-      children: pvrNodes,
-    }]
+    return [{ id: 'network', type: 'region', data: { id: 0, name: 'Rete', area_manager_id: 0 } as Region, children: pvrNodes }]
   }
 
-  // Group regions by name (unique region names)
+  // Build agent lookup: agent name → Agent object
+  const agentByName = new Map<string, Agent>()
+  for (const a of agents) { agentByName.set(a.name, a) }
+
+  // Group regions by name
   const uniqueNames = Array.from(new Set(regions.map((r) => r.name)))
   const regionNodes: TreeNode[] = uniqueNames.map((name, idx) => {
     const regionRecs = regions.filter((r) => r.name === name)
@@ -249,16 +238,41 @@ function buildTree(): TreeNode[] {
 
     const amNodes: TreeNode[] = ams.map((am) => {
       const amPvrs = pvrs.filter((p) => p.area_manager_id === am.id)
-      const pvrNodes = amPvrs.map(buildPvrNode)
-      return { id: am.id, type: 'area_manager' as EntityType, data: am, children: pvrNodes }
+
+      // Separate PVRs with agent vs direct
+      // Use agent pvrIds to determine which PVRs belong to which agent
+      const agentPvrMap = new Map<string, string[]>() // agent name → pvr IDs
+      for (const a of agents) {
+        for (const pvrId of a.pvrIds || []) {
+          if (!agentPvrMap.has(a.name)) agentPvrMap.set(a.name, [])
+          agentPvrMap.get(a.name)!.push(pvrId)
+        }
+      }
+
+      const assignedPvrIds = new Set<string>()
+      const children: TreeNode[] = []
+
+      // Build agent nodes
+      for (const [agentName, pvrIds] of agentPvrMap) {
+        const agentPvrs = amPvrs.filter(p => pvrIds.includes(p.id))
+        if (agentPvrs.length === 0) continue
+        for (const pid of pvrIds) assignedPvrIds.add(pid)
+        const agent = agentByName.get(agentName)
+        children.push({
+          id: agent?.id || agentName,
+          type: 'agent' as EntityType,
+          data: agent || { id: 0, code: '', name: agentName, pvr_id: '', email: '', phone: '', commission_rate: 0, created_at: '' } as Agent,
+          children: agentPvrs.map(buildPvrNode),
+        })
+      }
+
+      // Add direct PVRs (not under any agent)
+      children.push(...amPvrs.filter(p => !assignedPvrIds.has(p.id)).map(buildPvrNode))
+
+      return { id: am.id, type: 'area_manager' as EntityType, data: am, children }
     })
 
-    return {
-      id: idx + 1,
-      type: 'region',
-      data: { name, id: idx + 1, area_manager_id: 0 } as Region,
-      children: amNodes,
-    }
+    return { id: idx + 1, type: 'region', data: { name, id: idx + 1, area_manager_id: 0 } as Region, children: amNodes }
   })
 
   return regionNodes
