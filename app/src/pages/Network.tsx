@@ -371,9 +371,8 @@ function DetailPanel({
           )}
           {node.type === 'agent' && (
             <>
-              <KpiCard label="Giocatori" value={String(node.children.length)} />
-              <KpiCard label="Commissione" value={`${num(node.data, 'commission_rate')}%`} />
-              <KpiCard label="Codice" value={str(node.data, 'code') || '-'} />
+              <KpiCard label="PVR" value={String(node.children.length)} />
+              <KpiCard label="Rake" value={formatCurrency(getAgentTotalRake(node))} />
             </>
           )}
           {node.type === 'player' && (
@@ -421,27 +420,7 @@ function DetailPanel({
           </motion.div>
         )}
 
-        {/* Agent Player List */}
-        {node.type === 'agent' && node.children.length > 0 && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}>
-            <h3 className="text-[14px] font-semibold text-text-primary mb-3">Giocatori</h3>
-            <div className="space-y-2">
-              {node.children.map((pl) => (
-                <div
-                  key={pl.id}
-                  className="flex items-center justify-between py-2 px-3 bg-bg-surface-elevated rounded-lg"
-                >
-                  <span className="text-[13px] text-text-primary">
-                    {str(pl.data, 'username')}
-                  </span>
-                  <span className="text-[12px] text-text-muted font-mono">
-                    {formatCurrency(num(pl.data, 'total_rake'))}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        )}
+        {/* Agent Player List — removed: agent children are PVRs, not players */}
       </div>
     </motion.div>
   )
@@ -624,7 +603,7 @@ function TreeRow({
             )}
             {node.type === 'agent' && (
               <>
-                <span>{node.children.length} Giocatori</span>
+                <span>{node.children.length} PVR</span>
                 <span className="text-text-primary font-mono">
                   {formatCurrency(getAgentTotalRake(node))}
                 </span>
@@ -737,7 +716,7 @@ function getPvrTotalRake(node: TreeNode): number {
 }
 
 function getAgentTotalRake(node: TreeNode): number {
-  return sumPlayerRake(node)
+  return node.children.reduce((s, pvr) => s + getPvrTotalRake(pvr), 0)
 }
 
 function getBreadcrumbPath(node: TreeNode): string[] {
@@ -768,27 +747,7 @@ function NetworkSummary({ tree }: { tree: TreeNode[] }) {
       transition={{ duration: 0.4, delay: 0.5, ease: [0.4, 0, 0.2, 1] as [number, number, number, number] }}
       className="sticky bottom-0 left-0 right-0 h-12 bg-bg-surface-elevated border-t border-border-subtle flex items-center px-6 gap-8 z-20"
     >
-      {avgHealth != null ? (
-        <div className="flex items-center gap-3">
-          <span className="text-[12px] text-text-muted">Health Media Rete:</span>
-          <div className="flex items-center gap-2">
-            <div className="w-[200px] h-1.5 bg-bg-surface-highlight rounded-full overflow-hidden">
-              <motion.div
-                className="h-full rounded-full"
-                style={{ backgroundColor: getHealthColor(avgHealth) }}
-                initial={{ width: 0 }}
-                animate={{ width: `${avgHealth}%` }}
-                transition={{ duration: 0.8, delay: 0.6 }}
-              />
-            </div>
-            <span className="text-[12px] text-text-primary font-mono font-medium">
-              {Math.round(avgHealth)}/100
-            </span>
-          </div>
-        </div>
-      ) : (
-        <span className="text-[12px] text-text-muted">Health Media Rete: N/D</span>
-      )}
+      {/* Health bar removed — always N/D until formula approved */}
       <div className="flex items-center gap-2">
         <span className="text-[12px] text-text-muted">Rake Totale:</span>
         <span className="text-[12px] text-text-primary font-mono font-medium">
@@ -806,9 +765,15 @@ function NetworkSummary({ tree }: { tree: TreeNode[] }) {
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-[12px] text-text-muted">Agenti:</span>
-        <span className="text-[12px] text-text-primary font-mono font-medium">
-          {dataStore.agents.length}
+        <span className="text-[12px] text-text-muted">Attivi:</span>
+        <span className="text-[12px] text-positive font-mono font-medium">
+          {dataStore.pvrs.filter(p => p.status === 'ATTIVO' || p.status === 'active').length}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-[12px] text-text-muted">Chiusi:</span>
+        <span className="text-[12px] text-negative font-mono font-medium">
+          {dataStore.pvrs.filter(p => p.status === 'CHIUSO').length}
         </span>
       </div>
     </motion.div>
