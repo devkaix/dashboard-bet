@@ -211,8 +211,8 @@ function buildTree(): TreeNode[] {
     return { id: pvr.id, type: 'pvr' as EntityType, data: pvr, children: playerNodes }
   }
 
-  // Fallback: if no regions/area managers are defined, show flat PVR → Players tree
-  if (regions.length === 0 || areaManagers.length === 0) {
+  // Flat fallback: no AM data
+  if (areaManagers.length === 0) {
     const pvrNodes = pvrs.map(buildPvrNode)
     const unassignedPlayers = players.filter((pl) => !pl.pvr_id)
     if (unassignedPlayers.length > 0) {
@@ -222,60 +222,52 @@ function buildTree(): TreeNode[] {
         children: unassignedPlayers.map((pl) => ({ id: pl.id, type: 'player' as EntityType, data: pl, children: [] })),
       })
     }
-    return [{ id: 'network', type: 'region', data: { id: 0, name: 'Rete', area_manager_id: 0 } as Region, children: pvrNodes }]
+    return [{ id: 'network', type: 'area_manager', data: { id: 0, name: 'Rete', region_id: 0, email: '', phone: '' } as AreaManager, children: pvrNodes }]
   }
 
-  // Build agent lookup: agent name → Agent object
+  // Build agent lookup
   const agentByName = new Map<string, Agent>()
   for (const a of agents) { agentByName.set(a.name, a) }
 
-  // Group regions by name
-  const uniqueNames = Array.from(new Set(regions.map((r) => r.name)))
-  const regionNodes: TreeNode[] = uniqueNames.map((name, idx) => {
-    const regionRecs = regions.filter((r) => r.name === name)
-    const amIds = regionRecs.map((r) => r.area_manager_id)
-    const ams = areaManagers.filter((am) => amIds.includes(am.id))
+  // Single root: the company → area managers directly
+  const amNodes: TreeNode[] = areaManagers.map((am) => {
+    const amPvrs = pvrs.filter((p) => p.area_manager_id === am.id)
 
-    const amNodes: TreeNode[] = ams.map((am) => {
-      const amPvrs = pvrs.filter((p) => p.area_manager_id === am.id)
-
-      // Separate PVRs with agent vs direct
-      // Use agent pvrIds to determine which PVRs belong to which agent
-      const agentPvrMap = new Map<string, string[]>() // agent name → pvr IDs
-      for (const a of agents) {
-        for (const pvrId of a.pvrIds || []) {
-          if (!agentPvrMap.has(a.name)) agentPvrMap.set(a.name, [])
-          agentPvrMap.get(a.name)!.push(pvrId)
-        }
+    const agentPvrMap = new Map<string, string[]>()
+    for (const a of agents) {
+      for (const pvrId of a.pvrIds || []) {
+        if (!agentPvrMap.has(a.name)) agentPvrMap.set(a.name, [])
+        agentPvrMap.get(a.name)!.push(pvrId)
       }
+    }
 
-      const assignedPvrIds = new Set<string>()
-      const children: TreeNode[] = []
+    const assignedPvrIds = new Set<string>()
+    const children: TreeNode[] = []
 
-      // Build agent nodes
-      for (const [agentName, pvrIds] of agentPvrMap) {
-        const agentPvrs = amPvrs.filter(p => pvrIds.includes(p.id))
-        if (agentPvrs.length === 0) continue
-        for (const pid of pvrIds) assignedPvrIds.add(pid)
-        const agent = agentByName.get(agentName)
-        children.push({
-          id: agent?.id || agentName,
-          type: 'agent' as EntityType,
-          data: agent || { id: 0, code: '', name: agentName, pvr_id: '', email: '', phone: '', commission_rate: 0, created_at: '' } as Agent,
-          children: agentPvrs.map(buildPvrNode),
-        })
-      }
+    for (const [agentName, pvrIds] of agentPvrMap) {
+      const agentPvrs = amPvrs.filter(p => pvrIds.includes(p.id))
+      if (agentPvrs.length === 0) continue
+      for (const pid of pvrIds) assignedPvrIds.add(pid)
+      const agent = agentByName.get(agentName)
+      children.push({
+        id: agent?.id || agentName,
+        type: 'agent' as EntityType,
+        data: agent || { id: 0, code: '', name: agentName, pvr_id: '', email: '', phone: '', commission_rate: 0, created_at: '' } as Agent,
+        children: agentPvrs.map(buildPvrNode),
+      })
+    }
 
-      // Add direct PVRs (not under any agent)
-      children.push(...amPvrs.filter(p => !assignedPvrIds.has(p.id)).map(buildPvrNode))
+    children.push(...amPvrs.filter(p => !assignedPvrIds.has(p.id)).map(buildPvrNode))
 
-      return { id: am.id, type: 'area_manager' as EntityType, data: am, children }
-    })
-
-    return { id: idx + 1, type: 'region', data: { name, id: idx + 1, area_manager_id: 0 } as Region, children: amNodes }
+    return { id: am.id, type: 'area_manager' as EntityType, data: am, children }
   })
 
-  return regionNodes
+  return [{
+    id: 'company',
+    type: 'area_manager' as EntityType,
+    data: { id: 0, name: 'BET SERVICES SRL', region_id: 0, email: '', phone: '' } as AreaManager,
+    children: amNodes,
+  }]
 }
 
 /* ─── Detail Panel ─── */
@@ -735,10 +727,8 @@ function getBreadcrumbPath(node: TreeNode): string[] {
 
 /* ─── Network Summary Bar ─── */
 function NetworkSummary({ tree }: { tree: TreeNode[] }) {
-  const totalRake = tree.reduce((s, r) => s + getRegionTotalRake(r), 0)
+  const totalRake = tree.reduce((s, r) => s + getAmTotalRake(r), 0)
   const totalPlayers = dataStore.players.length
-  const healthScores = dataStore.pvrs.map((p) => p.health_score).filter((h): h is number => h != null)
-  const avgHealth = healthScores.length > 0 ? healthScores.reduce((s, h) => s + h, 0) / healthScores.length : null
 
   return (
     <motion.div
@@ -747,7 +737,6 @@ function NetworkSummary({ tree }: { tree: TreeNode[] }) {
       transition={{ duration: 0.4, delay: 0.5, ease: [0.4, 0, 0.2, 1] as [number, number, number, number] }}
       className="sticky bottom-0 left-0 right-0 h-12 bg-bg-surface-elevated border-t border-border-subtle flex items-center px-6 gap-8 z-20"
     >
-      {/* Health bar removed — always N/D until formula approved */}
       <div className="flex items-center gap-2">
         <span className="text-[12px] text-text-muted">Rake Totale:</span>
         <span className="text-[12px] text-text-primary font-mono font-medium">
@@ -755,7 +744,7 @@ function NetworkSummary({ tree }: { tree: TreeNode[] }) {
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-[12px] text-text-muted">Giocatori Totali:</span>
+        <span className="text-[12px] text-text-muted">Giocatori:</span>
         <span className="text-[12px] text-text-primary font-mono font-medium">{totalPlayers}</span>
       </div>
       <div className="flex items-center gap-2">
@@ -771,9 +760,9 @@ function NetworkSummary({ tree }: { tree: TreeNode[] }) {
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-[12px] text-text-muted">Chiusi:</span>
+        <span className="text-[12px] text-text-muted">Chiusi/BLOCCATI:</span>
         <span className="text-[12px] text-negative font-mono font-medium">
-          {dataStore.pvrs.filter(p => p.status === 'CHIUSO').length}
+          {dataStore.pvrs.filter(p => p.status === 'CHIUSO' || p.status === 'BLOCCATO').length}
         </span>
       </div>
     </motion.div>
