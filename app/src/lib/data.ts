@@ -519,13 +519,16 @@ async function fetchNetworkHierarchy(range?: DateRange): Promise<{
 
   regions.forEach((region) => {
     const am = areaManagers.find((am) =>
-      rawPvrs.some((p) => p.region === region.name && p.area_manager === am.name)
+      rawPvrs.some((p) => p.region === region.name && ((p.area_manager as string) || "").split(" | ")[0].trim() === am.name)
     );
     region.area_manager_id = am?.id || 0;
   });
 
   const pvrs: PVR[] = rawPvrs.map((p) => {
-    const am = areaManagers.find((am) => am.name === p.area_manager);
+    // Extract AM name (before " | " if agent is present)
+    const rawAm = (p.area_manager as string) || "";
+    const amName = rawAm.split(" | ")[0].trim();
+    const am = areaManagers.find((am) => am.name === amName);
     const region = regions.find((r) => r.name === p.region);
     const commercialCode = codeByPvrId.get(p.id as string) || (p.exalogic_id as string) || "";
     return {
