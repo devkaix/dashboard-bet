@@ -979,8 +979,8 @@ export default function UploadPage() {
           };
         }).filter((r) => r.username);
 
-        // Auto-detect month: player_summary has no date column, use null
-        const targetMonth = null;
+        // Use user-selected month (player_summary has no date column)
+        const targetMonth = month || null;
         report.target_month = targetMonth;
 
         const monthResult = validateFileMonth("player_summary", rows, targetMonth);
@@ -1028,7 +1028,7 @@ export default function UploadPage() {
           };
         }).filter((r) => r.eid);
 
-        const targetMonth = null;
+        const targetMonth = month || null;
         report.target_month = targetMonth;
 
         const monthResult = validateFileMonth("pvr_summary", rows, targetMonth);
