@@ -6,13 +6,10 @@ import {
   Network,
   Users,
   BarChart3,
-  Sparkles,
   Settings,
   ChevronLeft,
   ChevronRight,
   Upload,
-  Link2,
-  Shield,
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -24,9 +21,6 @@ const navItems = [
   { to: '/players', icon: Users, label: 'Giocatori' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/upload', icon: Upload, label: 'Importa Dati' },
-  { to: '/pvr-mapping', icon: Link2, label: 'Associazioni PVR' },
-  { to: '/data-provenance', icon: Shield, label: 'Diagnostica' },
-  { to: '/copilot', icon: Sparkles, label: 'AI Copilot' },
   { to: '/settings', icon: Settings, label: 'Impostazioni' },
 ]
 
@@ -68,7 +62,6 @@ export default function Sidebar() {
         <ul className="flex flex-col gap-1">
           {navItems.map((item, index) => {
             const Icon = item.icon
-            const isCopilot = item.to === '/copilot'
 
             return (
               <motion.li
@@ -86,7 +79,6 @@ export default function Sidebar() {
                       isActive
                         ? 'bg-bg-surface-elevated text-text-primary'
                         : 'text-text-secondary hover:bg-bg-surface-elevated hover:text-text-primary',
-                      isCopilot && !collapsed && 'text-accent-purple hover:text-accent-purple',
                     )
                   }
                 >

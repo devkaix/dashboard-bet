@@ -4,15 +4,12 @@ import TopBar from './TopBar'
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/': { title: 'Executive Briefing', subtitle: 'Le cose più importanti da sapere oggi' },
-  '/dashboard': { title: 'Dashboard', subtitle: 'Panoramica rete — Giugno 2026' },
-  '/network': { title: 'Rete', subtitle: 'Gerarchia regioni → area manager → PVR → agenti' },
+  '/dashboard': { title: 'Dashboard', subtitle: 'Panoramica rete' },
+  '/network': { title: 'Rete', subtitle: 'Gerarchia agenti → PVR → giocatori' },
   '/players': { title: 'Giocatori', subtitle: 'Elenco completo giocatori attivi' },
   '/analytics': { title: 'Analytics', subtitle: 'Analisi trend e confronti periodo' },
   '/upload': { title: 'Importa Dati', subtitle: 'Caricamento Excel e validazioni' },
-  '/pvr-mapping': { title: 'Riconciliazione PVR', subtitle: 'Associa codici commerciali ai PVR numerici' },
-  '/data-provenance': { title: 'Diagnostica Dati', subtitle: 'Provenienza e stato dei dataset importati' },
-  '/copilot': { title: 'AI Copilot', subtitle: 'Assistente intelligente per query dati' },
-  '/settings': { title: 'Impostazioni', subtitle: 'Preferenze e soglie allerte' },
+  '/settings': { title: 'Impostazioni', subtitle: 'Soglie alert e riepilogo dati' },
 }
 
 export default function Layout() {
