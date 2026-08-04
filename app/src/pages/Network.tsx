@@ -26,6 +26,8 @@ import type {
   Agent,
   Player,
 } from '@/lib/data'
+import { normalizeAnalysisMonth, analysisMonthToRange } from '@/lib/analysisMonth'
+import MonthSelector from '@/components/upload/MonthSelector'
 
 /* ─── types ─── */
 type EntityType = 'region' | 'area_manager' | 'pvr' | 'agent' | 'player'
@@ -700,10 +702,37 @@ export default function NetworkPage() {
   const [selected, setSelected] = useState<SelectedEntity | null>(null)
   const [regionFilter, setRegionFilter] = useState('all')
   const [ready, setReady] = useState(false)
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlMonth = params.get('month')
+    if (urlMonth) {
+      try { return normalizeAnalysisMonth(urlMonth) } catch { /* ignore */ }
+    }
+    const stored = localStorage.getItem('analysisMonth')
+    if (stored) {
+      try { return normalizeAnalysisMonth(stored) } catch { /* ignore */ }
+    }
+    return ''
+  })
+
+  const loadMonth = useCallback((month: string) => {
+    loadData(analysisMonthToRange(month)).then(() => setReady(true))
+  }, [])
+
+  const handleMonthChange = useCallback((month: string) => {
+    setSelectedMonth(month)
+    localStorage.setItem('analysisMonth', month)
+    const url = new URL(window.location.href)
+    url.searchParams.set('month', month)
+    window.history.replaceState({}, '', url.toString())
+    loadMonth(month)
+  }, [loadMonth])
 
   useEffect(() => {
-    loadData().then(() => setReady(true))
-  }, [])
+    if (selectedMonth) {
+      loadMonth(selectedMonth)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const tree = useMemo(() => buildTree(), [ready])
 
@@ -780,12 +809,15 @@ export default function NetworkPage() {
               <span className="text-text-secondary">Rete</span>
             </p>
           </div>
+          <div className="flex items-center gap-4">
+          <MonthSelector selectedMonth={selectedMonth} onMonthChange={handleMonthChange} />
           <div className="text-[13px] text-text-secondary">
             <span className="font-mono">{stats.regions}</span> Regioni &middot;{' '}
             <span className="font-mono">{stats.ams}</span> Area Manager &middot;{' '}
             <span className="font-mono">{stats.pvrs}</span> PVR &middot;{' '}
             <span className="font-mono">{stats.agents}</span> Agenti &middot;{' '}
             <span className="font-mono">{stats.players}</span> Giocatori
+          </div>
           </div>
         </div>
       </motion.div>

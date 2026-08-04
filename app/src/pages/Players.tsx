@@ -34,6 +34,8 @@ import {
   getPvrName,
 } from '@/lib/data'
 import type { Player } from '@/lib/data'
+import { normalizeAnalysisMonth, analysisMonthToRange } from '@/lib/analysisMonth'
+import MonthSelector from '@/components/upload/MonthSelector'
 
 // ─── Mini Sparkline ───
 function MiniSparkline({ data, color }: { data: number[]; color: string }) {
@@ -325,9 +327,23 @@ export default function PlayersPage() {
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null)
   const navigate = useNavigate()
 
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlMonth = params.get('month')
+    if (urlMonth) {
+      try { return normalizeAnalysisMonth(urlMonth) } catch { /* ignore */ }
+    }
+    const stored = localStorage.getItem('analysisMonth')
+    if (stored) {
+      try { return normalizeAnalysisMonth(stored) } catch { /* ignore */ }
+    }
+    return ''
+  })
+
   // Load data
-  useEffect(() => {
-    loadData()
+  const loadMonth = useCallback((month: string) => {
+    setLoading(true)
+    loadData(analysisMonthToRange(month))
       .then(() => {
         const ds = dataStore
         setData([...ds.players])
@@ -364,6 +380,21 @@ export default function PlayersPage() {
         setLoading(false)
       })
   }, [])
+
+  const handleMonthChange = useCallback((month: string) => {
+    setSelectedMonth(month)
+    localStorage.setItem('analysisMonth', month)
+    const url = new URL(window.location.href)
+    url.searchParams.set('month', month)
+    window.history.replaceState({}, '', url.toString())
+    loadMonth(month)
+  }, [loadMonth])
+
+  useEffect(() => {
+    if (selectedMonth) {
+      loadMonth(selectedMonth)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stats
   const stats = useMemo(() => {
@@ -613,6 +644,8 @@ export default function PlayersPage() {
               {stats.total} giocatori{dataStore.metadata.export_date ? ` · Aggiornato: ${new Date(dataStore.metadata.export_date).toLocaleDateString('it-IT')}` : ''}
             </p>
           </div>
+          <div className="flex items-center gap-4">
+          <MonthSelector selectedMonth={selectedMonth} onMonthChange={handleMonthChange} />
           <div className="flex items-center gap-2">
             {[
               { label: 'Rake Totale', value: formatCurrency(data.reduce((s, p) => s + p.total_rake, 0)) },
@@ -626,6 +659,7 @@ export default function PlayersPage() {
                 {s.label}: {s.value}
               </span>
             ))}
+          </div>
           </div>
         </div>
       </motion.div>

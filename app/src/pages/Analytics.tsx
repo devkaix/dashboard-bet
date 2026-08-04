@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -35,6 +35,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadData, dataStore, formatCurrency, type DailyKPI } from '@/lib/data'
+import { normalizeAnalysisMonth, analysisMonthToRange } from '@/lib/analysisMonth'
+import MonthSelector from '@/components/upload/MonthSelector'
 
 // ─── Types ───
 type Granularity = 'giornaliero' | 'settimanale' | 'mensile'
@@ -332,9 +334,38 @@ export default function AnalyticsPage() {
   const [granularity, setGranularity] = useState<Granularity>('giornaliero')
   const [visibleLines, setVisibleLines] = useState({ rake: true, bet: true, won: true })
 
-  useEffect(() => {
-    loadData().then(() => setLoading(false))
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlMonth = params.get('month')
+    if (urlMonth) {
+      try { return normalizeAnalysisMonth(urlMonth) } catch { /* ignore */ }
+    }
+    const stored = localStorage.getItem('analysisMonth')
+    if (stored) {
+      try { return normalizeAnalysisMonth(stored) } catch { /* ignore */ }
+    }
+    return ''
+  })
+
+  const loadMonth = useCallback((month: string) => {
+    setLoading(true)
+    loadData(analysisMonthToRange(month)).then(() => setLoading(false))
   }, [])
+
+  const handleMonthChange = useCallback((month: string) => {
+    setSelectedMonth(month)
+    localStorage.setItem('analysisMonth', month)
+    const url = new URL(window.location.href)
+    url.searchParams.set('month', month)
+    window.history.replaceState({}, '', url.toString())
+    loadMonth(month)
+  }, [loadMonth])
+
+  useEffect(() => {
+    if (selectedMonth) {
+      loadMonth(selectedMonth)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const data = useMemo(() => {
     if (loading) return null
@@ -645,6 +676,16 @@ export default function AnalyticsPage() {
         </nav>
         <h1 className="text-[28px] font-bold text-text-primary tracking-[-0.01em]">Analisi Avanzata</h1>
         <p className="text-[15px] text-text-secondary mt-1">Strumenti di analisi e confronto periodo</p>
+      </motion.div>
+
+      {/* Month Selector */}
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05, duration: 0.25 }}
+        className="bg-bg-surface rounded-lg border border-border-subtle p-4"
+      >
+        <MonthSelector selectedMonth={selectedMonth} onMonthChange={handleMonthChange} />
       </motion.div>
 
       {/* Period Comparison Bar */}
