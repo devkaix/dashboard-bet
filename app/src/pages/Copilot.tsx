@@ -3,8 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Sparkles,
   Send,
-  Mic,
-  Paperclip,
   Lightbulb,
   TrendingUp,
   Trophy,
@@ -835,10 +833,6 @@ function ChatInputBar({
     >
       {/* Input row */}
       <div className="flex items-end gap-3">
-        <button className="w-10 h-10 rounded-full bg-bg-surface-elevated flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors flex-shrink-0">
-          <Paperclip size={18} />
-        </button>
-
         <div className="flex-1 relative">
           <textarea
             ref={inputRef}
@@ -868,10 +862,6 @@ function ChatInputBar({
           )}
         >
           <Send size={18} />
-        </button>
-
-        <button className="w-10 h-10 rounded-full bg-bg-surface-elevated flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors flex-shrink-0">
-          <Mic size={18} />
         </button>
       </div>
 

@@ -796,14 +796,14 @@ export default function NetworkPage() {
         transition={{ duration: 0.25, delay: 0.1 }}
         className="flex items-center gap-3 mb-4 bg-bg-surface rounded-xl border border-border-subtle p-3"
       >
-        {/* Region filter */}
+        {/* Agente filter */}
         <div className="relative">
           <select
             value={regionFilter}
             onChange={(e) => setRegionFilter(e.target.value)}
             className="appearance-none bg-bg-surface-elevated text-text-primary text-[13px] rounded-lg px-3 pr-8 py-2 border border-border-default focus:border-border-focus focus:outline-none cursor-pointer"
           >
-            <option value="all">Tutte le Regioni</option>
+            <option value="all">Tutti gli Agenti</option>
             {regionNames.map((name) => (
               <option key={name} value={name}>
                 {name}

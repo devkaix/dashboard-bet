@@ -608,7 +608,7 @@ export default function PlayersPage() {
           <div>
             <h1 className="text-[28px] font-bold text-text-primary tracking-[-0.01em]">Giocatori</h1>
             <p className="text-[14px] text-text-secondary">
-              {stats.total} giocatori • Aggiornato: oggi 08:30
+              {stats.total} giocatori{dataStore.metadata.export_date ? ` · Aggiornato: ${new Date(dataStore.metadata.export_date).toLocaleDateString('it-IT')}` : ''}
             </p>
           </div>
           <div className="flex items-center gap-2">
