@@ -1766,7 +1766,7 @@ export default function UploadPage() {
       }
 
       try {
-        await processFile(file, type as ImportFileType);
+        await processFile(file, type as ImportFileType, selectedMonth);
         results.push({ file: file.name, type, status: "success", message: `Importato` });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
