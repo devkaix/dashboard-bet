@@ -103,11 +103,12 @@ async function fetchPvrStats(range: { start: string; end: string }): Promise<Pvr
   const activeIds = new Set(periods.map((p) => p.pvrId))
   const { data: allPvrs, error: pvrErr } = await supabase
     .from('pvrs')
-    .select('id, name, exalogic_id')
-    .neq('tipo', 'agent')
+    .select('id, name, exalogic_id, tipo')
   if (!pvrErr && allPvrs) {
     for (const pvr of allPvrs) {
       const id = String((pvr as Record<string, unknown>).id)
+      // Exclude agent entries (consistent with fetchNetworkHierarchy in data.ts)
+      if ((pvr as Record<string, unknown>).tipo === 'agent') continue
       if (!activeIds.has(id)) {
         periods.push({
           pvrId: id,

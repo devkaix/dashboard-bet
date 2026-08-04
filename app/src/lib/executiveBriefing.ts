@@ -358,6 +358,7 @@ export function aggregatePvrPeriods(
     payout: p.bet > 0 ? (p.won / p.bet) * 100 : 0,
     days: p.days.size,
     negativeRakeDays: p.negativeRakeDays,
+    assignedPlayers: 0, // populated later in fetchPvrStats
   }))
 }
 
