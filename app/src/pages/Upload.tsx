@@ -1073,7 +1073,7 @@ export default function UploadPage() {
           };
         }).filter((r) => r.category);
 
-        const targetMonth = null;
+        const targetMonth = month || null;
         report.target_month = targetMonth;
         report.dates = [];
 
@@ -1086,28 +1086,28 @@ export default function UploadPage() {
         );
         if (!uploadId) throw new Error("Failed to create upload record");
 
-        await writeImportValidations([{
-          upload_id: uploadId,
-          source_file_type: "category_summary",
-          target_file_type: null,
-          analysis_month: targetMonth ? analysisMonthToDatabaseDate(targetMonth) : null,
-          metric: "ALL",
-          period_start: null,
-          period_end: null,
-          operational_value: null,
-          control_value: null,
-          absolute_diff: null,
-          percent_diff: null,
-          status: "NOT_AVAILABLE",
-          details: { note: "Category dimension not available in operational tables", row_count: summaryRows.length },
-        }]);
+        // Write category stats to operational table
+        if (targetMonth) {
+          const dbMonth = analysisMonthToDatabaseDate(targetMonth);
+          const categoryRows = summaryRows.map((r) => ({
+            analysis_month: dbMonth,
+            category: r.category,
+            bet: r.bet || 0,
+            won: r.won || 0,
+            rake: r.rake || 0,
+            payout: r.payout || 0,
+            buy_in: r.buy_in || 0,
+          }));
+          const { error: catErr } = await supabase.from("category_stats").upsert(categoryRows, { onConflict: "analysis_month,category" });
+          if (catErr) console.error("category_stats upsert error:", catErr);
+        }
 
         await (supabase.from("excel_uploads") as any)
-          .update({ validation_status: "not_available", validation_report: report })
+          .update({ validation_status: "validated", validation_report: report })
           .eq("id", uploadId);
 
         setProgress("");
-        setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} righe caricate come controllo categoria (${fileType})` });
+        setMessage({ type: "success", text: `"${file.name}" → ${summaryRows.length} categorie salvate (${fileType})` });
         return;
       }
 

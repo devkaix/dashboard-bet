@@ -1250,6 +1250,33 @@ export function getPvrName(pvrId: string | null): string {
   return pvr ? pvr.name : `PVR ${pvrId}`;
 }
 
+export interface CategoryStat {
+  category: string;
+  bet: number;
+  won: number;
+  rake: number;
+  payout: number;
+  buy_in: number;
+}
+
+export async function fetchCategoryStats(month: string): Promise<CategoryStat[]> {
+  const dbMonth = analysisMonthToDatabaseDate(month);
+  const { data, error } = await supabase
+    .from("category_stats")
+    .select("category, bet, won, rake, payout, buy_in")
+    .eq("analysis_month", dbMonth)
+    .order("bet", { ascending: false });
+  if (error) throw error;
+  return (data || []).map((r: any) => ({
+    category: r.category,
+    bet: Number(r.bet) || 0,
+    won: Number(r.won) || 0,
+    rake: Number(r.rake) || 0,
+    payout: Number(r.payout) || 0,
+    buy_in: Number(r.buy_in) || 0,
+  }));
+}
+
 /** @deprecated Use playerStatus(activeDays) instead. Health score formula not yet approved. */
 export function getPlayerStatus(healthScore: number | null): { label: string; color: string } {
   return { label: "N/D", color: "positive" };

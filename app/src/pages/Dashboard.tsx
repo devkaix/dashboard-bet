@@ -36,7 +36,9 @@ import {
   playerStatus,
   fetchPreviousMonthAggregates,
   fetchAvailableMonths,
+  fetchCategoryStats,
   type MonthAvailability,
+  type CategoryStat,
 } from '@/lib/data'
 import { analysisMonthToRange, normalizeAnalysisMonth, formatAnalysisMonth } from '@/lib/analysisMonth'
 import type { BriefingItem, DailyKPI, Alert as AlertType, RankingPlayer, MonthlyAggregates } from '@/lib/data'
@@ -151,6 +153,10 @@ export default function Dashboard() {
   const [selectedMonth, setSelectedMonth] = useState<string>('')
   const [monthOpen, setMonthOpen] = useState(false)
   const [lastUpdate, setLastUpdate] = useState<string | null>(null)
+  
+  // Category filter
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([])
 
   useEffect(() => {
     // Fetch available months and determine selected month
@@ -249,6 +255,9 @@ export default function Dashboard() {
           setPrevMonthAggs(null)
           setPrevMonthLabel('')
         }
+
+        // Load category stats
+        fetchCategoryStats(month).then(setCategoryStats).catch(() => setCategoryStats([]))
 
         setLoading(false)
       })
@@ -357,6 +366,13 @@ export default function Dashboard() {
     return `vs ${prevMonthLabel}`;
   }, [prevMonthLabel, prevMonthAggs]);
 
+  // Category-filtered values
+  const categoryValues = useMemo(() => {
+    if (categoryFilter === 'all') return { rake: totalRake, bet: totalBet, won: totalWon };
+    const cat = categoryStats.find(c => c.category === categoryFilter);
+    return cat ? { rake: cat.rake, bet: cat.bet, won: cat.won } : { rake: 0, bet: 0, won: 0 };
+  }, [categoryFilter, categoryStats, totalRake, totalBet, totalWon]);
+
   if (loading) {
     return (
       <div className="p-6 space-y-6">
@@ -456,44 +472,65 @@ export default function Dashboard() {
           <p className="text-text-muted text-xs mt-1">Carica il file "giocato totale della rete" o "giocato per singolo PVR giornaliero" da Exalogic.</p>
         </div>
       ) : (
+        <>
+        {/* Category pills */}
+        {categoryStats.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-text-muted mr-1">Categoria:</span>
+            {[{ category: 'all', bet: totalBet } as CategoryStat, ...categoryStats].map((c) => (
+              <button
+                key={c.category}
+                onClick={() => setCategoryFilter(c.category)}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium transition-colors",
+                  categoryFilter === c.category
+                    ? "bg-accent-blue text-white"
+                    : "bg-bg-surface-elevated text-text-secondary hover:text-text-primary border border-border-subtle"
+                )}
+              >
+                {c.category === 'all' ? 'Tutte' : c.category}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="grid grid-cols-5 gap-4">
         <KpiCard
           icon={Wallet}
           iconColor="text-positive"
-          label="Rake Totale"
-          value={formatCurrency(totalRake)}
-          delta={deltas.rake}
-          deltaPositive={deltas.rakePositive}
-          sparklineData={sparkData.rakeData}
+          label={`Rake Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
+          value={formatCurrency(categoryValues.rake)}
+          delta={categoryFilter === 'all' ? deltas.rake : undefined}
+          deltaPositive={categoryFilter === 'all' ? deltas.rakePositive : undefined}
+          sparklineData={categoryFilter === 'all' ? sparkData.rakeData : []}
           sparklineColor="#10b981"
           sparklineFillColor="#10b981"
-          bottomNote={comparisonLabel}
+          bottomNote={categoryFilter === 'all' ? comparisonLabel : undefined}
           index={0}
         />
         <KpiCard
           icon={TrendingUp}
           iconColor="text-accent-blue"
-          label="Bet Totale"
-          value={formatCurrency(totalBet)}
-          delta={deltas.bet}
-          deltaPositive={deltas.betPositive}
-          sparklineData={sparkData.betData}
+          label={`Bet Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
+          value={formatCurrency(categoryValues.bet)}
+          delta={categoryFilter === 'all' ? deltas.bet : undefined}
+          deltaPositive={categoryFilter === 'all' ? deltas.betPositive : undefined}
+          sparklineData={categoryFilter === 'all' ? sparkData.betData : []}
           sparklineColor="#3b82f6"
           sparklineFillColor="#3b82f6"
-          bottomNote={comparisonLabel}
+          bottomNote={categoryFilter === 'all' ? comparisonLabel : undefined}
           index={1}
         />
         <KpiCard
           icon={Coins}
           iconColor="text-warning"
-          label="Won Totale"
-          value={formatCurrency(totalWon)}
-          delta={deltas.won}
-          deltaPositive={deltas.wonPositive}
-          sparklineData={sparkData.wonData}
+          label={`Won Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
+          value={formatCurrency(categoryValues.won)}
+          delta={categoryFilter === 'all' ? deltas.won : undefined}
+          deltaPositive={categoryFilter === 'all' ? deltas.wonPositive : undefined}
+          sparklineData={categoryFilter === 'all' ? sparkData.wonData : []}
           sparklineColor="#f59e0b"
           sparklineFillColor="#f59e0b"
-          bottomNote={`Payout medio: ${formatPercent(avgPayout)}`}
+          bottomNote={categoryFilter === 'all' ? `Payout medio: ${formatPercent(avgPayout)}` : undefined}
           index={2}
         />
         <KpiCard
@@ -528,6 +565,7 @@ export default function Dashboard() {
           index={4}
         />
         </div>
+        </>
       )}
 
       {/* ── Section 3+4: Trend Chart + AI Briefing ── */}
