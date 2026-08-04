@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import type { LucideIcon } from 'lucide-react'
+import { Info } from 'lucide-react'
 import {
   AreaChart,
   Area,
@@ -21,6 +22,7 @@ interface KpiCardProps {
   sparklineFillColor: string
   bottomNote: string
   index: number
+  helpText?: string
 }
 
 function AnimatedValue({ value, delay }: { value: string; delay: number }) {
@@ -49,6 +51,7 @@ export default function KpiCard({
   sparklineFillColor,
   bottomNote,
   index,
+  helpText,
 }: KpiCardProps) {
   const deltaBg = deltaWarning
     ? 'bg-warning/20 text-warning'
@@ -75,6 +78,14 @@ export default function KpiCard({
         <span className="text-[12px] font-medium uppercase tracking-[0.01em] text-text-muted">
           {label}
         </span>
+        {helpText && (
+          <span className="relative group/tip cursor-help">
+            <Info size={12} className="text-text-muted opacity-50 group-hover/tip:opacity-100 transition-opacity" />
+            <span className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-56 px-3 py-2 bg-bg-surface-elevated border border-border-default rounded-lg text-[11px] text-text-secondary leading-relaxed opacity-0 group-hover/tip:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+              {helpText}
+            </span>
+          </span>
+        )}
       </div>
 
       {/* Value + delta */}

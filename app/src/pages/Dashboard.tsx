@@ -505,6 +505,7 @@ export default function Dashboard() {
           sparklineColor="#10b981"
           sparklineFillColor="#10b981"
           bottomNote={categoryFilter === 'all' ? comparisonLabel : ''}
+          helpText="Il guadagno netto della casa. Si calcola come Bet − Won + Bonus. Un rake positivo significa che la casa guadagna; negativo che i giocatori vincono più di quanto giocano."
           index={0}
         />
         <KpiCard
@@ -518,6 +519,7 @@ export default function Dashboard() {
           sparklineColor="#3b82f6"
           sparklineFillColor="#3b82f6"
           bottomNote={categoryFilter === 'all' ? comparisonLabel : ''}
+          helpText="L'importo totale giocato (scommesso) dai clienti nel mese. Non include i bonus."
           index={1}
         />
         <KpiCard
@@ -531,6 +533,7 @@ export default function Dashboard() {
           sparklineColor="#f59e0b"
           sparklineFillColor="#f59e0b"
           bottomNote={categoryFilter === 'all' ? `Payout medio: ${formatPercent(avgPayout)}` : ''}
+          helpText="L'importo totale vinto dai giocatori. Il payout (Won/Bet×100) indica la percentuale restituita ai giocatori."
           index={2}
         />
         <KpiCard
@@ -544,6 +547,7 @@ export default function Dashboard() {
           sparklineColor="#06b6d4"
           sparklineFillColor="#06b6d4"
           bottomNote={`${dataStore.metadata.total_players} giocatori totali`}
+          helpText="Media giornaliera dei giocatori che hanno effettuato almeno una giocata nel mese. Il totale registrato include anche i giocatori inattivi."
           index={3}
         />
         <KpiCard
@@ -562,6 +566,7 @@ export default function Dashboard() {
               ? `Peggior giorno: ${new Date(worstDay.date + 'T00:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })} (${formatCurrency(worstDay.total_rake)})`
               : ''
           }
+          helpText="Media del rake giornaliero. I giorni negativi sono quelli in cui i giocatori hanno vinto più di quanto hanno giocato."
           index={4}
         />
         </div>
