@@ -101,19 +101,18 @@ async function fetchPvrStats(range: { start: string; end: string }): Promise<Pvr
   // (truly inactive PVRs with no data at all). Exclude agent entries
   // (consistent with fetchNetworkHierarchy in data.ts).
   const activeIds = new Set(periods.map((p) => p.pvrId))
-  const { data: allPvrs, error: pvrErr } = await supabase
+  const { data: allPvrs, error: pvrErr } = await (supabase
     .from('pvrs')
-    .select('id, name, exalogic_id, tipo')
+    .select('id, name, exalogic_id, tipo') as any)
   if (!pvrErr && allPvrs) {
-    for (const pvr of allPvrs) {
-      const id = String((pvr as Record<string, unknown>).id)
-      // Exclude agent entries (consistent with fetchNetworkHierarchy in data.ts)
-      if ((pvr as Record<string, unknown>).tipo === 'agent') continue
+    for (const pvr of allPvrs as Record<string, unknown>[]) {
+      const id = String(pvr.id)
+      if (pvr.tipo === 'agent') continue
       if (!activeIds.has(id)) {
         periods.push({
           pvrId: id,
-          pvrName: String((pvr as Record<string, unknown>).name || id),
-          pvrExalogicId: (pvr as Record<string, unknown>).exalogic_id as string | null || null,
+          pvrName: String(pvr.name || id),
+          pvrExalogicId: (pvr.exalogic_id as string) || null,
           rake: 0,
           bet: 0,
           won: 0,
