@@ -505,7 +505,7 @@ export default function Dashboard() {
           sparklineColor="#10b981"
           sparklineFillColor="#10b981"
           bottomNote={categoryFilter === 'all' ? comparisonLabel : ''}
-          helpText="Il guadagno netto della casa. Si calcola come Bet − Won + Bonus. Un rake positivo significa che la casa guadagna; negativo che i giocatori vincono più di quanto giocano."
+          helpText="Il guadagno netto della casa riportato da Exalogic. Il calcolo non è Bet−Won+Bonus ma una formula proprietaria che include buy-in, stack, bonus, jackpot, overlay e refund."
           index={0}
         />
         <KpiCard
