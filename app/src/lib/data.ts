@@ -354,7 +354,7 @@ export async function loadData(range?: DateRange): Promise<DaznBetData> {
     fetchMonthlyAggregates(effectiveRange),
     fetchPvrTotals(effectiveRange),
   ]);
-  const players = await fetchPlayers(network.pvrs, effectiveRange);
+  const players = await fetchPlayers(network.pvrs, network.agents, effectiveRange);
 
   // ─── Preprocessing pipeline ───
   // 1. Load historical observations for baseline (slim query, no KPI/aggregate pollution)
@@ -586,12 +586,20 @@ async function fetchNetworkHierarchy(range?: DateRange): Promise<{
   return { pvrs, regions, area_managers: areaManagers, agents };
 }
 
-async function fetchPlayers(pvrs: PVR[], range?: DateRange): Promise<Player[]> {
+async function fetchPlayers(pvrs: PVR[], agents: Agent[], range?: DateRange): Promise<Player[]> {
   // 1. Player metadata (real PVR mapping from players_master / pvr_reference_map)
   const { data: playersData, error: playersError } = await supabase
     .from("players")
     .select("id, username, pvr_id, pvr_ref_code, email, registration_date, kyc_status, balance, withdrawable_balance, created_at, updated_at");
   if (playersError) throw playersError;
+
+  // Build PVR → agent lookup
+  const pvrAgentMap = new Map<string, number>();
+  for (const agent of agents) {
+    for (const pvrId of agent.pvrIds) {
+      pvrAgentMap.set(pvrId, agent.id);
+    }
+  }
 
   const playerMeta = new Map<
     string,
@@ -703,7 +711,7 @@ async function fetchPlayers(pvrs: PVR[], range?: DateRange): Promise<Player[]> {
       city: null,
       pvr_id: meta?.pvr_id || null,
       pvr_ref_code: meta?.pvr_ref_code || null,
-      agent_id: null,
+      agent_id: meta?.pvr_id ? (pvrAgentMap.get(meta.pvr_id) ?? null) : null,
       registration_date: meta?.registration_date || p.minDate,
       last_activity_date: p.maxDate,
       status: playerStatus(activeDays),
