@@ -60,6 +60,7 @@ function pvr(
     payout: bet > 0 ? (won / bet) * 100 : 0,
     days: opts?.days ?? 30,
     negativeRakeDays: opts?.negativeRakeDays ?? 0,
+    assignedPlayers: opts?.assignedPlayers ?? 0,
   }
 }
 
@@ -241,14 +242,47 @@ describe('generatePvrInsights', () => {
     expect(insights.some((i) => i.category === 'pvr_decline')).toBe(true)
   })
 
-  it('produces inactivity insight', () => {
-    const current = [pvr('A', 'Alpha', 0, 0, 0)]
+  it('produces inactivity insight for PVRs missing in current month', () => {
+    // PVR present in previous month but absent from current
+    const current: PvrPeriod[] = []
     const previous = [pvr('A', 'Alpha', 500, 0, 0)]
     const netCurrent = network('2026-06', 0, 0, 0)
     const netPrevious = network('2026-05', 500, 0, 0)
     const contribs = computePvrContributions(current, previous, netCurrent, netPrevious, cfg)
     const insights = generatePvrInsights(contribs, netCurrent, netPrevious, availability('2026-06', '2026-05'), cfg)
     expect(insights.some((i) => i.category === 'pvr_inactivity')).toBe(true)
+  })
+
+  it('splits inactive PVRs: with players vs without players', () => {
+    const current: PvrPeriod[] = []
+    const previous = [
+      pvr('A', 'Alpha', 500, 0, 0, { assignedPlayers: 5 }),
+      pvr('B', 'Beta', 200, 0, 0, { assignedPlayers: 0 }),
+    ]
+    const netCurrent = network('2026-06', 0, 0, 0)
+    const netPrevious = network('2026-05', 700, 0, 0)
+    const contribs = computePvrContributions(current, previous, netCurrent, netPrevious, cfg)
+    const insights = generatePvrInsights(contribs, netCurrent, netPrevious, availability('2026-06', '2026-05'), cfg)
+    // Alpha: 5 players assigned → with-players bucket
+    const withPlayers = insights.find((i) => i.id === 'pvr-inactive-players-bucket')
+    expect(withPlayers).toBeDefined()
+    expect(withPlayers!.title).toContain('giocatori inattivi')
+    expect(withPlayers!.currentValue).toBe(1)
+    // Beta: 0 players → no-players bucket
+    const noPlayers = insights.find((i) => i.id === 'pvr-no-players-bucket')
+    expect(noPlayers).toBeDefined()
+    expect(noPlayers!.title).toContain('senza giocatori')
+    expect(noPlayers!.currentValue).toBe(1)
+  })
+
+  it('produces negative-rake insight for PVRs losing money', () => {
+    const current = [pvr('A', 'Alpha', -500, 0, 0)]
+    const previous = [pvr('A', 'Alpha', 200, 0, 0)]
+    const netCurrent = network('2026-06', -500, 0, 0)
+    const netPrevious = network('2026-05', 200, 0, 0)
+    const contribs = computePvrContributions(current, previous, netCurrent, netPrevious, cfg)
+    const insights = generatePvrInsights(contribs, netCurrent, netPrevious, availability('2026-06', '2026-05'), cfg)
+    expect(insights.some((i) => i.category === 'negative_rake')).toBe(true)
   })
 })
 

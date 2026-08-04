@@ -69,7 +69,7 @@ async function fetchPvrStats(range: { start: string; end: string }): Promise<Pvr
   const { data, error } = await q
   if (error) throw new Error(`daily_pvr_stats: ${error.message}`)
 
-  return aggregatePvrPeriods(
+  const periods = aggregatePvrPeriods(
     (data || []).map((r) => ({
       date: String((r as Record<string, unknown>).date),
       pvr_id: String((r as Record<string, unknown>).pvr_id),
@@ -80,6 +80,53 @@ async function fetchPvrStats(range: { start: string; end: string }): Promise<Pvr
       refund: toNumber((r as Record<string, unknown>).refund),
     })),
   )
+
+  // Fetch player count per PVR for inactivity classification
+  const { data: playerCounts } = await supabase
+    .from('players')
+    .select('pvr_id')
+    .not('pvr_id', 'is', null)
+  const playerCountByPvr = new Map<string, number>()
+  for (const row of playerCounts || []) {
+    const pid = String((row as Record<string, unknown>).pvr_id)
+    playerCountByPvr.set(pid, (playerCountByPvr.get(pid) || 0) + 1)
+  }
+
+  // Populate assignedPlayers on active PVRs
+  for (const p of periods) {
+    p.assignedPlayers = playerCountByPvr.get(p.pvrId) || 0
+  }
+
+  // Include PVRs from the pvrs table that have zero records in daily_pvr_stats
+  // (truly inactive PVRs with no data at all). Exclude agent entries
+  // (consistent with fetchNetworkHierarchy in data.ts).
+  const activeIds = new Set(periods.map((p) => p.pvrId))
+  const { data: allPvrs, error: pvrErr } = await supabase
+    .from('pvrs')
+    .select('id, name, exalogic_id')
+    .neq('tipo', 'agent')
+  if (!pvrErr && allPvrs) {
+    for (const pvr of allPvrs) {
+      const id = String((pvr as Record<string, unknown>).id)
+      if (!activeIds.has(id)) {
+        periods.push({
+          pvrId: id,
+          pvrName: String((pvr as Record<string, unknown>).name || id),
+          pvrExalogicId: (pvr as Record<string, unknown>).exalogic_id as string | null || null,
+          rake: 0,
+          bet: 0,
+          won: 0,
+          refund: 0,
+          payout: 0,
+          days: 0,
+          negativeRakeDays: 0,
+          assignedPlayers: playerCountByPvr.get(id) || 0,
+        })
+      }
+    }
+  }
+
+  return periods
 }
 
 async function fetchLastUpload(month: string): Promise<string | null> {

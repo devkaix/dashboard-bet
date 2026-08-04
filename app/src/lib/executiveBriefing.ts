@@ -97,6 +97,8 @@ export interface PvrContribution {
   shareOfNetDecline: number | null
   isInactive: boolean
   hasZeroRake: boolean
+  hasNegativeRake: boolean
+  assignedPlayers: number
 }
 
 export interface NetworkPeriod {
@@ -125,6 +127,7 @@ export interface PvrPeriod {
   payout: number
   days: number
   negativeRakeDays: number
+  assignedPlayers: number
 }
 
 export interface ExecutiveBriefingInput {
@@ -393,8 +396,12 @@ export function computePvrContributions(
       positiveOffset,
       shareOfGrossDecline: null,
       shareOfNetDecline: null,
-      isInactive: current.rake <= config.pvr.inactivityThresholdEur && current.days > 0,
+      // True inactivity: days === 0 (no records in daily_pvr_stats at all).
+      // PVRs from previous month missing now also handled at lines 402-422.
+      isInactive: current.days === 0,
       hasZeroRake: current.rake === 0,
+      hasNegativeRake: current.rake < 0 && current.days > 0,
+      assignedPlayers: current.assignedPlayers,
     })
   }
 
@@ -419,6 +426,8 @@ export function computePvrContributions(
       shareOfNetDecline: null,
       isInactive: true,
       hasZeroRake: true,
+      hasNegativeRake: false,
+      assignedPlayers: previous.assignedPlayers,
     })
   }
 
@@ -892,33 +901,93 @@ export function generatePvrInsights(
     )
   }
 
-  // Inactive PVRs
-  const inactive = contributions.filter((c) => c.isInactive && c.currentRake <= config.pvr.inactivityThresholdEur)
-  if (inactive.length > 0) {
-    const sorted = inactive.sort((a, b) => b.previousRake - a.previousRake).slice(0, 5)
+  // Inactive PVRs with assigned players (giocatori senza attività)
+  const inactiveWithPlayers = contributions.filter((c) => c.isInactive && c.assignedPlayers > 0)
+  if (inactiveWithPlayers.length > 0) {
+    const sorted = inactiveWithPlayers.sort((a, b) => b.assignedPlayers - a.assignedPlayers).slice(0, 5)
     insights.push(
       pvrInsight(
-        'pvr-inactivity-bucket',
+        'pvr-inactive-players-bucket',
         'pvr_inactivity',
-        sorted[0].previousRake > config.network.minDeltaEur ? 'warning' : 'info',
-        `${inactive.length} ${inactive.length === 1 ? 'PVR senza movimento' : 'PVR senza movimento'} nel mese`,
-        `Non è stato rilevato movimento per: ${sorted.map((c) => c.pvrName).join(', ')}${inactive.length > sorted.length ? ` e altri ${inactive.length - sorted.length}` : ''}.`,
+        'warning',
+        `${inactiveWithPlayers.length} ${inactiveWithPlayers.length === 1 ? 'PVR con giocatori inattivi' : 'PVR con giocatori inattivi'}`,
+        `PVR con giocatori assegnati ma nessuna attività: ${sorted.map((c) => `${c.pvrName} (${c.assignedPlayers} gioc.)`).join(', ')}${inactiveWithPlayers.length > sorted.length ? ` e altri ${inactiveWithPlayers.length - sorted.length}` : ''}.`,
         month,
         prevMonth,
         sorted[0].pvrId,
         sorted[0].pvrName,
-        inactive.length,
+        inactiveWithPlayers.length,
         null,
         0,
         null,
-        sorted.reduce((s, c) => s + c.previousRake, 0),
+        0,
         confidence,
         sorted.map((c) => ({
           label: c.pvrName,
-          value: c.previousRake,
+          value: c.assignedPlayers,
+          unit: 'count' as const,
+        })),
+        'contattare i PVR per verificare perché i giocatori non stanno giocando',
+        config,
+      ),
+    )
+  }
+
+  // Inactive PVRs without any players (vuoti)
+  const inactiveNoPlayers = contributions.filter((c) => c.isInactive && c.assignedPlayers === 0)
+  if (inactiveNoPlayers.length > 0) {
+    const sorted = inactiveNoPlayers.slice(0, 5)
+    insights.push(
+      pvrInsight(
+        'pvr-no-players-bucket',
+        'pvr_inactivity',
+        'info',
+        `${inactiveNoPlayers.length} ${inactiveNoPlayers.length === 1 ? 'PVR senza giocatori' : 'PVR senza giocatori'}`,
+        `Nessun giocatore assegnato a: ${sorted.map((c) => c.pvrName).join(', ')}${inactiveNoPlayers.length > sorted.length ? ` e altri ${inactiveNoPlayers.length - sorted.length}` : ''}.`,
+        month,
+        prevMonth,
+        sorted[0].pvrId,
+        sorted[0].pvrName,
+        inactiveNoPlayers.length,
+        null,
+        0,
+        null,
+        0,
+        confidence,
+        [],
+        'verificare anagrafica PVR: nessun giocatore assegnato',
+        config,
+      ),
+    )
+  }
+
+  // Negative-rake PVRs (active but losing money)
+  const negativeRake = contributions.filter((c) => c.hasNegativeRake)
+  if (negativeRake.length > 0) {
+    const sorted = negativeRake.sort((a, b) => a.currentRake - b.currentRake).slice(0, 5)
+    insights.push(
+      pvrInsight(
+        'pvr-negative-rake-bucket',
+        'negative_rake',
+        sorted[0].currentRake < -config.severityThresholds.critical.minImpactEur ? 'critical' : 'warning',
+        `${negativeRake.length} ${negativeRake.length === 1 ? 'PVR con rake negativo' : 'PVR con rake negativo'} nel mese`,
+        `Rake negativo rilevato per: ${sorted.map((c) => `${c.pvrName} (${formatEur(c.currentRake)})`).join(', ')}${negativeRake.length > sorted.length ? ` e altri ${negativeRake.length - sorted.length}` : ''}.`,
+        month,
+        prevMonth,
+        sorted[0].pvrId,
+        sorted[0].pvrName,
+        negativeRake.length,
+        null,
+        0,
+        null,
+        Math.abs(sorted.reduce((s, c) => s + c.currentRake, 0)),
+        confidence,
+        sorted.map((c) => ({
+          label: c.pvrName,
+          value: c.currentRake,
           unit: 'eur' as const,
         })),
-        'verificare i PVR senza movimento registrato nel mese',
+        'verificare i PVR con rake negativo: i giocatori stanno vincendo più di quanto giocano',
         config,
       ),
     )
