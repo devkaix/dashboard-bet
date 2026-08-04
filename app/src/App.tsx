@@ -6,6 +6,7 @@ import NetworkPage from '@/pages/Network'
 import PvrDetailPage from '@/pages/PvrDetail'
 import PlayersPage from '@/pages/Players'
 import AnalyticsPage from '@/pages/Analytics'
+import CopilotPage from '@/pages/Copilot'
 import UploadPage from '@/pages/Upload'
 import SettingsPage from '@/pages/Settings'
 
@@ -19,6 +20,7 @@ export default function App() {
         <Route path="/players" element={<PlayersPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/upload" element={<UploadPage />} />
+        <Route path="/copilot" element={<CopilotPage />} />
         <Route path="/pvr/:pvrId" element={<PvrDetailPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>

@@ -9,6 +9,7 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/players': { title: 'Giocatori', subtitle: 'Elenco completo giocatori attivi' },
   '/analytics': { title: 'Analytics', subtitle: 'Analisi trend e confronti periodo' },
   '/upload': { title: 'Importa Dati', subtitle: 'Caricamento Excel e validazioni' },
+  '/copilot': { title: 'Ricerca Dati', subtitle: 'Cerca tra i dati della rete' },
   '/settings': { title: 'Impostazioni', subtitle: 'Soglie alert e riepilogo dati' },
 }
 
