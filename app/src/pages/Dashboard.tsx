@@ -6,7 +6,7 @@ import {
   Coins,
   Users,
   Activity,
-  Sparkles,
+  BarChart3,
   AlertTriangle,
   TrendingUp as TrendingUpIcon,
   Lightbulb,
@@ -64,7 +64,7 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
   )
 }
 
-// ─── AI Briefing column ───
+// ─── Briefing column ───
 function BriefingColumn({
   title,
   icon: Icon,
@@ -568,7 +568,7 @@ export default function Dashboard() {
         </>
       )}
 
-      {/* ── Section 3+4: Trend Chart + AI Briefing ── */}
+      {/* ── Section 3+4: Trend Chart + Briefing ── */}
       <div className="grid grid-cols-[2fr_1fr] gap-4">
         {/* Trend Chart */}
         <motion.div
@@ -649,7 +649,7 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
-        {/* AI Briefing Panel */}
+        {/* Briefing Panel */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -658,16 +658,14 @@ export default function Dashboard() {
           <GlassCard className="h-[380px] p-5 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between mb-4 flex-shrink-0">
               <div className="flex items-center gap-2">
-                <Sparkles size={16} className="text-accent-purple" />
-                <h2 className="text-[20px] font-semibold text-accent-purple">AI Briefing</h2>
+                <BarChart3 size={16} className="text-accent-purple" />
+                <h2 className="text-[20px] font-semibold text-accent-purple">Briefing</h2>
               </div>
               <span className="text-[11px] text-text-muted">
                 {lastUpdate ? new Date(lastUpdate).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'In attesa dati'}
               </span>
             </div>
-            <p className="text-[13px] text-text-muted mb-4 flex-shrink-0">
-              Analisi automatica della rete
-            </p>
+
 
             <div className="flex-1 overflow-y-auto space-y-4 pr-1">
               <div className="grid grid-cols-1 gap-4">
@@ -731,7 +729,7 @@ export default function Dashboard() {
                   <th className="text-right text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Rake Totale</th>
                   <th className="text-right text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Bet Totale</th>
                   <th className="text-center text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Giorni</th>
-                  <th className="text-center text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Health</th>
+
                   <th className="text-center text-[11px] font-medium uppercase tracking-wider text-text-muted px-4 py-2.5">Stato</th>
                 </tr>
               </thead>
@@ -750,7 +748,7 @@ export default function Dashboard() {
                       animate={{ opacity: 1 }}
                       transition={{ delay: 0.95 + i * 0.03, duration: 0.2 }}
                       className={cn(
-                        'border-t border-border-subtle hover:bg-bg-surface-elevated transition-colors cursor-pointer',
+                        'border-t border-border-subtle hover:bg-bg-surface-elevated transition-colors',
                         rankBg,
                       )}
                     >
@@ -780,11 +778,7 @@ export default function Dashboard() {
                           {player.active_days}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex justify-center">
-                          <span className="text-[11px] text-text-muted">N/D</span>
-                        </div>
-                      </td>
+
                       <td className="px-4 py-3 text-center">
                         <span
                           className={cn(

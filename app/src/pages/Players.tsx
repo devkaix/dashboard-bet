@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   useReactTable,
@@ -322,6 +323,7 @@ export default function PlayersPage() {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'total_rake', desc: true }])
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 20 })
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null)
+  const navigate = useNavigate()
 
   // Load data
   useEffect(() => {
@@ -600,7 +602,7 @@ export default function PlayersPage() {
         transition={{ duration: 0.25 }}
       >
         <nav className="flex items-center gap-2 text-[12px] text-text-muted mb-1">
-          <span>Dashboard</span>
+          <span className="hover:text-text-secondary cursor-pointer" onClick={() => navigate('/dashboard')}>Dashboard</span>
           <span>/</span>
           <span className="text-text-secondary">Giocatori</span>
         </nav>

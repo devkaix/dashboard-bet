@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   BarChart,
@@ -22,11 +23,9 @@ import {
   Legend,
 } from 'recharts'
 import {
-  BarChart3,
   TrendingUp,
   TrendingDown,
   AlertTriangle,
-  Sparkles,
   Users,
   ArrowUp,
   ArrowDown,
@@ -327,6 +326,7 @@ function buildPeriod(key: string, groups: Map<string, DailyKPI[]>): Period {
 
 // ─── Main Analytics Page ───
 export default function AnalyticsPage() {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [granularity, setGranularity] = useState<Granularity>('giornaliero')
   const [visibleLines, setVisibleLines] = useState({ rake: true, bet: true, won: true })
@@ -638,7 +638,7 @@ export default function AnalyticsPage() {
         transition={{ duration: 0.3 }}
       >
         <nav className="flex items-center gap-2 text-[12px] text-text-muted mb-1">
-          <span>Dashboard</span>
+          <button onClick={() => navigate('/dashboard')} className="hover:text-text-primary transition-colors cursor-pointer">Dashboard</button>
           <span>/</span>
           <span className="text-text-secondary">Analisi</span>
         </nav>
@@ -662,25 +662,7 @@ export default function AnalyticsPage() {
           <span>{periodB.label || 'Periodo corrente'}</span>
           <ChevronDown size={14} className="text-text-muted" />
         </div>
-        <button className="px-4 py-2 rounded-lg bg-accent-blue text-white text-[13px] font-medium flex items-center gap-2 hover:brightness-110 transition-all">
-          <BarChart3 size={14} /> Confronta
-        </button>
-        <div className="flex-1" />
-        <div className="flex items-center gap-1">
-          {['Mese vs Mese', 'Settimana vs Settimana', 'Personalizzato'].map((p, i) => (
-            <button
-              key={p}
-              className={cn(
-                'px-3 py-1.5 rounded-md text-[12px] font-medium transition-colors',
-                i === 0
-                  ? 'bg-accent-blue text-white'
-                  : 'bg-bg-surface-elevated text-text-secondary hover:bg-bg-surface-highlight',
-              )}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
+
       </motion.div>
 
       {/* Section 1: Period Comparison Chart */}
@@ -864,7 +846,7 @@ export default function AnalyticsPage() {
               Trend: {trendStats.slope >= 0 ? '+' : ''}{formatCurrency(trendStats.slope)}/giorno
             </span>
             <span className="text-[12px] text-text-muted">R² = {trendStats.r2.toFixed(2)}</span>
-            <span className="text-[12px] text-accent-purple">Previsione prossimo mese: {formatCurrency(trendStats.forecast)}</span>
+            <span className="text-[12px] text-accent-purple">Proiezione lineare: {formatCurrency(trendStats.forecast)}</span>
           </div>
         </motion.div>
 
@@ -877,7 +859,6 @@ export default function AnalyticsPage() {
         >
           <div className="flex items-center gap-2">
             <h2 className="text-[20px] font-semibold text-text-primary">Rilevazione Anomalie</h2>
-            <Sparkles size={14} className="text-accent-purple" />
             <span className="text-[11px] text-text-muted ml-auto">Punti evidenziati deviano &gt;2σ</span>
           </div>
 
@@ -1099,16 +1080,10 @@ export default function AnalyticsPage() {
         initial={{ opacity: 0, x: -12 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ delay: 1.0 }}
-        className="rounded-lg border border-accent-purple/15 p-5 space-y-3"
-        style={{
-          background: 'rgba(17, 24, 39, 0.7)',
-          boxShadow: '0 0 20px rgba(139,92,246,0.1)',
-        }}
+        className="bg-bg-surface rounded-lg border border-border-subtle p-5 space-y-3"
       >
         <div className="flex items-center gap-2 mb-3">
-          <Sparkles size={16} className="text-accent-purple" />
-          <h3 className="text-[16px] font-semibold text-accent-purple">Insight dall'AI</h3>
-          <span className="text-[11px] text-text-muted ml-2">Basato sui dati reali del confronto</span>
+          <h3 className="text-[16px] font-semibold text-text-primary">Insight</h3>
         </div>
         <div className="space-y-3">
           {insights.length > 0 ? (

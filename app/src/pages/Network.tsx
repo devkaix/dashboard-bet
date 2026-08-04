@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronRight,
@@ -774,7 +775,7 @@ export default function NetworkPage() {
               Rete Commerciale
             </h1>
             <p className="text-[13px] text-text-muted mt-1">
-              <span className="hover:text-text-secondary cursor-pointer">Dashboard</span>
+              <Link to="/dashboard" className="hover:text-text-secondary cursor-pointer">Dashboard</Link>
               <span className="mx-1.5">/</span>
               <span className="text-text-secondary">Rete</span>
             </p>

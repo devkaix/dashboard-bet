@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Sparkles,
+  Search,
   Send,
   Lightbulb,
   TrendingUp,
@@ -343,7 +343,7 @@ function TypingIndicator() {
       className="flex items-center gap-2 mb-4"
     >
       <div className="w-7 h-7 rounded-full bg-accent-purple flex items-center justify-center flex-shrink-0">
-        <Sparkles size={14} className="text-white" />
+        <Search size={14} className="text-white" />
       </div>
       <div className="flex items-center gap-1 px-4 py-3 rounded-xl bg-bg-surface border border-border-subtle">
         <motion.span
@@ -636,7 +636,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       <div className="flex gap-3 max-w-[85%]">
         {/* AI Avatar */}
         <div className="w-7 h-7 rounded-full bg-accent-purple flex items-center justify-center flex-shrink-0 mt-1">
-          <Sparkles size={14} className="text-white" />
+          <Search size={14} className="text-white" />
         </div>
         <div className="flex-1 min-w-0">
           <div
@@ -644,16 +644,9 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             style={{
               background: 'rgba(17, 24, 39, 0.7)',
               backdropFilter: 'blur(12px)',
-              boxShadow: '0 0 20px rgba(139,92,246,0.15)',
             }}
           >
-            {/* Purple glow pulse on left border */}
-            <motion.div
-              className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent-purple"
-              animate={{ opacity: [0.5, 1, 0.5] }}
-              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-            />
-            <p className="text-[14px] leading-relaxed text-text-primary pl-2">
+            <p className="text-[14px] leading-relaxed text-text-primary">
               {message.content}
             </p>
             {message.dataComponent && (
@@ -680,32 +673,22 @@ function WelcomeMessage() {
       className="flex justify-start mb-6"
     >
       <div className="flex gap-3 max-w-[85%]">
-        <motion.div
-          className="w-10 h-10 rounded-full bg-accent-purple flex items-center justify-center flex-shrink-0"
-          animate={{ boxShadow: ['0 0 0px rgba(139,92,246,0)', '0 0 20px rgba(139,92,246,0.4)', '0 0 0px rgba(139,92,246,0)'] }}
-          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-        >
-          <Sparkles size={18} className="text-white" />
-        </motion.div>
+        <div className="w-10 h-10 rounded-full bg-accent-purple flex items-center justify-center flex-shrink-0">
+          <Search size={18} className="text-white" />
+        </div>
         <div className="flex-1 min-w-0">
           <div
             className="relative px-5 py-4 rounded-2xl rounded-tl-sm border border-[rgba(139,92,246,0.15)]"
             style={{
               background: 'rgba(17, 24, 39, 0.7)',
               backdropFilter: 'blur(12px)',
-              boxShadow: '0 0 20px rgba(139,92,246,0.15)',
             }}
           >
-            <motion.div
-              className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-accent-purple"
-              animate={{ opacity: [0.5, 1, 0.5] }}
-              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-            />
-            <p className="text-[15px] leading-relaxed text-text-primary pl-2 font-medium">
-              Ciao! Sono l&apos;Assistente Analitico di DAZN Bet. Come posso aiutarti oggi?
+            <p className="text-[15px] leading-relaxed text-text-primary font-medium">
+              Ciao! Cerca tra i dati della rete usando parole chiave.
             </p>
-            <p className="text-[13px] leading-relaxed text-text-secondary mt-2 pl-2">
-              Analizzo i dati reali della rete commerciale: performance, giocatori, PVR e anomalie. Non uso modelli generativi: tutte le risposte sono calcolate sui dati caricati.
+            <p className="text-[13px] leading-relaxed text-text-secondary mt-2">
+              Questa è una ricerca per parole chiave sui dati caricati. Digita termini come &quot;rake&quot;, &quot;players&quot;, &quot;PVR&quot;, &quot;alert&quot; per ottenere risultati rapidi.
             </p>
           </div>
           <span className="text-[11px] text-text-muted mt-1 ml-2">{format(Date.now(), 'HH:mm', { locale: it })}</span>
@@ -927,30 +910,27 @@ export default function CopilotPage() {
       setMessages((prev) => [...prev, userMsg])
       setIsTyping(true)
 
-      // Simulate AI thinking delay
-      setTimeout(() => {
-        try {
-          const response = getAnalyticalResponse(text)
-          const aiMsg: ChatMessage = {
-            id: `ai-${Date.now()}`,
-            role: 'ai',
-            content: response.content,
-            timestamp: Date.now(),
-            dataComponent: response.dataComponent,
-          }
-          setIsTyping(false)
-          setMessages((prev) => [...prev, aiMsg])
-        } catch (err) {
-          const aiMsg: ChatMessage = {
-            id: `ai-${Date.now()}`,
-            role: 'ai',
-            content: err instanceof Error ? err.message : 'Errore nel caricamento dei dati. Riprova.',
-            timestamp: Date.now(),
-          }
-          setIsTyping(false)
-          setMessages((prev) => [...prev, aiMsg])
+      try {
+        const response = getAnalyticalResponse(text)
+        const aiMsg: ChatMessage = {
+          id: `ai-${Date.now()}`,
+          role: 'ai',
+          content: response.content,
+          timestamp: Date.now(),
+          dataComponent: response.dataComponent,
         }
-      }, 1200)
+        setIsTyping(false)
+        setMessages((prev) => [...prev, aiMsg])
+      } catch (err) {
+        const aiMsg: ChatMessage = {
+          id: `ai-${Date.now()}`,
+          role: 'ai',
+          content: err instanceof Error ? err.message : 'Errore nel caricamento dei dati. Riprova.',
+          timestamp: Date.now(),
+        }
+        setIsTyping(false)
+        setMessages((prev) => [...prev, aiMsg])
+      }
     },
     [],
   )
@@ -970,13 +950,10 @@ export default function CopilotPage() {
       >
         <div className="flex items-center gap-3">
           <h2 className="text-[28px] font-bold leading-tight tracking-[-0.01em]">
-            <span className="text-text-primary">Assistente </span>
-            <span className="text-accent-purple">Analitico</span>
+            <span className="text-text-primary">Ricerca </span>
+            <span className="text-accent-purple">Dati</span>
           </h2>
-          <span className="text-[15px] text-text-secondary hidden sm:inline">Motore analitico locale DAZN Bet</span>
-          <span className="ml-2 px-2.5 py-0.5 rounded-full bg-bg-surface-elevated border border-border-subtle text-[11px] text-text-muted font-medium">
-            Motore analitico locale
-          </span>
+          <span className="text-[15px] text-text-secondary hidden sm:inline">Cerca tra i dati della rete</span>
         </div>
         {messages.length > 0 && (
           <motion.button
