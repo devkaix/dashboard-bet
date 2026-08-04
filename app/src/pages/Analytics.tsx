@@ -31,6 +31,7 @@ import {
   ArrowDown,
   Info,
   ChevronDown,
+  Sliders,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { loadData, dataStore, formatCurrency, type DailyKPI } from '@/lib/data'
@@ -205,7 +206,7 @@ function WhatIfSimulator({
       style={{ borderTop: '3px solid #8b5cf6' }}
     >
       <div className="flex items-center gap-2 mb-4">
-        <Sparkles size={18} className="text-accent-purple" />
+        <Sliders size={18} className="text-accent-purple" />
         <h2 className="text-[20px] font-semibold text-accent-purple">Simulatore What-If</h2>
       </div>
       <p className="text-[13px] text-text-secondary -mt-4 mb-4">
