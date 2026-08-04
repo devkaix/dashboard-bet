@@ -499,12 +499,12 @@ export default function Dashboard() {
           iconColor="text-positive"
           label={`Rake Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
           value={formatCurrency(categoryValues.rake)}
-          delta={categoryFilter === 'all' ? deltas.rake : undefined}
-          deltaPositive={categoryFilter === 'all' ? deltas.rakePositive : undefined}
+          delta={categoryFilter === 'all' ? deltas.rake : '—'}
+          deltaPositive={categoryFilter === 'all' ? deltas.rakePositive : true}
           sparklineData={categoryFilter === 'all' ? sparkData.rakeData : []}
           sparklineColor="#10b981"
           sparklineFillColor="#10b981"
-          bottomNote={categoryFilter === 'all' ? comparisonLabel : undefined}
+          bottomNote={categoryFilter === 'all' ? comparisonLabel : ''}
           index={0}
         />
         <KpiCard
@@ -512,12 +512,12 @@ export default function Dashboard() {
           iconColor="text-accent-blue"
           label={`Bet Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
           value={formatCurrency(categoryValues.bet)}
-          delta={categoryFilter === 'all' ? deltas.bet : undefined}
-          deltaPositive={categoryFilter === 'all' ? deltas.betPositive : undefined}
+          delta={categoryFilter === 'all' ? deltas.bet : '—'}
+          deltaPositive={categoryFilter === 'all' ? deltas.betPositive : true}
           sparklineData={categoryFilter === 'all' ? sparkData.betData : []}
           sparklineColor="#3b82f6"
           sparklineFillColor="#3b82f6"
-          bottomNote={categoryFilter === 'all' ? comparisonLabel : undefined}
+          bottomNote={categoryFilter === 'all' ? comparisonLabel : ''}
           index={1}
         />
         <KpiCard
@@ -525,12 +525,12 @@ export default function Dashboard() {
           iconColor="text-warning"
           label={`Won Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
           value={formatCurrency(categoryValues.won)}
-          delta={categoryFilter === 'all' ? deltas.won : undefined}
-          deltaPositive={categoryFilter === 'all' ? deltas.wonPositive : undefined}
+          delta={categoryFilter === 'all' ? deltas.won : '—'}
+          deltaPositive={categoryFilter === 'all' ? deltas.wonPositive : true}
           sparklineData={categoryFilter === 'all' ? sparkData.wonData : []}
           sparklineColor="#f59e0b"
           sparklineFillColor="#f59e0b"
-          bottomNote={categoryFilter === 'all' ? `Payout medio: ${formatPercent(avgPayout)}` : undefined}
+          bottomNote={categoryFilter === 'all' ? `Payout medio: ${formatPercent(avgPayout)}` : ''}
           index={2}
         />
         <KpiCard
