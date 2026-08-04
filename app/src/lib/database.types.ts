@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      category_stats: {
+        Row: {
+          analysis_month: string
+          bet: number | null
+          buy_in: number | null
+          category: string
+          created_at: string | null
+          id: string
+          payout: number | null
+          rake: number | null
+          won: number | null
+        }
+        Insert: {
+          analysis_month: string
+          bet?: number | null
+          buy_in?: number | null
+          category: string
+          created_at?: string | null
+          id?: string
+          payout?: number | null
+          rake?: number | null
+          won?: number | null
+        }
+        Update: {
+          analysis_month?: string
+          bet?: number | null
+          buy_in?: number | null
+          category?: string
+          created_at?: string | null
+          id?: string
+          payout?: number | null
+          rake?: number | null
+          won?: number | null
+        }
+        Relationships: []
+      }
       daily_network_stats: {
         Row: {
           bet: number | null
