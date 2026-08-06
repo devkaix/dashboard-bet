@@ -38,7 +38,55 @@ import type { Player } from '@/lib/data'
 import { normalizeAnalysisMonth, analysisMonthToRange } from '@/lib/analysisMonth'
 import MonthSelector from '@/components/upload/MonthSelector'
 
-type GameBreakdown = { provider: string; bet: number; won: number; rake: number; sessions: number }
+// Provider → macro-categoria (stesse usate in category_stats / Dashboard)
+const PROVIDER_CATEGORY: Record<string, string> = {
+  EVO: 'CASINO LIVE',
+  SISAL: 'SCOMMESSE',
+  PLAY TECH: 'SCOMMESSE',
+  PLAY TECH L: 'SCOMMESSE',
+  NAZIONALE: 'LOTTERIE',
+  PSQF: 'CASINO',
+  PRAGM: 'CASINO',
+  PRAGML: 'CASINO',
+  EGT: 'CASINO',
+  NETENT: 'CASINO',
+  HACKSAW: 'CASINO',
+  ENDORPHINA: 'CASINO',
+  BOOMING: 'CASINO',
+  GOLCASINO: 'CASINO',
+  PLAY'N GO: 'CASINO',
+  PLAYNGO: 'CASINO',
+  CRISTALTEC: 'CASINO',
+  OCTAVIAN: 'CASINO',
+  ELK: 'CASINO',
+  PLATIPUS: 'CASINO',
+  SKYWIND: 'CASINO',
+  REDTIGER: 'CASINO',
+  BTG: 'CASINO',
+  THUNDERK: 'CASINO',
+  GREENTUBE: 'CASINO',
+  NLC: 'CASINO',
+  RELIGA: 'CASINO',
+  STAKEL: 'CASINO',
+  TAPAROO: 'CASINO',
+  ESPRESSO: 'CASINO',
+  ESAGAMING: 'CASINO',
+  EVOPLAY: 'CASINO',
+  '3CHERRY': 'CASINO',
+  TUKO: 'CASINO',
+  SPRIBE: 'CASINO',
+  EURASIAN: 'CASINO',
+  TOPGAMING: 'CASINO',
+  WM: 'CASINO',
+  PSV: 'CASINO',
+  PSR: 'CASINO',
+}
+const DEFAULT_CATEGORY = 'CASINO'
+function categoryFor(provider: string): string {
+  return PROVIDER_CATEGORY[provider] || (provider.startsWith('CMICRO') ? 'CASINO' : DEFAULT_CATEGORY)
+}
+
+type GameBreakdown = { category: string; bet: number; won: number; rake: number; sessions: number }
 
 // ─── Mini Sparkline ───
 function MiniSparkline({ data, color }: { data: number[]; color: string }) {
@@ -87,6 +135,110 @@ function StatusBadge({ status }: { status: string }) {
     >
       {c.label}
     </span>
+  )
+}
+
+// ─── KPI Grid (estratto per riuso) ───
+function KpiGrid({ player }: { player: Player }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.2 }}
+      className="grid grid-cols-3 gap-3"
+    >
+      {[
+        { label: 'Rake Totale', value: formatCurrency(player.total_rake) },
+        { label: 'Bet Totale', value: formatCurrency(player.total_bet) },
+        { label: 'Won', value: formatCurrency(player.total_won) },
+        { label: 'Giorni Attivi', value: String(player.active_days) },
+        { label: 'Payout Medio', value: formatPercent(player.avg_payout) },
+        { label: 'Buy In', value: formatCurrency(player.total_buy_in) },
+      ].map((kpi) => (
+        <div
+          key={kpi.label}
+          className="bg-bg-surface-elevated rounded-lg p-3 border border-border-subtle"
+        >
+          <p className="text-[11px] text-text-muted mb-1">{kpi.label}</p>
+          <p className="text-[14px] font-mono font-semibold text-text-primary">{kpi.value}</p>
+        </div>
+      ))}
+    </motion.div>
+  )
+}
+
+// ─── Category Breakdown (collapsible) ───
+function CategoryBreakdown({ gameBreakdown }: { gameBreakdown: GameBreakdown[] }) {
+  const [open, setOpen] = useState(false)
+  if (gameBreakdown.length === 0) return null
+  const totalRake = gameBreakdown.reduce((s, g) => s + g.rake, 0)
+  const totalBet = gameBreakdown.reduce((s, g) => s + g.bet, 0)
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.25 }}
+      className="bg-bg-surface-elevated rounded-lg border border-border-subtle overflow-hidden"
+    >
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full p-3 flex items-center justify-between hover:bg-bg-surface-highlight/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-semibold text-text-primary">Ripartizione per Categoria</span>
+          <span className="text-[10px] text-text-muted">
+            {gameBreakdown.length} categorie · {formatCurrency(totalRake)} rake
+          </span>
+        </div>
+        {open ? <ChevronUp size={16} className="text-text-muted" /> : <ChevronDown size={16} className="text-text-muted" />}
+      </button>
+      {open && (
+        <div className="max-h-[200px] overflow-y-auto border-t border-border-subtle">
+          <table className="w-full">
+            <thead className="sticky top-0 bg-bg-surface-elevated z-10">
+              <tr className="text-[10px] uppercase text-text-muted font-medium">
+                <th className="text-left px-3 py-1.5">Categoria</th>
+                <th className="text-right px-3 py-1.5">Rake</th>
+                <th className="text-right px-3 py-1.5">Bet</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gameBreakdown.map((g) => {
+                const maxRake = gameBreakdown[0]?.rake || 1
+                const barPct = Math.max((Math.abs(g.rake) / Math.abs(maxRake)) * 100, 2)
+                return (
+                  <tr key={g.category} className="border-t border-border-subtle/50 hover:bg-bg-surface-highlight/50">
+                    <td className="px-3 py-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-medium text-text-primary">{g.category}</span>
+                        <span className="text-[10px] text-text-muted">{g.sessions} sess.</span>
+                      </div>
+                      <div className="mt-0.5 h-1 w-full bg-bg-surface rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${barPct}%`,
+                            backgroundColor: g.rake < 0 ? '#ef4444' : '#10b981',
+                          }}
+                        />
+                      </div>
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      <span className={`text-[11px] font-mono font-medium ${g.rake < 0 ? 'text-negative' : 'text-positive'}`}>
+                        {formatCurrency(g.rake)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      <span className="text-[11px] font-mono text-text-secondary">{formatCurrency(g.bet)}</span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </motion.div>
   )
 }
 
@@ -175,87 +327,10 @@ function PlayerSheet({
           </motion.div>
 
           {/* KPI Grid */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="grid grid-cols-3 gap-3"
-          >
-            {[
-              { label: 'Rake Totale', value: formatCurrency(player.total_rake) },
-              { label: 'Bet Totale', value: formatCurrency(player.total_bet) },
-              { label: 'Won', value: formatCurrency(player.total_won) },
-              { label: 'Giorni Attivi', value: String(player.active_days) },
-              { label: 'Payout Medio', value: formatPercent(player.avg_payout) },
-              { label: 'Buy In', value: formatCurrency(player.total_buy_in) },
-            ].map((kpi) => (
-              <div
-                key={kpi.label}
-                className="bg-bg-surface-elevated rounded-lg p-3 border border-border-subtle"
-              >
-                <p className="text-[11px] text-text-muted mb-1">{kpi.label}</p>
-                <p className="text-[14px] font-mono font-semibold text-text-primary">{kpi.value}</p>
-              </div>
-            ))}
-          </motion.div>
+          <KpiGrid player={player} />
 
-          {/* Ripartizione per Provider */}
-          {gameBreakdown.length > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25 }}
-              className="bg-bg-surface-elevated rounded-lg border border-border-subtle overflow-hidden"
-            >
-              <div className="p-3 border-b border-border-subtle">
-                <h3 className="text-[13px] font-semibold text-text-primary">Ripartizione per Provider</h3>
-              </div>
-              <div className="max-h-[200px] overflow-y-auto">
-                <table className="w-full">
-                  <thead className="sticky top-0 bg-bg-surface-elevated z-10">
-                    <tr className="text-[10px] uppercase text-text-muted font-medium">
-                      <th className="text-left px-3 py-1.5">Provider</th>
-                      <th className="text-right px-3 py-1.5">Rake</th>
-                      <th className="text-right px-3 py-1.5">Bet</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {gameBreakdown.map((g, i) => {
-                      const maxRake = gameBreakdown[0]?.rake || 1
-                      const barPct = Math.max((Math.abs(g.rake) / Math.abs(maxRake)) * 100, 2)
-                      return (
-                        <tr key={g.provider} className="border-t border-border-subtle/50 hover:bg-bg-surface-highlight/50">
-                          <td className="px-3 py-1.5">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] font-medium text-text-primary truncate max-w-[100px]">{g.provider}</span>
-                              <span className="text-[10px] text-text-muted">{g.sessions} sess.</span>
-                            </div>
-                            <div className="mt-0.5 h-1 w-full bg-bg-surface rounded-full overflow-hidden">
-                              <div
-                                className="h-full rounded-full transition-all"
-                                style={{
-                                  width: `${barPct}%`,
-                                  backgroundColor: g.rake < 0 ? '#ef4444' : '#10b981',
-                                }}
-                              />
-                            </div>
-                          </td>
-                          <td className="px-3 py-1.5 text-right">
-                            <span className={`text-[11px] font-mono font-medium ${g.rake < 0 ? 'text-negative' : 'text-positive'}`}>
-                              {formatCurrency(g.rake)}
-                            </span>
-                          </td>
-                          <td className="px-3 py-1.5 text-right">
-                            <span className="text-[11px] font-mono text-text-secondary">{formatCurrency(g.bet)}</span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </motion.div>
-          )}
+          {/* Ripartizione per Categoria (collapsible) */}
+          <CategoryBreakdown gameBreakdown={gameBreakdown} />
 
           {/* Mini Trend Chart */}
           {chartData.length > 0 && (
@@ -477,13 +552,13 @@ export default function PlayersPage() {
         if (error || !data) { setGameBreakdown([]); return }
         const agg = new Map<string, GameBreakdown>()
         for (const r of data) {
-          const p = r.provider as string
-          const entry = agg.get(p) || { provider: p, bet: 0, won: 0, rake: 0, sessions: 0 }
+          const cat = categoryFor(r.provider as string)
+          const entry = agg.get(cat) || { category: cat, bet: 0, won: 0, rake: 0, sessions: 0 }
           entry.bet += Number(r.bet) || 0
           entry.won += Number(r.won) || 0
           entry.rake += Number(r.rake) || 0
           entry.sessions += 1
-          agg.set(p, entry)
+          agg.set(cat, entry)
         }
         setGameBreakdown(Array.from(agg.values()).sort((a, b) => b.rake - a.rake))
       })
