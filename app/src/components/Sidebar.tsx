@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Upload,
   Search,
+  ArrowLeftRight,
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -21,6 +22,7 @@ const navItems = [
   { to: '/network', icon: Network, label: 'Rete' },
   { to: '/players', icon: Users, label: 'Giocatori' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
+  { to: '/compare', icon: ArrowLeftRight, label: 'Confronto Mensile' },
   { to: '/upload', icon: Upload, label: 'Importa Dati' },
   { to: '/copilot', icon: Search, label: 'Ricerca Dati' },
   { to: '/settings', icon: Settings, label: 'Impostazioni' },

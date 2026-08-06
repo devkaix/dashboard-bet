@@ -41,7 +41,7 @@ import {
   type CategoryStat,
 } from '@/lib/data'
 import { analysisMonthToRange, normalizeAnalysisMonth, formatAnalysisMonth } from '@/lib/analysisMonth'
-import type { BriefingItem, DailyKPI, Alert as AlertType, RankingPlayer, MonthlyAggregates } from '@/lib/data'
+import type { BriefingItem, DailyKPI, Alert as AlertType, RankingPlayer, MonthlyAggregates, Player } from '@/lib/data'
 import { cn } from '@/lib/utils'
 
 // ─── Custom chart tooltip ───
@@ -141,6 +141,7 @@ export default function Dashboard() {
   const [totalWon, setTotalWon] = useState(0)
   const [avgPayout, setAvgPayout] = useState(0)
   const [avgActivePerDay, setAvgActivePerDay] = useState(0)
+  const [totalActivePlayers, setTotalActivePlayers] = useState(0)
   const [prevMonthAggs, setPrevMonthAggs] = useState<MonthlyAggregates | null>(null)
   const [prevMonthLabel, setPrevMonthLabel] = useState('')
   const [periodLabel, setPeriodLabel] = useState('')
@@ -213,6 +214,7 @@ export default function Dashboard() {
         setTotalWon(dataStore.monthly_aggregates.won)
         setAvgPayout(dk.length > 0 ? dk.reduce((s: number, d: { avg_payout: number }) => s + d.avg_payout, 0) / dk.length : 0)
         setAvgActivePerDay(dk.length > 0 ? dk.reduce((s: number, d: { active_players: number }) => s + d.active_players, 0) / dk.length : 0)
+        setTotalActivePlayers(dataStore.players.filter((p: Player) => p.active_days > 0).length)
 
         const meta = dataStore.metadata
         if (meta.period_end) {
@@ -546,8 +548,8 @@ export default function Dashboard() {
           sparklineData={sparkData.activeData}
           sparklineColor="#06b6d4"
           sparklineFillColor="#06b6d4"
-          bottomNote={`${dataStore.metadata.total_players} giocatori totali`}
-          helpText="Media giornaliera dei giocatori che hanno effettuato almeno una giocata nel mese. Il totale registrato include anche i giocatori inattivi."
+          bottomNote={`${totalActivePlayers} attivi nel mese · media giornaliera`}
+          helpText="Media giornaliera dei giocatori che hanno effettuato almeno una giocata. Il numero sotto indica i giocatori unici attivi nell'intero mese."
           index={3}
         />
         <KpiCard
