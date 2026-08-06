@@ -542,27 +542,26 @@ export default function PlayersPage() {
       return
     }
     const range = analysisMonthToRange(selectedMonth)
-    supabase
-      .from('daily_player_game_stats')
-      .select('provider, bet, won, rake')
-      .eq('player_id', selectedPlayer.id)
-      .gte('date', range.start)
-      .lte('date', range.end)
-      .then(({ data, error }) => {
-        if (error || !data) { setGameBreakdown([]); return }
-        const agg = new Map<string, GameBreakdown>()
-        for (const r of data) {
-          const cat = categoryFor(r.provider as string)
-          const entry = agg.get(cat) || { category: cat, bet: 0, won: 0, rake: 0, sessions: 0 }
-          entry.bet += Number(r.bet) || 0
-          entry.won += Number(r.won) || 0
-          entry.rake += Number(r.rake) || 0
-          entry.sessions += 1
-          agg.set(cat, entry)
-        }
-        setGameBreakdown(Array.from(agg.values()).sort((a, b) => b.rake - a.rake))
-      })
-      .catch(() => setGameBreakdown([]))
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('daily_player_game_stats')
+        .select('provider, bet, won, rake')
+        .eq('player_id', selectedPlayer.id)
+        .gte('date', range.start)
+        .lte('date', range.end)
+      if (error || !data) { setGameBreakdown([]); return }
+      const agg = new Map<string, GameBreakdown>()
+      for (const r of data) {
+        const cat = categoryFor(r.provider as string)
+        const entry = agg.get(cat) || { category: cat, bet: 0, won: 0, rake: 0, sessions: 0 }
+        entry.bet += Number(r.bet) || 0
+        entry.won += Number(r.won) || 0
+        entry.rake += Number(r.rake) || 0
+        entry.sessions += 1
+        agg.set(cat, entry)
+      }
+      setGameBreakdown(Array.from(agg.values()).sort((a, b) => b.rake - a.rake))
+    })().catch(() => setGameBreakdown([]))
   }, [selectedPlayer, selectedMonth])
 
   // Stats
