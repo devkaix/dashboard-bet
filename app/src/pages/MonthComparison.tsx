@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   ArrowLeftRight,
@@ -73,11 +73,6 @@ function toNum(v: unknown): number {
   if (v === null || v === undefined) return 0
   const n = Number(v)
   return isNaN(n) || !isFinite(n) ? 0 : n
-}
-
-function pct(a: number, b: number): string {
-  if (b === 0) return '—'
-  return `${(((a - b) / Math.abs(b)) * 100).toFixed(1)}%`
 }
 
 function deltaPct(a: number, b: number): number | null {
@@ -204,9 +199,9 @@ async function fetchPvrRanking(monthA: string, monthB: string): Promise<{ salite
   }
 
   // Get names separately
-  const { data: pvrsData } = await supabase.from('pvrs').select('id, name').neq('tipo', 'agent' as any)
+  const { data: pvrsData } = await (supabase.from('pvrs').select('id, name') as any).neq('tipo', 'agent')
   const pvrNames = new Map<string, string>()
-  for (const p of pvrsData || []) pvrNames.set(p.id, p.name as string)
+  for (const p of (pvrsData || []) as any[]) pvrNames.set(p.id, p.name as string)
 
   const [rankA, rankB] = await Promise.all([rank(rangeA), rank(rangeB)])
   const moves: PvrRankMove[] = []
@@ -245,12 +240,12 @@ async function fetchQuality(monthA: string, monthB: string): Promise<QualityData
     supabase.from('daily_player_stats').select('player_id').gte('date', rangeB.start).lte('date', rangeB.end),
   ])
 
-  const pvrIdsA = new Set((pvrA || []).map(r => r.pvr_id))
-  const pvrIdsB = new Set((pvrB || []).map(r => r.pvr_id))
-  const playerIdsA = new Set((playerA || []).map(r => r.player_id))
-  const playerIdsB = new Set((playerB || []).map(r => r.player_id))
+  const pvrIdsA = new Set(((pvrA || []) as any[]).map((r: any) => r.pvr_id))
+  const pvrIdsB = new Set(((pvrB || []) as any[]).map((r: any) => r.pvr_id))
+  const playerIdsA = new Set(((playerA || []) as any[]).map((r: any) => r.player_id))
+  const playerIdsB = new Set(((playerB || []) as any[]).map((r: any) => r.player_id))
 
-  const { count: totalPvr } = await supabase.from('pvrs').select('*', { count: 'exact', head: true }).neq('tipo', 'agent' as any)
+  const { count: totalPvr } = await (supabase.from('pvrs').select('*', { count: 'exact', head: true }) as any).neq('tipo', 'agent')
   const { count: totalPlayers } = await supabase.from('players').select('*', { count: 'exact', head: true })
 
   return {
@@ -269,15 +264,6 @@ async function fetchQuality(monthA: string, monthB: string): Promise<QualityData
 
 // ─── Components ───
 
-function SectionHeader({ icon: Icon, title }: { icon: React.ComponentType<{ size?: number; className?: string }>; title: string }) {
-  return (
-    <div className="flex items-center gap-2 mb-4">
-      <Icon size={18} className="text-accent-blue" />
-      <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
-    </div>
-  )
-}
-
 function DeltaBadge({ a, b, invert }: { a: number; b: number; invert?: boolean }) {
   const d = deltaPct(a, b)
   if (d === null) return <span className="text-[11px] text-text-muted">—</span>
@@ -293,6 +279,7 @@ function DeltaBadge({ a, b, invert }: { a: number; b: number; invert?: boolean }
   )
 }
 
+function CollapsibleSection({
 // ─── Main Page ───
 
 export default function MonthComparisonPage() {
