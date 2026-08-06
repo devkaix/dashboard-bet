@@ -26,6 +26,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
 import {
   loadData,
   dataStore,
@@ -36,6 +37,8 @@ import {
 import type { Player } from '@/lib/data'
 import { normalizeAnalysisMonth, analysisMonthToRange } from '@/lib/analysisMonth'
 import MonthSelector from '@/components/upload/MonthSelector'
+
+type GameBreakdown = { provider: string; bet: number; won: number; rake: number; sessions: number }
 
 // ─── Mini Sparkline ───
 function MiniSparkline({ data, color }: { data: number[]; color: string }) {
@@ -93,12 +96,14 @@ function PlayerSheet({
   agentName,
   pvrName,
   dailyData,
+  gameBreakdown,
   onClose,
 }: {
   player: Player
   agentName: string
   pvrName: string
   dailyData: { date: string; buy_in: number; bet: number; won: number; rake: number; payout: number }[]
+  gameBreakdown: GameBreakdown[]
   onClose: () => void
 }) {
   const chartData = dailyData.map((d) => ({
@@ -193,6 +198,64 @@ function PlayerSheet({
               </div>
             ))}
           </motion.div>
+
+          {/* Ripartizione per Provider */}
+          {gameBreakdown.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 }}
+              className="bg-bg-surface-elevated rounded-lg border border-border-subtle overflow-hidden"
+            >
+              <div className="p-3 border-b border-border-subtle">
+                <h3 className="text-[13px] font-semibold text-text-primary">Ripartizione per Provider</h3>
+              </div>
+              <div className="max-h-[200px] overflow-y-auto">
+                <table className="w-full">
+                  <thead className="sticky top-0 bg-bg-surface-elevated z-10">
+                    <tr className="text-[10px] uppercase text-text-muted font-medium">
+                      <th className="text-left px-3 py-1.5">Provider</th>
+                      <th className="text-right px-3 py-1.5">Rake</th>
+                      <th className="text-right px-3 py-1.5">Bet</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {gameBreakdown.map((g, i) => {
+                      const maxRake = gameBreakdown[0]?.rake || 1
+                      const barPct = Math.max((Math.abs(g.rake) / Math.abs(maxRake)) * 100, 2)
+                      return (
+                        <tr key={g.provider} className="border-t border-border-subtle/50 hover:bg-bg-surface-highlight/50">
+                          <td className="px-3 py-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-medium text-text-primary truncate max-w-[100px]">{g.provider}</span>
+                              <span className="text-[10px] text-text-muted">{g.sessions} sess.</span>
+                            </div>
+                            <div className="mt-0.5 h-1 w-full bg-bg-surface rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${barPct}%`,
+                                  backgroundColor: g.rake < 0 ? '#ef4444' : '#10b981',
+                                }}
+                              />
+                            </div>
+                          </td>
+                          <td className="px-3 py-1.5 text-right">
+                            <span className={`text-[11px] font-mono font-medium ${g.rake < 0 ? 'text-negative' : 'text-positive'}`}>
+                              {formatCurrency(g.rake)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-1.5 text-right">
+                            <span className="text-[11px] font-mono text-text-secondary">{formatCurrency(g.bet)}</span>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+          )}
 
           {/* Mini Trend Chart */}
           {chartData.length > 0 && (
@@ -325,6 +388,7 @@ export default function PlayersPage() {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'total_rake', desc: true }])
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 20 })
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null)
+  const [gameBreakdown, setGameBreakdown] = useState<GameBreakdown[]>([])
   const navigate = useNavigate()
 
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
@@ -395,6 +459,36 @@ export default function PlayersPage() {
       loadMonth(selectedMonth)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch game breakdown when player selected
+  useEffect(() => {
+    if (!selectedPlayer || !selectedMonth) {
+      setGameBreakdown([])
+      return
+    }
+    const range = analysisMonthToRange(selectedMonth)
+    supabase
+      .from('daily_player_game_stats')
+      .select('provider, bet, won, rake')
+      .eq('player_id', selectedPlayer.id)
+      .gte('date', range.start)
+      .lte('date', range.end)
+      .then(({ data, error }) => {
+        if (error || !data) { setGameBreakdown([]); return }
+        const agg = new Map<string, GameBreakdown>()
+        for (const r of data) {
+          const p = r.provider as string
+          const entry = agg.get(p) || { provider: p, bet: 0, won: 0, rake: 0, sessions: 0 }
+          entry.bet += Number(r.bet) || 0
+          entry.won += Number(r.won) || 0
+          entry.rake += Number(r.rake) || 0
+          entry.sessions += 1
+          agg.set(p, entry)
+        }
+        setGameBreakdown(Array.from(agg.values()).sort((a, b) => b.rake - a.rake))
+      })
+      .catch(() => setGameBreakdown([]))
+  }, [selectedPlayer, selectedMonth])
 
   // Stats
   const stats = useMemo(() => {
@@ -976,6 +1070,7 @@ export default function PlayersPage() {
             agentName={agents.get(selectedPlayer.agent_id ?? 0) || `Agent ${selectedPlayer.agent_id}`}
             pvrName={pvrs.get(selectedPlayer.pvr_id ?? '') || `PVR ${selectedPlayer.pvr_id}`}
             dailyData={dailyStats.get(selectedPlayer.id) || []}
+            gameBreakdown={gameBreakdown}
             onClose={() => setSelectedPlayer(null)}
           />
         )}
