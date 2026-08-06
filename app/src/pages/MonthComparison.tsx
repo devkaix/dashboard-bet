@@ -279,7 +279,6 @@ function DeltaBadge({ a, b, invert }: { a: number; b: number; invert?: boolean }
   )
 }
 
-function CollapsibleSection({
 // ─── Main Page ───
 
 export default function MonthComparisonPage() {
