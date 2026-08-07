@@ -67,6 +67,10 @@ type QualityData = {
   playerRakeSumB: number
 }
 
+type ChurnPlayer = { username: string; rakeLost: number }
+type PvrEfficiency = { pvrId: string; pvrName: string; players: number; rake: number; efficiency: number }
+type BonusROI = { month: string; bonusErogato: number; buyInBonus: number; rake: number; roi: number | null }
+
 // ─── Pure helpers ───
 
 function toNum(v: unknown): number {
@@ -268,6 +272,81 @@ async function fetchQuality(monthA: string, monthB: string): Promise<QualityData
   }
 }
 
+async function fetchChurn(monthA: string, monthB: string): Promise<ChurnPlayer[]> {
+  const rangeA = analysisMonthToRange(monthA)
+  const rangeB = analysisMonthToRange(monthB)
+
+  const [{ data: a }, { data: b }] = await Promise.all([
+    supabase.from('daily_player_stats').select('player_id, rake').gte('date', rangeA.start).lte('date', rangeA.end),
+    supabase.from('daily_player_stats').select('player_id, rake').gte('date', rangeB.start).lte('date', rangeB.end),
+  ])
+
+  const aggA = new Map<string, number>()
+  for (const r of a || []) aggA.set(r.player_id, (aggA.get(r.player_id) || 0) + toNum(r.rake))
+  const idsB = new Set((b || []).map(r => r.player_id))
+
+  const playerIds = Array.from(aggA.keys())
+  const nameMap = new Map<string, string>()
+  if (playerIds.length > 0) {
+    const { data: names } = await supabase.from('players').select('id, username').in('id', playerIds)
+    for (const n of names || []) nameMap.set(n.id, n.username as string)
+  }
+
+  return Array.from(aggA.entries())
+    .filter(([id]) => !idsB.has(id))
+    .map(([id, rake]) => ({ username: nameMap.get(id) || id.slice(0, 8), rakeLost: rake }))
+    .sort((a, b) => b.rakeLost - a.rakeLost)
+    .slice(0, 10)
+}
+
+async function fetchPvrEfficiency(month: string): Promise<PvrEfficiency[]> {
+  const range = analysisMonthToRange(month)
+  const [{ data: pvrStats }, { data: playerCounts }] = await Promise.all([
+    supabase.from('daily_pvr_stats').select('pvr_id, rake').gte('date', range.start).lte('date', range.end),
+    supabase.from('players').select('pvr_id').not('pvr_id', 'is', null),
+  ])
+
+  const pvrRake = new Map<string, number>()
+  for (const r of pvrStats || []) pvrRake.set(r.pvr_id, (pvrRake.get(r.pvr_id) || 0) + toNum(r.rake))
+
+  const pvrPlayers = new Map<string, number>()
+  for (const r of playerCounts || []) pvrPlayers.set(r.pvr_id as string, (pvrPlayers.get(r.pvr_id as string) || 0) + 1)
+
+  const allIds = Array.from(new Set([...pvrRake.keys(), ...pvrPlayers.keys()]))
+  const { data: pvrsData } = await supabase.from('pvrs').select('id, name').in('id', allIds.length > 0 ? allIds : ['none'])
+  const nameMap = new Map<string, string>()
+  for (const p of pvrsData || []) nameMap.set(p.id, p.name as string)
+
+  return Array.from(pvrRake.entries())
+    .filter(([, rake]) => rake > 0)
+    .map(([id, rake]) => {
+      const players = pvrPlayers.get(id) || 1
+      return { pvrId: id, pvrName: nameMap.get(id) || id.slice(0, 8), players, rake, efficiency: rake / players }
+    })
+    .sort((a, b) => b.efficiency - a.efficiency)
+    .slice(0, 10)
+}
+
+async function fetchBonusROI(monthA: string, monthB: string): Promise<{ a: BonusROI; b: BonusROI }> {
+  const rangeA = analysisMonthToRange(monthA)
+  const rangeB = analysisMonthToRange(monthB)
+
+  async function compute(range: { start: string; end: string }, label: string): Promise<BonusROI> {
+    const { data } = await supabase.from('daily_network_stats').select('buy_in_bonus, bet_bonus, rake').gte('date', range.start).lte('date', range.end)
+    let buyInBonus = 0, betBonus = 0, rake = 0
+    for (const r of data || []) {
+      buyInBonus += toNum(r.buy_in_bonus)
+      betBonus += toNum(r.bet_bonus)
+      rake += toNum(r.rake)
+    }
+    const bonusErogato = buyInBonus + betBonus
+    return { month: label, bonusErogato, buyInBonus, rake, roi: bonusErogato > 0 ? rake / bonusErogato : null }
+  }
+
+  const [a, b] = await Promise.all([compute(rangeA, monthA), compute(rangeB, monthB)])
+  return { a, b }
+}
+
 // ─── Components ───
 
 function DeltaBadge({ a, b, invert }: { a: number; b: number; invert?: boolean }) {
@@ -304,24 +383,33 @@ export default function MonthComparisonPage() {
   const [concentration, setConcentration] = useState<ConcentrationData | null>(null)
   const [pvrMoves, setPvrMoves] = useState<{ salite: PvrRankMove[]; discese: PvrRankMove[] }>({ salite: [], discese: [] })
   const [quality, setQuality] = useState<QualityData | null>(null)
+  const [churn, setChurn] = useState<ChurnPlayer[]>([])
+  const [pvrEff, setPvrEff] = useState<PvrEfficiency[]>([])
+  const [bonusROI, setBonusROI] = useState<{ a: BonusROI; b: BonusROI } | null>(null)
 
   useEffect(() => {
     setLoading(true)
     setError(null)
     ;(async () => {
       try {
-        const [ret, cat, conc, pvr, qual] = await Promise.all([
+        const [ret, cat, conc, pvr, qual, churnData, eff, bonus] = await Promise.all([
           fetchRetention(monthA, monthB),
           fetchCategories(monthA, monthB),
           fetchConcentration(monthA, monthB),
           fetchPvrRanking(monthA, monthB),
           fetchQuality(monthA, monthB),
+          fetchChurn(monthA, monthB),
+          fetchPvrEfficiency(monthB),
+          fetchBonusROI(monthA, monthB),
         ])
         setRetention(ret)
         setCategories(cat)
         setConcentration(conc)
         setPvrMoves(pvr)
         setQuality(qual)
+        setChurn(churnData)
+        setPvrEff(eff)
+        setBonusROI(bonus)
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Errore caricamento dati')
       } finally {
@@ -333,9 +421,12 @@ export default function MonthComparisonPage() {
   // Collapsible state per section
   const [sections, setSections] = useState<Record<string, boolean>>({
     retention: true,
+    churn: false,
     categories: true,
     concentration: true,
     ranking: false,
+    pvrEfficiency: false,
+    bonusROI: false,
     quality: false,
   })
   const toggle = (key: string) => setSections(prev => ({ ...prev, [key]: !prev[key] }))
@@ -400,6 +491,30 @@ export default function MonthComparisonPage() {
               <RetentionCell label="Persi" sub={`solo in ${formatAnalysisMonth(monthA)}`} count={retention.persi.count} rake={retention.persi.rake} color="red" />
               <RetentionCell label="Mai attivi" sub="in nessun mese" count={retention.mai.count} rake={0} color="slate" />
             </div>
+          )}
+        </CollapsibleSection>
+
+        {/* Churn Radar */}
+        <CollapsibleSection
+          title="⚠️ Rischio Abbandono — Top 10 Giocatori Persi"
+          icon={AlertTriangle}
+          open={sections.churn}
+          onToggle={() => toggle('churn')}
+        >
+          {churn.length > 0 ? (
+            <div className="space-y-2">
+              {churn.map((c, i) => (
+                <div key={c.username} className="flex items-center justify-between bg-bg-surface-elevated rounded-lg p-3 border border-border-subtle">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-text-muted w-5">#{i + 1}</span>
+                    <span className="text-sm font-medium text-text-primary">{c.username}</span>
+                  </div>
+                  <span className="text-sm font-mono text-negative">−{formatCurrency(c.rakeLost)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-text-muted">Nessun giocatore perso tra i due mesi.</p>
           )}
         </CollapsibleSection>
 
@@ -486,6 +601,44 @@ export default function MonthComparisonPage() {
           )}
         </CollapsibleSection>
 
+        {/* Bonus ROI */}
+        <CollapsibleSection
+          title="💰 ROI Bonus"
+          icon={BarChart3}
+          open={sections.bonusROI}
+          onToggle={() => toggle('bonusROI')}
+        >
+          {bonusROI && (
+            <div className="grid grid-cols-2 gap-4">
+              {[bonusROI.a, bonusROI.b].map((b) => (
+                <div key={b.month} className="bg-bg-surface-elevated rounded-lg p-4 border border-border-subtle">
+                  <h4 className="text-sm font-semibold text-text-primary mb-3">{formatAnalysisMonth(b.month)}</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Bonus erogato</span>
+                      <span className="font-mono text-text-primary">{formatCurrency(b.bonusErogato)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">di cui Buy-in Bonus</span>
+                      <span className="font-mono text-text-secondary">{formatCurrency(b.buyInBonus)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Rake generato</span>
+                      <span className="font-mono text-text-primary">{formatCurrency(b.rake)}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-border-subtle pt-2">
+                      <span className="text-text-muted font-medium">ROI</span>
+                      <span className={cn('font-mono font-semibold', b.roi !== null && b.roi >= 1 ? 'text-positive' : 'text-warning')}>
+                        {b.roi !== null ? `${b.roi.toFixed(2)}x` : '—'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CollapsibleSection>
+
         {/* 4. PVR Ranking Moves */}
         <CollapsibleSection
           title="PVR — Maggiori Variazioni in Classifica"
@@ -529,6 +682,41 @@ export default function MonthComparisonPage() {
               </div>
             </div>
           </div>
+        </CollapsibleSection>
+
+        {/* PVR Efficiency */}
+        <CollapsibleSection
+          title="📊 Efficienza PVR — Rake per Giocatore"
+          icon={Activity}
+          open={sections.pvrEfficiency}
+          onToggle={() => toggle('pvrEfficiency')}
+        >
+          {pvrEff.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[11px] uppercase text-text-muted font-medium border-b border-border-subtle">
+                    <th className="text-left py-2 px-3">PVR</th>
+                    <th className="text-right py-2 px-3">Giocatori</th>
+                    <th className="text-right py-2 px-3">Rake</th>
+                    <th className="text-right py-2 px-3">Rake/Gioc.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pvrEff.map((e) => (
+                    <tr key={e.pvrId} className="border-t border-border-subtle/50 hover:bg-bg-surface-highlight/30">
+                      <td className="py-2 px-3 font-medium text-text-primary">{e.pvrName}</td>
+                      <td className="py-2 px-3 text-right font-mono text-text-secondary">{e.players}</td>
+                      <td className="py-2 px-3 text-right font-mono text-text-secondary">{formatCurrency(e.rake)}</td>
+                      <td className="py-2 px-3 text-right font-mono text-positive font-semibold">{formatCurrency(e.efficiency)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-xs text-text-muted">Nessun dato PVR disponibile per questo mese.</p>
+          )}
         </CollapsibleSection>
 
         {/* 5. Data Quality */}
