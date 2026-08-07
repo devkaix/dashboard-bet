@@ -12,7 +12,7 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
-import { analysisMonthToRange, normalizeAnalysisMonth, formatAnalysisMonth } from '@/lib/analysisMonth'
+import { analysisMonthToRange, formatAnalysisMonth } from '@/lib/analysisMonth'
 import { formatCurrency } from '@/lib/data'
 import { cn } from '@/lib/utils'
 import MonthSelector from '@/components/upload/MonthSelector'
@@ -144,14 +144,18 @@ async function fetchCategories(monthA: string, monthB: string): Promise<Category
     supabase.from('category_stats').select('category, bet, rake').eq('analysis_month', dbMonthB).order('rake', { ascending: false }),
   ])
 
+  const mapA = new Map<string, { bet: number; rake: number }>()
+  for (const r of a || []) mapA.set(r.category as string, { bet: toNum(r.bet), rake: toNum(r.rake) })
   const mapB = new Map<string, { bet: number; rake: number }>()
   for (const r of b || []) mapB.set(r.category as string, { bet: toNum(r.bet), rake: toNum(r.rake) })
 
-  return (a || []).map((r) => {
-    const cat = r.category as string
+  // Union of both months' categories
+  const allCategories = new Set([...mapA.keys(), ...mapB.keys()])
+  return Array.from(allCategories).map((cat) => {
+    const ra = mapA.get(cat) || { bet: 0, rake: 0 }
     const rb = mapB.get(cat) || { bet: 0, rake: 0 }
-    return { category: cat, rakeA: toNum(r.rake), rakeB: rb.rake, betA: toNum(r.bet), betB: rb.bet }
-  })
+    return { category: cat, rakeA: ra.rake, rakeB: rb.rake, betA: ra.bet, betB: rb.bet }
+  }).sort((a, b) => b.rakeA - a.rakeA)
 }
 
 async function fetchConcentration(monthA: string, monthB: string): Promise<ConcentrationData> {
@@ -162,16 +166,18 @@ async function fetchConcentration(monthA: string, monthB: string): Promise<Conce
     const { data } = await supabase.from('daily_player_stats').select('player_id, rake').gte('date', range.start).lte('date', range.end)
     const playerRake = new Map<string, number>()
     for (const r of data || []) playerRake.set(r.player_id, (playerRake.get(r.player_id) || 0) + toNum(r.rake))
-    const sorted = Array.from(playerRake.values()).sort((a, b) => b - a)
-    const totalRake = sorted.reduce((s, v) => s + v, 0)
+    const values = Array.from(playerRake.values())
+    const sortedDesc = values.sort((a, b) => b - a)
+    const sortedAsc = [...sortedDesc].reverse()
+    const totalRake = sortedDesc.reduce((s, v) => s + v, 0)
     if (totalRake === 0) return { top3: 0, top10: 0, gini: 0, totalRake: 0 }
-    const top3 = sorted.slice(0, 3).reduce((s, v) => s + v, 0) / totalRake
-    const top10Count = Math.max(1, Math.ceil(sorted.length * 0.1))
-    const top10 = sorted.slice(0, top10Count).reduce((s, v) => s + v, 0) / totalRake
-    // Gini: simplified
-    const n = sorted.length
+    const top3 = sortedDesc.slice(0, 3).reduce((s, v) => s + v, 0) / totalRake
+    const top10Count = Math.max(1, Math.ceil(sortedDesc.length * 0.1))
+    const top10 = sortedDesc.slice(0, top10Count).reduce((s, v) => s + v, 0) / totalRake
+    // Gini requires ascending order
+    const n = sortedAsc.length
     let gini = 0
-    for (let i = 0; i < n; i++) gini += (2 * (i + 1) - n - 1) * sorted[i]
+    for (let i = 0; i < n; i++) gini += (2 * (i + 1) - n - 1) * sortedAsc[i]
     gini = n > 1 ? gini / (n * totalRake) : 0
     return { top3, top10, gini, totalRake }
   }
@@ -227,7 +233,7 @@ async function fetchQuality(monthA: string, monthB: string): Promise<QualityData
   const [
     { data: netA }, { data: netB },
     { count: upA }, { count: upB },
-    { count: pvrA }, { count: pvrB },
+    { data: pvrA }, { data: pvrB },
     { data: playerA }, { data: playerB },
   ] = await Promise.all([
     supabase.from('daily_network_stats').select('rake').gte('date', rangeA.start).lte('date', rangeA.end),
