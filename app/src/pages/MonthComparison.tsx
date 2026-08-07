@@ -246,8 +246,8 @@ async function fetchQuality(monthA: string, monthB: string): Promise<QualityData
     supabase.from('excel_uploads').select('*', { count: 'exact', head: true }).eq('status', 'completed').gte('uploaded_at', `${rangeB.start}T00:00:00Z`).lt('uploaded_at', `${rangeB.end}T23:59:59Z`),
     supabase.from('daily_pvr_stats').select('pvr_id').gte('date', rangeA.start).lte('date', rangeA.end),
     supabase.from('daily_pvr_stats').select('pvr_id').gte('date', rangeB.start).lte('date', rangeB.end),
-    supabase.from('daily_player_stats').select('player_id').gte('date', rangeA.start).lte('date', rangeA.end),
-    supabase.from('daily_player_stats').select('player_id').gte('date', rangeB.start).lte('date', rangeB.end),
+    supabase.from('daily_player_stats').select('player_id, rake').gte('date', rangeA.start).lte('date', rangeA.end),
+    supabase.from('daily_player_stats').select('player_id, rake').gte('date', rangeB.start).lte('date', rangeB.end),
   ])
 
   const pvrIdsA = new Set(((pvrA || []) as any[]).map((r: any) => r.pvr_id))
@@ -267,8 +267,8 @@ async function fetchQuality(monthA: string, monthB: string): Promise<QualityData
     playersInactiveB: Math.max(0, (totalPlayers || 0) - playerIdsB.size),
     networkRakeA: (netA || []).reduce((s, r) => s + toNum(r.rake), 0),
     networkRakeB: (netB || []).reduce((s, r) => s + toNum(r.rake), 0),
-    playerRakeSumA: 0,
-    playerRakeSumB: 0,
+    playerRakeSumA: ((playerA || []) as any[]).reduce((s: number, r: any) => s + toNum(r.rake), 0),
+    playerRakeSumB: ((playerB || []) as any[]).reduce((s: number, r: any) => s + toNum(r.rake), 0),
   }
 }
 
@@ -742,6 +742,7 @@ export default function MonthComparisonPage() {
                   <QualityRow label="PVR senza dati" a={String(quality.pvrMissingA)} b={String(quality.pvrMissingB)} warnA={quality.pvrMissingA > 5} warnB={quality.pvrMissingB > 5} />
                   <QualityRow label="Giocatori inattivi" a={String(quality.playersInactiveA)} b={String(quality.playersInactiveB)} />
                   <QualityRow label="Rake rete" a={formatCurrency(quality.networkRakeA)} b={formatCurrency(quality.networkRakeB)} />
+                  <QualityRow label="Rake giocatori" a={formatCurrency(quality.playerRakeSumA)} b={formatCurrency(quality.playerRakeSumB)} />
                 </tbody>
               </table>
             </div>
