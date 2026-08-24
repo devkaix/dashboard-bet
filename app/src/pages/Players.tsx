@@ -44,8 +44,8 @@ const PROVIDER_CATEGORY: Record<string, string> = {
   SISAL: 'SCOMMESSE',
   'PLAY TECH': 'SCOMMESSE',
   'PLAY TECH L': 'SCOMMESSE',
-  NAZIONALE: 'LOTTERIE',
-  PSQF: 'CASINO',
+  NAZIONALE: 'CASINO',
+  PSQF: 'SCOMMESSE',
   PRAGM: 'CASINO',
   PRAGML: 'CASINO',
   EGT: 'CASINO',
@@ -78,8 +78,11 @@ const PROVIDER_CATEGORY: Record<string, string> = {
   EURASIAN: 'CASINO',
   TOPGAMING: 'CASINO',
   WM: 'CASINO',
-  PSV: 'CASINO',
+  PSV: 'VIRTUALI',
   PSR: 'CASINO',
+  MICROTO: 'CARTE',
+  MICROPC: 'POKER',
+  MICROPT: 'POKER',
 }
 const DEFAULT_CATEGORY = 'CASINO'
 function categoryFor(provider: string): string {
