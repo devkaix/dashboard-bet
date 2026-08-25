@@ -37,6 +37,7 @@ import {
 import type { Player } from '@/lib/data'
 import { normalizeAnalysisMonth, analysisMonthToRange } from '@/lib/analysisMonth'
 import MonthSelector from '@/components/upload/MonthSelector'
+import InfoTooltip from '@/components/InfoTooltip'
 
 // Provider → macro-categoria (stesse usate in category_stats / Dashboard)
 const PROVIDER_CATEGORY: Record<string, string> = {
@@ -151,18 +152,18 @@ function KpiGrid({ player }: { player: Player }) {
       className="grid grid-cols-3 gap-3"
     >
       {[
-        { label: 'Rake Totale', value: formatCurrency(player.total_rake) },
-        { label: 'Bet Totale', value: formatCurrency(player.total_bet) },
-        { label: 'Won', value: formatCurrency(player.total_won) },
-        { label: 'Giorni Attivi', value: String(player.active_days) },
-        { label: 'Payout Medio', value: formatPercent(player.avg_payout) },
-        { label: 'Buy In', value: formatCurrency(player.total_buy_in) },
+        { label: 'Rake Totale', value: formatCurrency(player.total_rake), help: 'Rake del giocatore nel mese. Fonte: daily_player_stats, somma della colonna Rake.' },
+        { label: 'Bet Totale', value: formatCurrency(player.total_bet), help: 'Totale giocato dal giocatore nel mese. Fonte: daily_player_stats, somma della colonna Bet.' },
+        { label: 'Won', value: formatCurrency(player.total_won), help: 'Totale vinto dal giocatore nel mese. Fonte: daily_player_stats, somma della colonna Won.' },
+        { label: 'Giorni Attivi', value: String(player.active_days), help: 'Numero di giorni nel mese con almeno una giocata. Fonte: daily_player_stats.' },
+        { label: 'Payout Medio', value: formatPercent(player.avg_payout), help: 'Won/Bet×100. Indica la percentuale restituita al giocatore. Fonte: daily_player_stats.' },
+        { label: 'Buy In', value: formatCurrency(player.total_buy_in), help: 'Somma dei buy-in (ricariche/entrate al tavolo) del giocatore. Fonte: daily_player_stats.' },
       ].map((kpi) => (
         <div
           key={kpi.label}
           className="bg-bg-surface-elevated rounded-lg p-3 border border-border-subtle"
         >
-          <p className="text-[11px] text-text-muted mb-1">{kpi.label}</p>
+          <p className="text-[11px] text-text-muted mb-1 flex items-center gap-1">{kpi.label} <InfoTooltip content={kpi.help} /></p>
           <p className="text-[14px] font-mono font-semibold text-text-primary">{kpi.value}</p>
         </div>
       ))}
@@ -189,6 +190,7 @@ function CategoryBreakdown({ gameBreakdown }: { gameBreakdown: GameBreakdown[] }
       >
         <div className="flex items-center gap-2">
           <span className="text-[13px] font-semibold text-text-primary">Ripartizione per Categoria</span>
+          <InfoTooltip content="Dove gioca il giocatore, raggruppato per categoria (SCOMMESSE, CASINO, CASINO LIVE...). Fonte: daily_player_game_stats, con mappatura provider→categoria." />
           <span className="text-[10px] text-text-muted">
             {gameBreakdown.length} categorie · {formatCurrency(totalRake)} rake
           </span>
@@ -639,7 +641,9 @@ export default function PlayersPage() {
         ),
       }),
       columnHelper.accessor('total_rake', {
-        header: 'Rake Totale',
+        header: () => (
+          <span className="flex items-center gap-1">Rake Totale <InfoTooltip content="Rake del giocatore nel mese. Fonte: file «giocato per giocatore» (daily_player_stats), somma della colonna Rake. Può differire dal KPI rete." /></span>
+        ),
         cell: (info) => (
           <span className="text-[13px] font-mono text-text-primary text-right block">
             {formatCurrency(info.getValue())}
@@ -647,7 +651,9 @@ export default function PlayersPage() {
         ),
       }),
       columnHelper.accessor('total_bet', {
-        header: 'Bet Totale',
+        header: () => (
+          <span className="flex items-center gap-1">Bet Totale <InfoTooltip content="Totale giocato dal giocatore nel mese. Fonte: daily_player_stats, somma della colonna Bet." /></span>
+        ),
         cell: (info) => (
           <span className="text-[13px] font-mono text-text-primary text-right block">
             {formatCurrency(info.getValue())}
@@ -655,7 +661,9 @@ export default function PlayersPage() {
         ),
       }),
       columnHelper.accessor('avg_payout', {
-        header: 'Payout %',
+        header: () => (
+          <span className="flex items-center gap-1">Payout % <InfoTooltip content="Percentuale restituita al giocatore: Won/Bet×100. >100% = il giocatore vince più di quanto gioca (rosso), <50% = la casa trattiene di più (verde). Fonte: daily_player_stats." /></span>
+        ),
         cell: (info) => {
           const v = info.getValue()
           const color = v > 150 ? 'text-negative' : v > 100 ? 'text-warning' : v < 50 ? 'text-positive' : 'text-text-primary'
@@ -667,7 +675,9 @@ export default function PlayersPage() {
         },
       }),
       columnHelper.accessor('active_days', {
-        header: 'Giorni Attivi',
+        header: () => (
+          <span className="flex items-center gap-1">Giorni Attivi <InfoTooltip content="Numero di giorni nel mese in cui il giocatore ha almeno una giocata. ≥20 verde, 10-19 giallo, <10 rosso. Fonte: daily_player_stats." /></span>
+        ),
         cell: (info) => {
           const v = info.getValue()
           const color = v >= 20 ? 'text-positive' : v >= 10 ? 'text-warning' : 'text-negative'
@@ -688,7 +698,9 @@ export default function PlayersPage() {
       }),
       columnHelper.display({
         id: 'kyc',
-        header: 'KYC',
+        header: () => (
+          <span className="flex items-center gap-1">KYC <InfoTooltip content="Stato documenti del giocatore (verifica identità). Verde = documenti OK, giallo = mancanti o scaduti. Fonte: anagrafica giocatori." /></span>
+        ),
         cell: (info) => {
           const kyc = info.row.original.kyc_status
           const ok = kyc && kyc.toUpperCase().includes('OK')
@@ -700,7 +712,9 @@ export default function PlayersPage() {
         },
       }),
       columnHelper.accessor('status', {
-        header: 'Stato',
+        header: () => (
+          <span className="flex items-center gap-1">Stato <InfoTooltip content="Classificazione automatica: Attivo se ≥3 giorni di gioco, Warning se 1-2 giorni, Inattivo se 0 giorni. Fonte: daily_player_stats." /></span>
+        ),
         cell: (info) => (
           <div className="flex justify-center">
             <StatusBadge status={info.getValue()} />
@@ -709,7 +723,9 @@ export default function PlayersPage() {
       }),
       columnHelper.display({
         id: 'trend',
-        header: 'Trend',
+        header: () => (
+          <span className="flex items-center gap-1">Trend <InfoTooltip content="Mini grafico del rake del giocatore negli ultimi 14 giorni. Fonte: daily_player_stats." /></span>
+        ),
         cell: (info) => {
           const playerStats = dailyStats.get(info.row.original.id) || []
           const last14 = playerStats.slice(0, 14).reverse()
