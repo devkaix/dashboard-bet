@@ -16,6 +16,7 @@ import { analysisMonthToRange, formatAnalysisMonth } from '@/lib/analysisMonth'
 import { formatCurrency } from '@/lib/data'
 import { cn } from '@/lib/utils'
 import MonthSelector from '@/components/upload/MonthSelector'
+import InfoTooltip from '@/components/InfoTooltip'
 
 // ─── Types ───
 
@@ -483,6 +484,7 @@ export default function MonthComparisonPage() {
           icon={Users}
           open={sections.retention}
           onToggle={() => toggle('retention')}
+          tooltip="Confronta i giocatori attivi tra i due mesi. Fidelizzati = in entrambi, Nuovi = solo mese B, Persi = solo mese A, Mai = in nessuno. Fonte: daily_player_stats (file «giocato per giocatore»)."
         >
           {retention && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -500,6 +502,7 @@ export default function MonthComparisonPage() {
           icon={AlertTriangle}
           open={sections.churn}
           onToggle={() => toggle('churn')}
+          tooltip="I 10 giocatori con più rake perso tra i due mesi (giocavano a mese A, spariti a mese B). È un sottoinsieme del totale «Persi». Fonte: daily_player_stats."
         >
           {churn.length > 0 ? (
             <div className="space-y-2">
@@ -524,6 +527,7 @@ export default function MonthComparisonPage() {
           icon={BarChart3}
           open={sections.categories}
           onToggle={() => toggle('categories')}
+          tooltip="Confronta rake e quota % per categoria (CASINO, SCOMMESSE, CASINO LIVE...) tra i due mesi. Fonte: category_stats, dal file «giocato totale suddiviso per tipologia». Se un mese non ha dati, la colonna è a 0."
         >
           {categories.length > 0 && (
             <div className="overflow-x-auto">
@@ -570,6 +574,7 @@ export default function MonthComparisonPage() {
           icon={Activity}
           open={sections.concentration}
           onToggle={() => toggle('concentration')}
+          tooltip="Quanto il rake dipende da pochi giocatori. Top 10% share = rake dei primi 10% giocatori sul totale. Gini: 0=tutti uguali, 1=un solo giocatore. Fonte: daily_player_stats."
         >
           {concentration && (
             <div className="grid grid-cols-3 gap-4">
@@ -607,6 +612,7 @@ export default function MonthComparisonPage() {
           icon={BarChart3}
           open={sections.bonusROI}
           onToggle={() => toggle('bonusROI')}
+          tooltip="Ritorno sui bonus: Bonus erogato (Buy-in Bonus + Bet Bonus) confrontato col rake generato. ROI = rake/bonus. ROI > 1 = ogni euro di bonus genera più di un euro di rake. Fonte: daily_network_stats."
         >
           {bonusROI && (
             <div className="grid grid-cols-2 gap-4">
@@ -645,6 +651,7 @@ export default function MonthComparisonPage() {
           icon={TrendingUp}
           open={sections.ranking}
           onToggle={() => toggle('ranking')}
+          tooltip="Chi ha guadagnato/perso più posizioni nella classifica rake tra i due mesi. Non è il delta assoluto ma il cambio di posizione. Fonte: daily_pvr_stats."
         >
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -690,6 +697,7 @@ export default function MonthComparisonPage() {
           icon={Activity}
           open={sections.pvrEfficiency}
           onToggle={() => toggle('pvrEfficiency')}
+          tooltip="Quanto rake produce ogni PVR per giocatore assegnato (rake / numero giocatori). Evidenzia i PVR più efficienti, non solo quelli col rake più alto. Fonte: daily_pvr_stats + anagrafica players."
         >
           {pvrEff.length > 0 ? (
             <div className="overflow-x-auto">
@@ -725,6 +733,7 @@ export default function MonthComparisonPage() {
           icon={AlertTriangle}
           open={sections.quality}
           onToggle={() => toggle('quality')}
+          tooltip="Copertura e coerenza dei dati: giorni caricati, upload, PVR/giocatori senza dati, e il confronto rake rete vs rake giocatori (il gap indica dati mancanti lato giocatori)."
         >
           {quality && (
             <div className="overflow-x-auto">
@@ -756,9 +765,9 @@ export default function MonthComparisonPage() {
 // ─── Sub-components ───
 
 function CollapsibleSection({
-  title, icon: Icon, open, onToggle, children,
+  title, icon: Icon, open, onToggle, children, tooltip,
 }: {
-  title: string; icon: React.ComponentType<{ size?: number; className?: string }>; open: boolean; onToggle: () => void; children: React.ReactNode;
+  title: string; icon: React.ComponentType<{ size?: number; className?: string }>; open: boolean; onToggle: () => void; children: React.ReactNode; tooltip?: string;
 }) {
   return (
     <motion.div
@@ -770,6 +779,7 @@ function CollapsibleSection({
         <div className="flex items-center gap-2">
           <Icon size={18} className="text-accent-blue" />
           <h2 className="text-base font-semibold text-text-primary">{title}</h2>
+          {tooltip && <InfoTooltip content={tooltip} />}
         </div>
         {open ? <ChevronUp size={18} className="text-text-muted" /> : <ChevronDown size={18} className="text-text-muted" />}
       </button>

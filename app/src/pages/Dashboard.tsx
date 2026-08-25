@@ -27,6 +27,7 @@ import {
 import KpiCard from '@/components/KpiCard'
 import GlassCard from '@/components/GlassCard'
 import AlertItem from '@/components/AlertItem'
+import InfoTooltip from '@/components/InfoTooltip'
 import {
   loadData,
   dataStore,
@@ -507,7 +508,7 @@ export default function Dashboard() {
           sparklineColor="#10b981"
           sparklineFillColor="#10b981"
           bottomNote={categoryFilter === 'all' ? comparisonLabel : ''}
-          helpText="Il guadagno netto della casa riportato da Exalogic. Il calcolo non è Bet−Won+Bonus ma una formula proprietaria che include buy-in, stack, bonus, jackpot, overlay e refund."
+          helpText="Rake totale del mese. Fonte: colonna Rake del file Excel «giocato totale della rete» (tabella daily_network_stats), sommata su tutti i giorni del mese. Non è Bet−Won+Bonus: è la formula proprietaria di Exalogic che include buy-in, stack, bonus, jackpot, overlay e refund. Positivo = la casa guadagna, negativo = i giocatori vincono più di quanto giocano."
           index={0}
         />
         <KpiCard
@@ -521,7 +522,7 @@ export default function Dashboard() {
           sparklineColor="#3b82f6"
           sparklineFillColor="#3b82f6"
           bottomNote={categoryFilter === 'all' ? comparisonLabel : ''}
-          helpText="L'importo totale giocato (scommesso) dai clienti nel mese. Non include i bonus."
+          helpText="Importo totale giocato (scommesso) dai clienti nel mese. Fonte: colonna Bet del file «giocato totale della rete» (daily_network_stats). Non include i bonus. Confronta con Won per capire il payout."
           index={1}
         />
         <KpiCard
@@ -535,7 +536,7 @@ export default function Dashboard() {
           sparklineColor="#f59e0b"
           sparklineFillColor="#f59e0b"
           bottomNote={categoryFilter === 'all' ? `Payout medio: ${formatPercent(avgPayout)}` : ''}
-          helpText="L'importo totale vinto dai giocatori. Il payout (Won/Bet×100) indica la percentuale restituita ai giocatori."
+          helpText="Importo totale vinto dai giocatori nel mese. Fonte: colonna Won del file «giocato totale della rete» (daily_network_stats). Il payout (Won/Bet×100) indica la percentuale restituita ai giocatori."
           index={2}
         />
         <KpiCard
@@ -549,7 +550,7 @@ export default function Dashboard() {
           sparklineColor="#06b6d4"
           sparklineFillColor="#06b6d4"
           bottomNote={`${totalActivePlayers} attivi nel mese · media giornaliera`}
-          helpText="Media giornaliera dei giocatori che hanno effettuato almeno una giocata. Il numero sotto indica i giocatori unici attivi nell'intero mese."
+          helpText="Media giornaliera dei giocatori che hanno effettuato almeno una giocata. Fonte: file «giocato per giocatore» (daily_player_stats), conteggio dei giocatori distinti per giorno, poi media sui giorni del mese. Il numero sotto indica i giocatori unici attivi nell'intero mese (non la media)."
           index={3}
         />
         <KpiCard
@@ -568,7 +569,7 @@ export default function Dashboard() {
               ? `Peggior giorno: ${new Date(worstDay.date + 'T00:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })} (${formatCurrency(worstDay.total_rake)})`
               : ''
           }
-          helpText="Media del rake giornaliero. I giorni negativi sono quelli in cui i giocatori hanno vinto più di quanto hanno giocato."
+          helpText="Media del rake giornaliero: Rake totale del mese diviso per i giorni con dati. Fonte: daily_network_stats. I giorni negativi sono quelli in cui i giocatori hanno vinto più di quanto hanno giocato. Il peggior giorno è il minimo di rake del mese."
           index={4}
         />
         </div>
@@ -586,7 +587,7 @@ export default function Dashboard() {
         >
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h2 className="text-[20px] font-semibold text-text-primary">Andamento Giornaliero</h2>
+              <h2 className="text-[20px] font-semibold text-text-primary">Andamento Giornaliero <InfoTooltip content="Confronto giornaliero Rake vs Bet. Fonte: file «giocato totale della rete» (daily_network_stats), una riga per giorno. La linea tratteggiata è la media del rake." /></h2>
               <p className="text-[13px] text-text-muted mt-0.5">{chartSubtitle || "Caricamento dati..."}</p>
             </div>
             <div className="flex items-center gap-4">
@@ -667,6 +668,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-2">
                 <BarChart3 size={16} className="text-accent-purple" />
                 <h2 className="text-[20px] font-semibold text-accent-purple">Briefing</h2>
+                <InfoTooltip content="Riepilogo automatico generato dai segnali di decisione (preprocessing). Criticità = segnali ad alta severità, Opportunità = miglior giocatore per rake, Suggerimenti = azioni consigliate dalla coda decisionale." />
               </div>
               <span className="text-[11px] text-text-muted">
                 {lastUpdate ? new Date(lastUpdate).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'In attesa dati'}
@@ -722,6 +724,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               <Trophy size={16} className="text-warning" />
               <h2 className="text-[20px] font-semibold text-text-primary">Top 10 Giocatori</h2>
+              <InfoTooltip content="Classifica dei primi 10 giocatori per Rake totale. Fonte: file «giocato per giocatore» (daily_player_stats), aggregato per giocatore. Nota: il rake qui viene dai giocatori, non dalla rete — può differire dal KPI «Rake Totale»." />
             </div>
             <span className="text-[13px] text-text-muted">Per Rake Totale</span>
           </div>
@@ -817,6 +820,7 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               <Bell size={16} className="text-negative" />
               <h2 className="text-[20px] font-semibold text-text-primary">Allerte</h2>
+              <InfoTooltip content="Avvisi automatici generati dal preprocessing (anomalie rake, cali, payout). Severità alta = critico, media/bassa = avviso. Fonte: segnali di decisione su dati di rete." />
             </div>
             <div className="flex items-center gap-1 bg-bg-surface-elevated rounded-lg p-0.5">
               {(['all', 'high', 'medium'] as const).map((f) => (

@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import InfoTooltip from '@/components/InfoTooltip'
 import MonthSelector from '@/components/upload/MonthSelector'
 import {
   loadExecutiveBriefingData,
@@ -88,27 +89,27 @@ function DataAvailabilityPanel({ availability }: { availability: DataAvailabilit
           </div>
         )}
         <div className="flex items-center justify-between">
-          <span className="text-text-secondary">Giorni presenti</span>
+          <span className="text-text-secondary">Giorni presenti <InfoTooltip content="Numero di giorni con dati nel mese selezionato, rispetto ai giorni totali del mese. Fonte: daily_network_stats." /></span>
           <span className="font-medium text-text-primary">
             {availability.currentDaysPresent} / {availability.currentExpectedDays}
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-text-secondary">Copertura</span>
+          <span className="text-text-secondary">Copertura <InfoTooltip content="Percentuale di giorni coperti rispetto ai giorni attesi del mese. 100% = tutti i giorni caricati. Fonte: daily_network_stats." /></span>
           <span className="font-medium text-text-primary">
             {(availability.currentCoveragePct * 100).toFixed(0)} %
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-text-secondary">Rake rete</span>
+          <span className="text-text-secondary">Rake rete <InfoTooltip content="Somma del rake di tutti i giorni del mese. Fonte: file «giocato totale della rete» (daily_network_stats.rake)." /></span>
           <span className="font-medium text-text-primary">{formatCurrency(availability.networkRake)}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-text-secondary">Somma Rake PVR</span>
+          <span className="text-text-secondary">Somma Rake PVR <InfoTooltip content="Somma del rake di tutti i PVR. Fonte: file «giocato per PVR» (daily_pvr_stats). Dovrebbe coincidere con il rake rete." /></span>
           <span className="font-medium text-text-primary">{formatCurrency(availability.pvrRakeSum)}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-text-secondary">Scostamento rete/PVR</span>
+          <span className="text-text-secondary">Scostamento rete/PVR <InfoTooltip content="Differenza percentuale tra rake rete e somma rake PVR. Vicino a 0% = i due file sono allineati. Valori alti indicano dati mancanti o incoerenti." /></span>
           <span className="font-medium text-text-primary">
             {(availability.reconciliationDiffPct * 100).toFixed(1)} %
           </span>
@@ -326,6 +327,7 @@ export default function ExecutiveBriefingPage() {
                 <h2 className="text-lg font-semibold text-text-primary mb-2 flex items-center gap-2">
                   <BarChart3 className="w-5 h-5 text-accent-blue" />
                   Executive Summary
+                  <InfoTooltip content="Sintesi automatica in 3 frasi generata dal confronto rete mese corrente vs mese precedente (rake, top PVR, copertura)." />
                 </h2>
                 <ul className="space-y-1">
                   {data.summary.map((sentence, i) => (
@@ -344,6 +346,7 @@ export default function ExecutiveBriefingPage() {
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-text-primary">
                   Le {Math.min(10, data.insights.length)} cose da sapere
+                  <InfoTooltip content="Insight automatici ordinati per priorità. Generati dall'engine di briefing su dati rete e PVR: cali, crescite, concentrazione, inattività, rake negativo, qualità dati. Clicca per aprire il dettaglio PVR." />
                 </h2>
                 <span className="text-xs text-text-muted">
                   {data.insights.length} insight generati
@@ -371,7 +374,7 @@ export default function ExecutiveBriefingPage() {
 
             {/* Sidebar: priorities + data status */}
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-text-primary">Priorità operative</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Priorità operative <InfoTooltip content="Massimo 3 azioni prioritarie derivate dagli insight con impatto economico più alto. Ogni priorità ha un'azione consigliata e un impatto in euro." /></h2>
               {data.priorities.length === 0 ? (
                 <div className="rounded-xl border border-border-subtle bg-bg-surface p-5 text-sm text-text-secondary">
                   Nessuna priorità operativa identificata.
