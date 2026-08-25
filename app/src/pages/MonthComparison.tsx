@@ -171,20 +171,22 @@ async function fetchConcentration(monthA: string, monthB: string): Promise<Conce
     const { data } = await supabase.from('daily_player_stats').select('player_id, rake').gte('date', range.start).lte('date', range.end)
     const playerRake = new Map<string, number>()
     for (const r of data || []) playerRake.set(r.player_id, (playerRake.get(r.player_id) || 0) + toNum(r.rake))
-    const values = Array.from(playerRake.values())
+    // Usiamo solo il rake positivo: i giocatori in perdita (rake negativo) non
+    // devono distorcere la concentrazione (altrimenti la quota può superare il 100%).
+    const values = Array.from(playerRake.values()).filter((v) => v > 0)
     const sortedDesc = values.sort((a, b) => b - a)
     const sortedAsc = [...sortedDesc].reverse()
-    const totalRake = sortedDesc.reduce((s, v) => s + v, 0)
-    if (totalRake === 0) return { top3: 0, top10: 0, gini: 0, totalRake: 0 }
-    const top3 = sortedDesc.slice(0, 3).reduce((s, v) => s + v, 0) / totalRake
+    const totalPositive = sortedDesc.reduce((s, v) => s + v, 0)
+    if (totalPositive === 0) return { top3: 0, top10: 0, gini: 0, totalRake: 0 }
+    const top3 = sortedDesc.slice(0, 3).reduce((s, v) => s + v, 0) / totalPositive
     const top10Count = Math.max(1, Math.ceil(sortedDesc.length * 0.1))
-    const top10 = sortedDesc.slice(0, top10Count).reduce((s, v) => s + v, 0) / totalRake
-    // Gini requires ascending order
+    const top10 = sortedDesc.slice(0, top10Count).reduce((s, v) => s + v, 0) / totalPositive
+    // Gini requires ascending order (all positive values)
     const n = sortedAsc.length
     let gini = 0
     for (let i = 0; i < n; i++) gini += (2 * (i + 1) - n - 1) * sortedAsc[i]
-    gini = n > 1 ? gini / (n * totalRake) : 0
-    return { top3, top10, gini, totalRake }
+    gini = n > 1 ? gini / (n * totalPositive) : 0
+    return { top3, top10, gini, totalRake: totalPositive }
   }
 
   const [resA, resB] = await Promise.all([compute(rangeA), compute(rangeB)])
@@ -574,7 +576,7 @@ export default function MonthComparisonPage() {
           icon={Activity}
           open={sections.concentration}
           onToggle={() => toggle('concentration')}
-          tooltip="Quanto il rake dipende da pochi giocatori. Top 10% share = rake dei primi 10% giocatori sul totale. Gini: 0=tutti uguali, 1=un solo giocatore. Fonte: daily_player_stats."
+          tooltip="Quanto il rake dipende da pochi giocatori. Top 10% share = rake dei primi 10% giocatori sul totale del rake POSITIVO (esclusi i giocatori in perdita). Gini: 0=tutti uguali, 1=un solo giocatore. Fonte: daily_player_stats."
         >
           {concentration && (
             <div className="grid grid-cols-3 gap-4">
