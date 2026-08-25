@@ -26,7 +26,6 @@ import {
   XCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { supabase } from '@/lib/supabase'
 import {
   loadData,
   dataStore,
@@ -37,60 +36,6 @@ import {
 import type { Player } from '@/lib/data'
 import { normalizeAnalysisMonth, analysisMonthToRange } from '@/lib/analysisMonth'
 import MonthSelector from '@/components/upload/MonthSelector'
-import InfoTooltip from '@/components/InfoTooltip'
-
-// Provider → macro-categoria (stesse usate in category_stats / Dashboard)
-const PROVIDER_CATEGORY: Record<string, string> = {
-  EVO: 'CASINO LIVE',
-  SISAL: 'SCOMMESSE',
-  'PLAY TECH': 'SCOMMESSE',
-  'PLAY TECH L': 'SCOMMESSE',
-  NAZIONALE: 'CASINO',
-  PSQF: 'SCOMMESSE',
-  PRAGM: 'CASINO',
-  PRAGML: 'CASINO',
-  EGT: 'CASINO',
-  NETENT: 'CASINO',
-  HACKSAW: 'CASINO',
-  ENDORPHINA: 'CASINO',
-  BOOMING: 'CASINO',
-  GOLCASINO: 'CASINO',
-  "PLAY'N GO": 'CASINO',
-  PLAYNGO: 'CASINO',
-  CRISTALTEC: 'CASINO',
-  OCTAVIAN: 'CASINO',
-  ELK: 'CASINO',
-  PLATIPUS: 'CASINO',
-  SKYWIND: 'CASINO',
-  REDTIGER: 'CASINO',
-  BTG: 'CASINO',
-  THUNDERK: 'CASINO',
-  GREENTUBE: 'CASINO',
-  NLC: 'CASINO',
-  RELIGA: 'CASINO',
-  STAKEL: 'CASINO',
-  TAPAROO: 'CASINO',
-  ESPRESSO: 'CASINO',
-  ESAGAMING: 'CASINO',
-  EVOPLAY: 'CASINO',
-  '3CHERRY': 'CASINO',
-  TUKO: 'CASINO',
-  SPRIBE: 'CASINO',
-  EURASIAN: 'CASINO',
-  TOPGAMING: 'CASINO',
-  WM: 'CASINO',
-  PSV: 'VIRTUALI',
-  PSR: 'CASINO',
-  MICROTO: 'CARTE',
-  MICROPC: 'POKER',
-  MICROPT: 'POKER',
-}
-const DEFAULT_CATEGORY = 'CASINO'
-function categoryFor(provider: string): string {
-  return PROVIDER_CATEGORY[provider] || (provider.startsWith('CMICRO') ? 'CASINO' : DEFAULT_CATEGORY)
-}
-
-type GameBreakdown = { category: string; bet: number; won: number; rake: number; sessions: number }
 
 // ─── Mini Sparkline ───
 function MiniSparkline({ data, color }: { data: number[]; color: string }) {
@@ -142,125 +87,18 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-// ─── KPI Grid (estratto per riuso) ───
-function KpiGrid({ player }: { player: Player }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.2 }}
-      className="grid grid-cols-3 gap-3"
-    >
-      {[
-        { label: 'Rake Totale', value: formatCurrency(player.total_rake), help: 'Rake del giocatore nel mese. Fonte: daily_player_stats, somma della colonna Rake.' },
-        { label: 'Bet Totale', value: formatCurrency(player.total_bet), help: 'Totale giocato dal giocatore nel mese. Fonte: daily_player_stats, somma della colonna Bet.' },
-        { label: 'Won', value: formatCurrency(player.total_won), help: 'Totale vinto dal giocatore nel mese. Fonte: daily_player_stats, somma della colonna Won.' },
-        { label: 'Giorni Attivi', value: String(player.active_days), help: 'Numero di giorni nel mese con almeno una giocata. Fonte: daily_player_stats.' },
-        { label: 'Payout Medio', value: formatPercent(player.avg_payout), help: 'Won/Bet×100. Indica la percentuale restituita al giocatore. Fonte: daily_player_stats.' },
-        { label: 'Buy In', value: formatCurrency(player.total_buy_in), help: 'Somma dei buy-in (ricariche/entrate al tavolo) del giocatore. Fonte: daily_player_stats.' },
-      ].map((kpi) => (
-        <div
-          key={kpi.label}
-          className="bg-bg-surface-elevated rounded-lg p-3 border border-border-subtle"
-        >
-          <p className="text-[11px] text-text-muted mb-1 flex items-center gap-1">{kpi.label} <InfoTooltip content={kpi.help} /></p>
-          <p className="text-[14px] font-mono font-semibold text-text-primary">{kpi.value}</p>
-        </div>
-      ))}
-    </motion.div>
-  )
-}
-
-// ─── Category Breakdown (collapsible) ───
-function CategoryBreakdown({ gameBreakdown }: { gameBreakdown: GameBreakdown[] }) {
-  const [open, setOpen] = useState(false)
-  if (gameBreakdown.length === 0) return null
-  const totalRake = gameBreakdown.reduce((s, g) => s + g.rake, 0)
-  const totalBet = gameBreakdown.reduce((s, g) => s + g.bet, 0)
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.25 }}
-      className="bg-bg-surface-elevated rounded-lg border border-border-subtle overflow-hidden"
-    >
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full p-3 flex items-center justify-between hover:bg-bg-surface-highlight/30 transition-colors"
-      >
-        <div className="flex items-center gap-2">
-          <span className="text-[13px] font-semibold text-text-primary">Ripartizione per Categoria</span>
-          <InfoTooltip content="Dove gioca il giocatore, raggruppato per categoria (SCOMMESSE, CASINO, CASINO LIVE...). Fonte: daily_player_game_stats, con mappatura provider→categoria." />
-          <span className="text-[10px] text-text-muted">
-            {gameBreakdown.length} categorie · {formatCurrency(totalRake)} rake
-          </span>
-        </div>
-        {open ? <ChevronUp size={16} className="text-text-muted" /> : <ChevronDown size={16} className="text-text-muted" />}
-      </button>
-      {open && (
-        <div className="max-h-[200px] overflow-y-auto border-t border-border-subtle">
-          <table className="w-full">
-            <thead className="sticky top-0 bg-bg-surface-elevated z-10">
-              <tr className="text-[10px] uppercase text-text-muted font-medium">
-                <th className="text-left px-3 py-1.5">Categoria</th>
-                <th className="text-right px-3 py-1.5">Rake</th>
-                <th className="text-right px-3 py-1.5">Bet</th>
-              </tr>
-            </thead>
-            <tbody>
-              {gameBreakdown.map((g) => {
-                const maxRake = gameBreakdown[0]?.rake || 1
-                const barPct = Math.max((Math.abs(g.rake) / Math.abs(maxRake)) * 100, 2)
-                return (
-                  <tr key={g.category} className="border-t border-border-subtle/50 hover:bg-bg-surface-highlight/50">
-                    <td className="px-3 py-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-medium text-text-primary">{g.category}</span>
-                        <span className="text-[10px] text-text-muted">{g.sessions} sess.</span>
-                      </div>
-                      <div className="mt-0.5 h-1 w-full bg-bg-surface rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${barPct}%`,
-                            backgroundColor: g.rake < 0 ? '#ef4444' : '#10b981',
-                          }}
-                        />
-                      </div>
-                    </td>
-                    <td className="px-3 py-1.5 text-right">
-                      <span className={`text-[11px] font-mono font-medium ${g.rake < 0 ? 'text-negative' : 'text-positive'}`}>
-                        {formatCurrency(g.rake)}
-                      </span>
-                    </td>
-                    <td className="px-3 py-1.5 text-right">
-                      <span className="text-[11px] font-mono text-text-secondary">{formatCurrency(g.bet)}</span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </motion.div>
-  )
-}
-
 // ─── Player Detail Sheet ───
 function PlayerSheet({
   player,
   agentName,
   pvrName,
   dailyData,
-  gameBreakdown,
   onClose,
 }: {
   player: Player
   agentName: string
   pvrName: string
   dailyData: { date: string; buy_in: number; bet: number; won: number; rake: number; payout: number }[]
-  gameBreakdown: GameBreakdown[]
   onClose: () => void
 }) {
   const chartData = dailyData.map((d) => ({
@@ -332,10 +170,29 @@ function PlayerSheet({
           </motion.div>
 
           {/* KPI Grid */}
-          <KpiGrid player={player} />
-
-          {/* Ripartizione per Categoria (collapsible) */}
-          <CategoryBreakdown gameBreakdown={gameBreakdown} />
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="grid grid-cols-3 gap-3"
+          >
+            {[
+              { label: 'Rake Totale', value: formatCurrency(player.total_rake) },
+              { label: 'Bet Totale', value: formatCurrency(player.total_bet) },
+              { label: 'Won', value: formatCurrency(player.total_won) },
+              { label: 'Giorni Attivi', value: String(player.active_days) },
+              { label: 'Payout Medio', value: formatPercent(player.avg_payout) },
+              { label: 'Buy In', value: formatCurrency(player.total_buy_in) },
+            ].map((kpi) => (
+              <div
+                key={kpi.label}
+                className="bg-bg-surface-elevated rounded-lg p-3 border border-border-subtle"
+              >
+                <p className="text-[11px] text-text-muted mb-1">{kpi.label}</p>
+                <p className="text-[14px] font-mono font-semibold text-text-primary">{kpi.value}</p>
+              </div>
+            ))}
+          </motion.div>
 
           {/* Mini Trend Chart */}
           {chartData.length > 0 && (
@@ -468,7 +325,6 @@ export default function PlayersPage() {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'total_rake', desc: true }])
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 20 })
   const [selectedPlayer, setSelectedPlayer] = useState<Player | null>(null)
-  const [gameBreakdown, setGameBreakdown] = useState<GameBreakdown[]>([])
   const navigate = useNavigate()
 
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
@@ -539,35 +395,6 @@ export default function PlayersPage() {
       loadMonth(selectedMonth)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Fetch game breakdown when player selected
-  useEffect(() => {
-    if (!selectedPlayer || !selectedMonth) {
-      setGameBreakdown([])
-      return
-    }
-    const range = analysisMonthToRange(selectedMonth)
-    ;(async () => {
-      const { data, error } = await supabase
-        .from('daily_player_game_stats')
-        .select('provider, bet, won, rake')
-        .eq('player_id', selectedPlayer.id)
-        .gte('date', range.start)
-        .lte('date', range.end)
-      if (error || !data) { setGameBreakdown([]); return }
-      const agg = new Map<string, GameBreakdown>()
-      for (const r of data) {
-        const cat = categoryFor(r.provider as string)
-        const entry = agg.get(cat) || { category: cat, bet: 0, won: 0, rake: 0, sessions: 0 }
-        entry.bet += Number(r.bet) || 0
-        entry.won += Number(r.won) || 0
-        entry.rake += Number(r.rake) || 0
-        entry.sessions += 1
-        agg.set(cat, entry)
-      }
-      setGameBreakdown(Array.from(agg.values()).sort((a, b) => b.rake - a.rake))
-    })().catch(() => setGameBreakdown([]))
-  }, [selectedPlayer, selectedMonth])
 
   // Stats
   const stats = useMemo(() => {
@@ -641,9 +468,7 @@ export default function PlayersPage() {
         ),
       }),
       columnHelper.accessor('total_rake', {
-        header: () => (
-          <span className="flex items-center gap-1">Rake Totale <InfoTooltip content="Rake del giocatore nel mese. Fonte: file «giocato per giocatore» (daily_player_stats), somma della colonna Rake. Può differire dal KPI rete." /></span>
-        ),
+        header: 'Rake Totale',
         cell: (info) => (
           <span className="text-[13px] font-mono text-text-primary text-right block">
             {formatCurrency(info.getValue())}
@@ -651,9 +476,7 @@ export default function PlayersPage() {
         ),
       }),
       columnHelper.accessor('total_bet', {
-        header: () => (
-          <span className="flex items-center gap-1">Bet Totale <InfoTooltip content="Totale giocato dal giocatore nel mese. Fonte: daily_player_stats, somma della colonna Bet." /></span>
-        ),
+        header: 'Bet Totale',
         cell: (info) => (
           <span className="text-[13px] font-mono text-text-primary text-right block">
             {formatCurrency(info.getValue())}
@@ -661,9 +484,7 @@ export default function PlayersPage() {
         ),
       }),
       columnHelper.accessor('avg_payout', {
-        header: () => (
-          <span className="flex items-center gap-1">Payout % <InfoTooltip content="Percentuale restituita al giocatore: Won/Bet×100. >100% = il giocatore vince più di quanto gioca (rosso), <50% = la casa trattiene di più (verde). Fonte: daily_player_stats." /></span>
-        ),
+        header: 'Payout %',
         cell: (info) => {
           const v = info.getValue()
           const color = v > 150 ? 'text-negative' : v > 100 ? 'text-warning' : v < 50 ? 'text-positive' : 'text-text-primary'
@@ -675,9 +496,7 @@ export default function PlayersPage() {
         },
       }),
       columnHelper.accessor('active_days', {
-        header: () => (
-          <span className="flex items-center gap-1">Giorni Attivi <InfoTooltip content="Numero di giorni nel mese in cui il giocatore ha almeno una giocata. ≥20 verde, 10-19 giallo, <10 rosso. Fonte: daily_player_stats." /></span>
-        ),
+        header: 'Giorni Attivi',
         cell: (info) => {
           const v = info.getValue()
           const color = v >= 20 ? 'text-positive' : v >= 10 ? 'text-warning' : 'text-negative'
@@ -698,9 +517,7 @@ export default function PlayersPage() {
       }),
       columnHelper.display({
         id: 'kyc',
-        header: () => (
-          <span className="flex items-center gap-1">KYC <InfoTooltip content="Stato documenti del giocatore (verifica identità). Verde = documenti OK, giallo = mancanti o scaduti. Fonte: anagrafica giocatori." /></span>
-        ),
+        header: 'KYC',
         cell: (info) => {
           const kyc = info.row.original.kyc_status
           const ok = kyc && kyc.toUpperCase().includes('OK')
@@ -712,9 +529,7 @@ export default function PlayersPage() {
         },
       }),
       columnHelper.accessor('status', {
-        header: () => (
-          <span className="flex items-center gap-1">Stato <InfoTooltip content="Classificazione automatica: Attivo se ≥3 giorni di gioco, Warning se 1-2 giorni, Inattivo se 0 giorni. Fonte: daily_player_stats." /></span>
-        ),
+        header: 'Stato',
         cell: (info) => (
           <div className="flex justify-center">
             <StatusBadge status={info.getValue()} />
@@ -723,9 +538,7 @@ export default function PlayersPage() {
       }),
       columnHelper.display({
         id: 'trend',
-        header: () => (
-          <span className="flex items-center gap-1">Trend <InfoTooltip content="Mini grafico del rake del giocatore negli ultimi 14 giorni. Fonte: daily_player_stats." /></span>
-        ),
+        header: 'Trend',
         cell: (info) => {
           const playerStats = dailyStats.get(info.row.original.id) || []
           const last14 = playerStats.slice(0, 14).reverse()
@@ -1163,7 +976,6 @@ export default function PlayersPage() {
             agentName={agents.get(selectedPlayer.agent_id ?? 0) || `Agent ${selectedPlayer.agent_id}`}
             pvrName={pvrs.get(selectedPlayer.pvr_id ?? '') || `PVR ${selectedPlayer.pvr_id}`}
             dailyData={dailyStats.get(selectedPlayer.id) || []}
-            gameBreakdown={gameBreakdown}
             onClose={() => setSelectedPlayer(null)}
           />
         )}
