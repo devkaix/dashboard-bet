@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { dataStore, formatCurrency, loadData } from '@/lib/data'
+import InfoTooltip from '@/components/InfoTooltip'
 import type {
   Region,
   AreaManager,
@@ -323,13 +324,13 @@ function DetailPanel({
         >
           {node.type === 'pvr' && (
             <>
-              <KpiCard label="Rake Totale" value={formatCurrency(getPvrTotalRake(node))} />
-              <KpiCard label="Giocatori" value={String(node.children.length)} />
+              <KpiCard label="Rake Totale" value={formatCurrency(getPvrTotalRake(node))} help="Rake del PVR nel mese. Fonte: daily_pvr_stats, con fallback alla somma dei giocatori se manca." />
+              <KpiCard label="Giocatori" value={String(node.children.length)} help="Numero di giocatori assegnati a questo PVR (figli nell'albero)." />
               {(node.data as PVR).fido != null && (
-                <KpiCard label="Fido" value={formatCurrency(num(node.data, 'fido'))} />
+                <KpiCard label="Fido" value={formatCurrency(num(node.data, 'fido'))} help="Fido (credito) assegnato al PVR. Fonte: anagrafica PVR." />
               )}
               {(node.data as PVR).saldo != null && (
-                <KpiCard label="Saldo" value={formatCurrency(num(node.data, 'saldo'))} />
+                <KpiCard label="Saldo" value={formatCurrency(num(node.data, 'saldo'))} help="Saldo attuale del PVR. Fonte: anagrafica PVR." />
               )}
             </>
           )}
@@ -341,10 +342,10 @@ function DetailPanel({
           )}
           {node.type === 'player' && (
             <>
-              <KpiCard label="Rake Totale" value={formatCurrency(num(node.data, 'total_rake'))} />
-              <KpiCard label="Bet Totale" value={formatCurrency(num(node.data, 'total_bet'))} />
-              <KpiCard label="Payout" value={`${num(node.data, 'avg_payout').toFixed(1)}%`} />
-              <KpiCard label="Giorni Attivi" value={`${num(node.data, 'active_days')}/30`} />
+              <KpiCard label="Rake Totale" value={formatCurrency(num(node.data, 'total_rake'))} help="Rake del giocatore nel mese. Fonte: daily_player_stats." />
+              <KpiCard label="Bet Totale" value={formatCurrency(num(node.data, 'total_bet'))} help="Totale giocato dal giocatore. Fonte: daily_player_stats." />
+              <KpiCard label="Payout" value={`${num(node.data, 'avg_payout').toFixed(1)}%`} help="Won/Bet×100. Percentuale restituita al giocatore." />
+              <KpiCard label="Giorni Attivi" value={`${num(node.data, 'active_days')}/30`} help="Giorni con almeno una giocata su 30. Fonte: daily_player_stats." />
             </>
           )}
           {node.type === 'region' && (
@@ -368,10 +369,10 @@ function DetailPanel({
   )
 }
 
-function KpiCard({ label, value }: { label: string; value: string }) {
+function KpiCard({ label, value, help }: { label: string; value: string; help?: string }) {
   return (
     <div className="bg-bg-surface-elevated rounded-lg p-3">
-      <p className="text-[11px] text-text-muted mb-1">{label}</p>
+      <p className="text-[11px] text-text-muted mb-1 flex items-center gap-1">{label} {help && <InfoTooltip content={help} />}</p>
       <p className="text-[15px] font-semibold text-text-primary font-mono">{value}</p>
     </div>
   )
