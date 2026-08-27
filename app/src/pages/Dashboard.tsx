@@ -25,7 +25,10 @@ import {
   ComposedChart,
   Bar,
   Line,
-  BarChart,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
 } from 'recharts'
 import KpiCard from '@/components/KpiCard'
 import GlassCard from '@/components/GlassCard'
@@ -150,6 +153,7 @@ export default function Dashboard() {
   const [chartSubtitle, setChartSubtitle] = useState('')
 
   const [playerTab, setPlayerTab] = useState<'migliori' | 'peggiori'>('migliori')
+  const [distTab, setDistTab] = useState<'pareto' | 'pvr'>('pareto')
 
   // Month selector
   const [availableMonths, setAvailableMonths] = useState<MonthAvailability[]>([])
@@ -406,6 +410,17 @@ export default function Dashboard() {
       .sort((a, b) => b.rake - a.rake)
       .slice(0, 8)
   }, [dailyKpis])
+
+  // Torta PVR (top 5 + resto)
+  const pieData = useMemo(() => {
+    const top = pvrDist.slice(0, 5)
+    const resto = pvrDist.slice(5).reduce((s, p) => s + p.rake, 0)
+    const items = top.map((p) => ({ name: p.name, value: Math.round(p.rake) }))
+    if (resto > 0) items.push({ name: 'Altri', value: Math.round(resto) })
+    return items
+  }, [pvrDist])
+
+  const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4', '#ef4444']
 
   // Category-filtered values
   const categoryValues = useMemo(() => {
@@ -871,15 +886,32 @@ export default function Dashboard() {
           transition={{ duration: 0.35, delay: 0.9 }}
           className="bg-bg-surface rounded-xl border border-border-subtle flex flex-col"
         >
-          <div className="flex items-center gap-2 px-5 py-4 border-b border-border-subtle flex-shrink-0">
-            <BarChart3 size={16} className="text-accent-blue" />
-            <h2 className="text-[20px] font-semibold text-text-primary">Distribuzione</h2>
-            <InfoTooltip content="Pareto: barre = rake dei primi 20 giocatori, linea = quota cumulativa sul totale. Rake per PVR: distribuzione del rake tra i PVR principali. Fonte: daily_player_stats e daily_pvr_stats." />
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <BarChart3 size={16} className="text-accent-blue" />
+              <h2 className="text-[20px] font-semibold text-text-primary">Distribuzione</h2>
+              <InfoTooltip content={distTab === 'pareto' ? 'Barre = rake dei primi 20 giocatori, linea = quota cumulativa sul totale. Fonte: daily_player_stats.' : 'Torta della distribuzione del rake tra i PVR principali. Fonte: daily_pvr_stats.'} />
+            </div>
+            <div className="flex items-center gap-1 bg-bg-surface-elevated rounded-lg p-0.5">
+              {(['pareto', 'pvr'] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setDistTab(t)}
+                  className={cn(
+                    'px-3 py-1 rounded-md text-[12px] font-medium transition-colors',
+                    distTab === t
+                      ? 'bg-accent-blue text-white'
+                      : 'text-text-secondary hover:text-text-primary',
+                  )}
+                >
+                  {t === 'pareto' ? 'Pareto' : 'Torta PVR'}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="p-4 space-y-4 flex-1 min-h-0">
-            <div>
-              <h3 className="text-[13px] font-semibold text-text-primary mb-2">Pareto — Rake per Giocatore</h3>
-              <div className="h-[150px]">
+          <div className="p-4 flex-1 min-h-0">
+            {distTab === 'pareto' ? (
+              <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={paretoData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
@@ -906,32 +938,39 @@ export default function Dashboard() {
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
-            </div>
-            <div>
-              <h3 className="text-[13px] font-semibold text-text-primary mb-2">Rake per PVR</h3>
-              <div className="h-[150px]">
+            ) : (
+              <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={pvrDist} layout="vertical" barSize={10}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-                    <XAxis type="number" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
-                    <YAxis dataKey="name" type="category" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} width={70} />
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                      {pieData.map((_e, idx) => (
+                        <Cell key={`cell-${idx}`} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
                     <Tooltip
-                      content={({ active, payload }: { active?: boolean; payload?: Array<{ payload?: { name?: string; rake?: number } }> }) => {
+                      content={({ active, payload }: { active?: boolean; payload?: Array<{ name?: string; value?: number }> }) => {
                         if (!active || !payload?.length) return null
-                        const p = payload[0].payload
                         return (
                           <div className="bg-bg-surface-elevated border border-border-subtle rounded-lg p-2 shadow-lg text-[11px]">
-                            <p className="text-text-primary font-medium">{p?.name}</p>
-                            <p className="text-text-muted">Rake: {formatCurrency(p?.rake || 0)}</p>
+                            <p className="text-text-primary font-medium">{payload[0].name}</p>
+                            <p className="text-text-muted">Rake: {formatCurrency(payload[0].value || 0)}</p>
                           </div>
                         )
                       }}
                     />
-                    <Bar dataKey="rake" fill="#10b981" radius={[0, 4, 4, 0]} opacity={0.7} name="Rake" />
-                  </BarChart>
+                    <Legend wrapperStyle={{ fontSize: 11 }} formatter={(value: string) => <span style={{ color: '#94a3b8' }}>{value}</span>} />
+                  </PieChart>
                 </ResponsiveContainer>
               </div>
-            </div>
+            )}
           </div>
         </motion.div>
       </div>
