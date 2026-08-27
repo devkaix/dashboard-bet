@@ -410,6 +410,28 @@ function MarkdownText({ content }: { content: string }) {
 
 /* ─── Reasoning / References Modal ─── */
 
+const REFERENCE_LABELS: Record<string, string> = {
+  daily_network_stats: 'Giocato totale della rete',
+  daily_player_stats: 'Giocato per giocatore',
+  daily_pvr_stats: 'Giocato per punto vendita',
+  pvrs: 'Anagrafica punti vendita',
+  players: 'Anagrafica giocatori',
+  category_stats: 'Riepilogo per tipologia di gioco',
+  daily_player_game_stats: 'Giocato per giocatore e gioco',
+  game_types: 'Catalogo giochi',
+  tickets: 'Ticket scommesse',
+}
+
+const REFERENCE_DETAIL: Record<string, string> = {
+  daily_network_stats: 'Totali giornalieri di ricavi, giocato e vinto dell\u2019intera rete.',
+  daily_player_stats: 'Giocate e ricavi aggregati per ciascun giocatore.',
+  daily_pvr_stats: 'Giocate e ricavi aggregati per ciascun punto vendita.',
+  pvrs: 'Anagrafica e dati commerciali dei punti vendita.',
+  players: 'Anagrafica dei giocatori.',
+  category_stats: 'Ricavi suddivisi per tipologia di gioco (sport, casino, virtuali\u2026).',
+  daily_player_game_stats: 'Giocate suddivise per gioco e provider.',
+}
+
 function ReasoningModal({ message, onClose }: { message: ChatMessage; onClose: () => void }) {
   return (
     <motion.div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
@@ -446,22 +468,17 @@ function ReasoningModal({ message, onClose }: { message: ChatMessage; onClose: (
             )}
           </section>
           <section>
-            <h4 className="text-[12px] font-semibold uppercase tracking-wider text-text-muted mb-2">Riferimenti dati</h4>
+            <h4 className="text-[12px] font-semibold uppercase tracking-wider text-text-muted mb-2">Da dove arrivano i dati</h4>
             {message.references && message.references.length > 0 ? (
               <div className="space-y-2">
                 {message.references.map((r, i) => (
                   <div key={i} className="rounded-lg border border-border-subtle bg-bg-surface-elevated px-3 py-2.5">
                     <div className="flex items-center gap-2">
                       <Database size={14} className="text-accent-blue flex-shrink-0" />
-                      <span className="font-mono text-[13px] font-medium text-text-primary">{r.table}</span>
-                      <span className="text-[12px] text-text-muted ml-auto">{r.period}</span>
+                      <span className="text-[13px] font-medium text-text-primary">{REFERENCE_LABELS[r.table] || r.table}</span>
+                      <span className="text-[11px] text-text-muted ml-auto whitespace-nowrap">{r.period}</span>
                     </div>
-                    <div className="mt-1.5 text-[12px] text-text-secondary">
-                      <span className="text-text-muted">Colonne:</span> {r.columns.join(', ')}
-                    </div>
-                    <div className="text-[12px] text-text-secondary">
-                      <span className="text-text-muted">Formula:</span> {r.formula}
-                    </div>
+                    <p className="mt-1 text-[12px] text-text-secondary">{REFERENCE_DETAIL[r.table] || 'Dati reali estratti dal gestionale.'}</p>
                   </div>
                 ))}
               </div>
@@ -931,7 +948,7 @@ function CommercialAdvicePanel({ month }: { month: string }) {
               disabled={loading}
               className="text-[12px] text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
             >
-              Svuota conversazione
+              Svuota
             </button>
           )}
         </div>
@@ -954,9 +971,8 @@ function CommercialAdvicePanel({ month }: { month: string }) {
         <div ref={scrollRef} className="max-h-[42vh] overflow-y-auto space-y-3 pr-1">
           {messages.length === 0 ? (
             <p className="text-[13px] text-text-secondary leading-relaxed">
-              Fai una domanda aperta sui dati del mese e ti rispondo usando i dati reali e le linee guida commerciali.
-              Es: <span className="text-text-primary">"Quali PVR vanno contattati e perché?"</span>,{' '}
-              <span className="text-text-primary">"Come recuperare i giocatori persi?"</span>.
+              Chiedimi cosa fare questo mese e ti do consigli concreti.
+              Es: <span className="text-text-primary">"Quali punti vendita contattare?"</span> oppure <span className="text-text-primary">"Come recuperare i clienti persi?"</span>.
             </p>
           ) : (
             messages.map((m) => <AdviceBubble key={m.id} message={m} />)
@@ -977,7 +993,7 @@ function CommercialAdvicePanel({ month }: { month: string }) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Fai una domanda aperta sui dati del mese..."
+            placeholder="Chiedi un consiglio sul mese..."
             disabled={loading}
             className="flex-1 bg-bg-surface-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted outline-none focus:border-border-focus disabled:opacity-50"
           />
