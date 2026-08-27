@@ -16,7 +16,6 @@ import {
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
-import { supabase } from '@/lib/supabase'
 import { answerQuestion, type QuickComponent } from '@/lib/quickAnalysis'
 import MonthSelector from '@/components/upload/MonthSelector'
 import { analysisMonthToRange, normalizeAnalysisMonth } from '@/lib/analysisMonth'
@@ -130,7 +129,7 @@ function getLatestPeriodLabel(): string {
     // fall through
   }
   try {
-    const kpis = getDailyKpis()
+    const kpis = dataStore.daily_kpis
     if (kpis.length > 0) {
       const latest = kpis[kpis.length - 1].date
       return capitalizeMonthLabel(format(new Date(latest), 'MMMM yyyy', { locale: it }))
@@ -660,12 +659,14 @@ function CommercialAdvicePanel({ month }: { month: string }) {
     try {
       const { gatherCommercialFacts } = await import('@/lib/quickAnalysis')
       const facts = await gatherCommercialFacts(month)
-      const { data, error: fnErr } = await supabase.functions.invoke('commercial-advice', {
-        body: { facts, pointers: pointers.trim() || undefined, month },
+      const resp = await fetch('/api/commercial-advice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ facts, pointers: pointers.trim() || undefined, month }),
       })
-      if (fnErr) throw new Error(fnErr.message)
-      if (data?.error) throw new Error(data.error)
-      setText(data?.suggestions || 'Nessun suggerimento generato.')
+      const data = (await resp.json()) as { suggestions?: string; error?: string }
+      if (!resp.ok || data.error) throw new Error(data.error || `Errore ${resp.status}`)
+      setText(data.suggestions || 'Nessun suggerimento generato.')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Errore nella generazione dei suggerimenti')
     } finally {
