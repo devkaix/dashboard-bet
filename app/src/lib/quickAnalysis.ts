@@ -382,13 +382,13 @@ export async function gatherCommercialFacts(month: string): Promise<string> {
     const agg = new Map<string, number>()
     for (const r of data || []) agg.set(String((r as Record<string, unknown>).pvr_id), (agg.get(String((r as Record<string, unknown>).pvr_id)) || 0) + toNum((r as Record<string, unknown>).rake))
     const sorted = Array.from(agg.entries()).sort((a, b) => b[1] - a[1])
-    const ids = sorted.slice(0, 2).concat(sorted.slice(-2)).map(([id]) => id)
+    const ids = sorted.slice(0, 5).concat(sorted.slice(-2)).map(([id]) => id)
     const { data: pvrsData } = await (supabase.from('pvrs').select('id, name') as any).in('id', ids.length ? ids : ['none'])
     const nameMap = new Map<string, string>()
     for (const p of (pvrsData || []) as any[]) nameMap.set(String(p.id), String(p.name || p.id))
-    if (sorted.length) lines.push(`TOP PVR: ${sorted.slice(0, 3).map(([id, r]) => `${nameMap.get(id) || id.slice(0, 8)} (${formatCurrency(r)})`).join(', ')}`)
+    if (sorted.length) lines.push(`TOP PVR: ${sorted.slice(0, 5).map(([id, r]) => `${nameMap.get(id) || 'PVR'} (${formatCurrency(r)})`).join(', ')}`)
     const worst = sorted.slice(-2).reverse()
-    if (worst.length && worst[0][1] < 0) lines.push(`PVR IN PERDITA: ${worst.map(([id, r]) => `${nameMap.get(id) || id.slice(0, 8)} (${formatCurrency(r)})`).join(', ')}`)
+    if (worst.length && worst[0][1] < 0) lines.push(`PVR IN PERDITA: ${worst.map(([id, r]) => `${nameMap.get(id) || 'PVR'} (${formatCurrency(r)})`).join(', ')}`)
   } catch { /* ignora */ }
 
   try {
