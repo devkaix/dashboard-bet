@@ -266,3 +266,71 @@ export async function answerQuestion(rawText: string, month: string): Promise<Qu
   // Default: panoramica del mese
   return rakeAnalysis(month)
 }
+
+// ─── Fatti per Suggerimenti Commerciali (inviati all'LLM) ───
+
+/** Raccoglie i fatti chiave del mese in un testo compatto per il prompt LLM. */
+export async function gatherCommercialFacts(month: string): Promise<string> {
+  const pm = prevMonth(month)
+  const label = formatAnalysisMonth(month)
+  const lines: string[] = [`MESE: ${label}`]
+
+  try {
+    const [cur, prev] = await Promise.all([networkRake(month), networkRake(pm).catch(() => ({ rake: 0, bet: 0, won: 0 }))])
+    const delta = prev.rake !== 0 ? ((cur.rake - prev.rake) / Math.abs(prev.rake)) * 100 : null
+    lines.push(`RAKE TOTALE: ${formatCurrency(cur.rake)}${delta !== null ? ` (${delta >= 0 ? '+' : ''}${delta.toFixed(1)}% vs ${formatAnalysisMonth(pm)})` : ''}`)
+    lines.push(`BET: ${formatCurrency(cur.bet)} | WON: ${formatCurrency(cur.won)}`)
+  } catch { /* ignora */ }
+
+  try {
+    const range = analysisMonthToRange(month)
+    const { data } = await supabase.from('daily_network_stats').select('date, rake').gte('date', range.start).lte('date', range.end).order('date', { ascending: true })
+    const neg = (data || []).filter((r) => toNum((r as Record<string, unknown>).rake) < 0)
+    const worst = neg.length ? neg.reduce((a, b) => (toNum(a.rake) < toNum(b.rake) ? a : b)) : null
+    lines.push(`GIORNI NEGATIVI: ${neg.length}${worst ? ` (peggiore ${String((worst as Record<string, unknown>).date).slice(8, 10)}, ${formatCurrency(toNum((worst as Record<string, unknown>).rake))})` : ''}`)
+  } catch { /* ignora */ }
+
+  try {
+    const map = await playerRakeByMonth(month)
+    const sorted = Array.from(map.entries()).sort((a, b) => b[1].rake - a[1].rake)
+    const names = await usernamesFor(sorted.slice(0, 5).map(([id]) => id))
+    const top3 = sorted.slice(0, 3).map(([id, e]) => `${names.get(id) || id.slice(0, 8)} (${formatCurrency(e.rake)})`).join(', ')
+    lines.push(`TOP GIOCATORI: ${top3}`)
+    const worst3 = sorted.filter(([, e]) => e.rake < 0).slice(0, 3).map(([id, e]) => `${names.get(id) || id.slice(0, 8)} (${formatCurrency(e.rake)})`).join(', ')
+    if (worst3) lines.push(`GIOCATORI IN PERDITA: ${worst3}`)
+  } catch { /* ignora */ }
+
+  try {
+    const [curMap, prevMap] = await Promise.all([playerRakeByMonth(month), playerRakeByMonth(pm)])
+    const idsCur = new Set(curMap.keys())
+    const idsPrev = new Set(prevMap.keys())
+    let nuovi = 0, nuoviRake = 0, persi = 0, persiRake = 0
+    for (const id of idsPrev) if (!idsCur.has(id)) { persi++; persiRake += prevMap.get(id)!.rake }
+    for (const id of idsCur) if (!idsPrev.has(id)) { nuovi++; nuoviRake += curMap.get(id)!.rake }
+    lines.push(`RITENZIONE: ${persi} giocatori persi (${formatCurrency(persiRake)} rake), ${nuovi} nuovi (${formatCurrency(nuoviRake)} rake)`)
+  } catch { /* ignora */ }
+
+  try {
+    const range = analysisMonthToRange(month)
+    const { data } = await supabase.from('daily_pvr_stats').select('pvr_id, rake').gte('date', range.start).lte('date', range.end)
+    const agg = new Map<string, number>()
+    for (const r of data || []) agg.set(String((r as Record<string, unknown>).pvr_id), (agg.get(String((r as Record<string, unknown>).pvr_id)) || 0) + toNum((r as Record<string, unknown>).rake))
+    const sorted = Array.from(agg.entries()).sort((a, b) => b[1] - a[1])
+    const ids = sorted.slice(0, 2).concat(sorted.slice(-2)).map(([id]) => id)
+    const { data: pvrsData } = await (supabase.from('pvrs').select('id, code, name') as any).in('id', ids.length ? ids : ['none'])
+    const nameMap = new Map<string, string>()
+    for (const p of (pvrsData || []) as any[]) nameMap.set(String(p.id), String(p.code || p.name || p.id))
+    if (sorted.length) lines.push(`TOP PVR: ${sorted.slice(0, 3).map(([id, r]) => `${nameMap.get(id) || id.slice(0, 8)} (${formatCurrency(r)})`).join(', ')}`)
+    const worst = sorted.slice(-2).reverse()
+    if (worst.length && worst[0][1] < 0) lines.push(`PVR IN PERDITA: ${worst.map(([id, r]) => `${nameMap.get(id) || id.slice(0, 8)} (${formatCurrency(r)})`).join(', ')}`)
+  } catch { /* ignora */ }
+
+  try {
+    const dbMonth = `${month}-01`
+    const { data } = await supabase.from('category_stats').select('category, rake').eq('analysis_month', dbMonth).order('rake', { ascending: false })
+    const mix = (data || []).slice(0, 4).map((r) => `${String((r as Record<string, unknown>).category)} ${formatCurrency(toNum((r as Record<string, unknown>).rake))}`).join(', ')
+    if (mix) lines.push(`MIX CATEGORIE: ${mix}`)
+  } catch { /* ignora */ }
+
+  return lines.join('\n')
+}

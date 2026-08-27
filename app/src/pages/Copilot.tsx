@@ -11,10 +11,12 @@ import {
   X,
   ChevronUp,
   ChevronDown,
+  Sparkles,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
 import { answerQuestion, type QuickComponent } from '@/lib/quickAnalysis'
 import MonthSelector from '@/components/upload/MonthSelector'
 import { analysisMonthToRange, normalizeAnalysisMonth } from '@/lib/analysisMonth'
@@ -624,6 +626,131 @@ function ChatInputBar({
   )
 }
 
+/* ─── Suggerimenti Commerciali (OpenAI) ─── */
+
+function parseAdviceBlocks(text: string): { title: string; problema: string; azione: string; priorita: string }[] {
+  const blocks = text.split(/^###\s*/m).filter(Boolean)
+  return blocks.map((b) => {
+    const lines = b.split('\n')
+    const title = (lines[0] || 'Suggerimento').trim()
+    const problema = (b.match(/\*\*Problema:\*\*\s*(.+)/)?.[1]?.trim()) || ''
+    const azione = (b.match(/\*\*Azione consigliata:\*\*\s*(.+)/)?.[1]?.trim()) || ''
+    const prioritaRaw = (b.match(/\*\*Priorità:\*\*\s*(.+)/)?.[1]?.trim()) || 'Media'
+    const priorita = prioritaRaw.toLowerCase().includes('alta') ? 'Alta' : prioritaRaw.toLowerCase().includes('bassa') ? 'Bassa' : 'Media'
+    return { title, problema, azione, priorita }
+  })
+}
+
+const PRIORITY_STYLE: Record<string, string> = {
+  Alta: 'bg-negative/15 text-negative border-negative/30',
+  Media: 'bg-warning/15 text-warning border-warning/30',
+  Bassa: 'bg-info/15 text-info border-info/30',
+}
+
+function CommercialAdvicePanel({ month }: { month: string }) {
+  const [loading, setLoading] = useState(false)
+  const [text, setText] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [pointers, setPointers] = useState('')
+
+  const generate = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    setText('')
+    try {
+      const { gatherCommercialFacts } = await import('@/lib/quickAnalysis')
+      const facts = await gatherCommercialFacts(month)
+      const { data, error: fnErr } = await supabase.functions.invoke('commercial-advice', {
+        body: { facts, pointers: pointers.trim() || undefined, month },
+      })
+      if (fnErr) throw new Error(fnErr.message)
+      if (data?.error) throw new Error(data.error)
+      setText(data?.suggestions || 'Nessun suggerimento generato.')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Errore nella generazione dei suggerimenti')
+    } finally {
+      setLoading(false)
+    }
+  }, [month, pointers])
+
+  const blocks = parseAdviceBlocks(text)
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0 }}
+      className="flex-shrink-0 border-b border-border-subtle bg-bg-surface/80"
+    >
+      <div className="px-6 py-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Lightbulb size={16} className="text-warning" />
+            <span className="text-[14px] font-semibold text-text-primary">Suggerimenti Commerciali — {format(new Date(month + '-01'), 'MMMM yyyy', { locale: it })}</span>
+          </div>
+          <button
+            onClick={generate}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-purple text-white text-[13px] font-medium hover:brightness-110 transition-all disabled:opacity-50"
+          >
+            <Sparkles size={14} />
+            {loading ? 'Analisi in corso...' : text ? 'Rigenera' : 'Genera suggerimenti'}
+          </button>
+        </div>
+
+        {/* Accorgimenti personalizzati */}
+        <div>
+          <textarea
+            value={pointers}
+            onChange={(e) => setPointers(e.target.value)}
+            placeholder="Aggiungi i tuoi accorgimenti commerciali (opzionale). Es: 'Per i giocatori persi offrire sempre un bonus di rientro del 20%'..."
+            rows={2}
+            className="w-full bg-bg-surface-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted outline-none focus:border-border-focus resize-none"
+          />
+        </div>
+
+        {error && <p className="text-[13px] text-negative">⚠ {error}</p>}
+
+        {loading && (
+          <div className="flex items-center gap-2 text-[13px] text-text-secondary">
+            <div className="w-2 h-2 rounded-full bg-accent-purple animate-pulse" />
+            Sto analizzando i dati del mese e preparando i suggerimenti...
+          </div>
+        )}
+
+        {!loading && blocks.length > 0 && (
+          <div className="space-y-3">
+            {blocks.map((b, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.1 }}
+                className="rounded-xl border border-border-subtle bg-bg-surface-elevated p-4"
+              >
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <span className="text-[14px] font-semibold text-text-primary">{b.title}</span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${PRIORITY_STYLE[b.priorita] || PRIORITY_STYLE.Media}`}>
+                    {b.priorita}
+                  </span>
+                </div>
+                {b.problema && (
+                  <p className="text-[13px] text-text-secondary"><span className="text-text-muted font-medium">Problema:</span> {b.problema}</p>
+                )}
+                {b.azione && (
+                  <p className="text-[13px] text-text-primary mt-1"><span className="text-accent-blue font-medium">Azione consigliata:</span> {b.azione}</p>
+                )}
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
+/* ─── Main Page ─── */
+
 /* ─── Main Page ─── */
 
 export default function CopilotPage() {
@@ -643,6 +770,7 @@ export default function CopilotPage() {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   })
+  const [adviceOpen, setAdviceOpen] = useState(false)
 
   const scrollToBottom = useCallback(() => {
     if (chatContainerRef.current) {
@@ -724,6 +852,16 @@ export default function CopilotPage() {
           <span className="text-[15px] text-text-secondary hidden sm:inline">Analisi rapida dei dati della rete</span>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setAdviceOpen(!adviceOpen)}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-medium transition-all',
+              adviceOpen ? 'bg-accent-purple text-white' : 'bg-bg-surface-elevated text-text-primary hover:bg-bg-surface-highlight border border-border-default',
+            )}
+          >
+            <Sparkles size={14} />
+            Suggerimenti Commerciali
+          </button>
           <MonthSelector selectedMonth={month} onMonthChange={handleMonthChange} />
           {messages.length > 0 && (
             <motion.button
@@ -740,6 +878,8 @@ export default function CopilotPage() {
           )}
         </div>
       </motion.div>
+
+      <AnimatePresence>{adviceOpen && <CommercialAdvicePanel month={month} />}</AnimatePresence>
 
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">
