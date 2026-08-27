@@ -12,6 +12,7 @@ import {
   Upload,
   Search,
   ArrowLeftRight,
+  Lightbulb,
 } from 'lucide-react'
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -25,6 +26,7 @@ const navItems = [
   { to: '/compare', icon: ArrowLeftRight, label: 'Confronto Mensile' },
   { to: '/upload', icon: Upload, label: 'Importa Dati' },
   { to: '/copilot', icon: Search, label: 'Analisi Veloce' },
+  { to: '/commercial-advice', icon: Lightbulb, label: 'Suggerimenti Commerciali' },
   { to: '/settings', icon: Settings, label: 'Impostazioni' },
 ]
 

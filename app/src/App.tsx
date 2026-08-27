@@ -7,6 +7,7 @@ import PvrDetailPage from '@/pages/PvrDetail'
 import PlayersPage from '@/pages/Players'
 import AnalyticsPage from '@/pages/Analytics'
 import CopilotPage from '@/pages/Copilot'
+import CommercialAdvicePage from '@/pages/CommercialAdvice'
 import MonthComparisonPage from '@/pages/MonthComparison'
 import UploadPage from '@/pages/Upload'
 import SettingsPage from '@/pages/Settings'
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="/compare" element={<MonthComparisonPage />} />
         <Route path="/upload" element={<UploadPage />} />
         <Route path="/copilot" element={<CopilotPage />} />
+        <Route path="/commercial-advice" element={<CommercialAdvicePage />} />
         <Route path="/pvr/:pvrId" element={<PvrDetailPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
