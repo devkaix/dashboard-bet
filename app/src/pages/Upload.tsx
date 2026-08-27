@@ -1839,7 +1839,7 @@ export default function UploadPage() {
 
       {/* Header */}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-        <h1 className="text-2xl font-bold text-white">Importa Dati</h1>
+        <h1 className="text-2xl font-bold text-text-primary">Importa Dati</h1>
         <p className="text-text-secondary mt-1">
           Elaborazione diretta nel browser — solo dati reali da Excel/CSV.
         </p>
@@ -1852,7 +1852,7 @@ export default function UploadPage() {
         className="bg-bg-surface-elevated rounded-xl border-2 border-dashed border-accent-purple/30 p-8 text-center hover:border-accent-purple/60 transition-colors"
       >
         <Upload size={40} className="mx-auto mb-4 text-accent-purple" />
-        <h2 className="text-xl font-semibold text-white mb-2">Carica i file Excel</h2>
+        <h2 className="text-xl font-semibold text-text-primary mb-2">Carica i file Excel</h2>
         <p className="text-sm text-text-secondary mb-6 max-w-lg mx-auto">
           Seleziona tutti i file che hai scaricato da Exalogic. Il sistema riconosce automaticamente il contenuto e il mese di ogni file.
         </p>
@@ -1960,10 +1960,10 @@ export default function UploadPage() {
         className="bg-bg-surface-elevated rounded-xl border border-border-subtle overflow-hidden"
       >
         <div className="px-5 py-3 border-b border-border-subtle flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white">Caricamenti recenti</h2>
+          <h2 className="text-sm font-semibold text-text-primary">Caricamenti recenti</h2>
           <button
             onClick={fetchUploads}
-            className="p-1.5 rounded-lg hover:bg-white/5 text-text-secondary hover:text-white"
+            className="p-1.5 rounded-lg hover:bg-bg-surface-highlight text-text-secondary hover:text-text-primary"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -1985,7 +1985,7 @@ export default function UploadPage() {
                 <div key={u.id} className="px-5 py-2.5 flex items-center gap-3">
                   <span className={cn("w-2 h-2 rounded-full flex-shrink-0", ok ? "bg-emerald-400" : "bg-red-400")} />
                   <div className="flex-1 min-w-0">
-                    <span className="text-sm text-white">{descr || u.filename.slice(0, 50)}</span>
+                    <span className="text-sm text-text-primary">{descr || u.filename.slice(0, 50)}</span>
                     {mese ? <span className="text-xs text-text-secondary ml-2">{mese}</span> : null}
                     {!ok && u.error_message ? (
                       <span className="text-xs text-red-400 ml-2">

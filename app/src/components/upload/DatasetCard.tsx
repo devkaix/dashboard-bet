@@ -75,7 +75,7 @@ export default function DatasetCard({ status, selectedMonth, onUpload, uploading
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-white">{status.label}</span>
+          <span className="text-sm font-semibold text-text-primary">{status.label}</span>
           {status.category === "control" && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-500/10 text-slate-400 border border-slate-500/20">
               Controllo

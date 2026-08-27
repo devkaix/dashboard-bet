@@ -93,11 +93,11 @@ export default function ImportPreview({
             <div className="flex items-center justify-between mb-5">
               <div className="flex items-center gap-2.5">
                 <FileSpreadsheet size={20} className="text-accent-purple" />
-                <h3 className="text-lg font-semibold text-white">Conferma importazione</h3>
+                <h3 className="text-lg font-semibold text-text-primary">Conferma importazione</h3>
               </div>
               <button
                 onClick={onClose}
-                className="p-1.5 rounded-lg hover:bg-white/5 text-text-muted hover:text-white transition-colors"
+                className="p-1.5 rounded-lg hover:bg-bg-surface-highlight text-text-muted hover:text-text-primary transition-colors"
               >
                 <X size={18} />
               </button>
@@ -107,29 +107,29 @@ export default function ImportPreview({
             <div className="bg-bg-surface rounded-xl p-4 mb-4 space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-text-secondary">File</span>
-                <span className="text-white font-medium truncate ml-2 max-w-[180px]">{fileName}</span>
+                <span className="text-text-primary font-medium truncate ml-2 max-w-[180px]">{fileName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-secondary">Dataset</span>
-                <span className="text-white font-medium">{typeLabel}</span>
+                <span className="text-text-primary font-medium">{typeLabel}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-secondary">Mese selezionato</span>
-                <span className="text-white font-medium">{monthLabel}</span>
+                <span className="text-text-primary font-medium">{monthLabel}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-secondary">Periodo rilevato</span>
-                <span className="text-white font-medium">
+                <span className="text-text-primary font-medium">
                   {formatDate(periodStart)} – {formatDate(periodEnd)}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-secondary">Righe lette</span>
-                <span className="text-white font-medium">{totalRows}</span>
+                <span className="text-text-primary font-medium">{totalRows}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-text-secondary">Righe con data valida</span>
-                <span className="text-white font-medium">{validRows}</span>
+                <span className="text-text-primary font-medium">{validRows}</span>
               </div>
               {issues.filter((i) => i.level === "error").length > 0 && (
                 <div className="flex justify-between">
@@ -197,7 +197,7 @@ export default function ImportPreview({
               <button
                 onClick={onClose}
                 className="flex-1 px-4 py-2.5 rounded-xl border border-border-subtle text-sm font-medium text-text-secondary
-                           hover:bg-white/5 transition-colors"
+                           hover:bg-bg-surface-highlight transition-colors"
               >
                 Annulla
               </button>

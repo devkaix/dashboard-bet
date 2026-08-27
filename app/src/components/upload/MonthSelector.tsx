@@ -101,9 +101,9 @@ export default function MonthSelector({ selectedMonth, onMonthChange }: MonthSel
           value={selectedMonthValue}
           onChange={handleInputChange}
           className="bg-bg-surface border border-border-subtle rounded-lg px-3 py-1.5
-                     text-sm font-semibold text-white cursor-pointer hover:border-border-default
+                     text-sm font-semibold text-text-primary cursor-pointer hover:border-border-default
                      focus:outline-none focus:ring-1 focus:ring-accent-purple
-                     [color-scheme:dark]"
+                     [color-scheme:light] dark:[color-scheme:dark]"
         />
       </div>
 
@@ -120,7 +120,7 @@ export default function MonthSelector({ selectedMonth, onMonthChange }: MonthSel
                 } catch { /* ignore */ }
               }}
               className="text-[11px] px-2 py-0.5 rounded-full bg-bg-surface border border-border-subtle
-                         text-text-secondary hover:text-white hover:border-border-default
+                         text-text-secondary hover:text-text-primary hover:border-border-default
                          transition-colors"
             >
               {(() => { try { return formatAnalysisMonth(m); } catch { return m; } })()}

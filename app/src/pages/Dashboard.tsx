@@ -538,7 +538,7 @@ export default function Dashboard() {
                       onClick={() => handleMonthSelect(m.month)}
                       className={cn(
                         "w-full text-left px-4 py-2 text-sm hover:bg-bg-surface transition-colors",
-                        m.month === selectedMonth ? "text-white bg-bg-surface" : "text-text-secondary"
+                        m.month === selectedMonth ? "text-text-primary bg-bg-surface" : "text-text-secondary"
                       )}
                     >
                       <div className="flex items-center gap-2">
