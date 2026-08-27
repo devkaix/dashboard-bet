@@ -646,6 +646,14 @@ const PRIORITY_STYLE: Record<string, string> = {
   Bassa: 'bg-info/15 text-info border-info/30',
 }
 
+const ADVICE_CHIPS = [
+  'Quali PVR vanno contattati questo mese e perché?',
+  'Come recuperare i giocatori che stiamo perdendo?',
+  'Quali giocatori sono più a rischio e come trattenerli?',
+  'Dove conviene investire in bonus questo mese?',
+  'Quali PVR sono un modello da replicare?',
+]
+
 interface AdviceMessage {
   id: string
   role: 'user' | 'ai'
@@ -777,6 +785,20 @@ function CommercialAdvicePanel({ month }: { month: string }) {
               Svuota conversazione
             </button>
           )}
+        </div>
+
+        {/* Domande suggerite (un click = domanda + risposta) */}
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {ADVICE_CHIPS.map((chip) => (
+            <button
+              key={chip}
+              onClick={() => ask(chip)}
+              disabled={loading}
+              className="px-3 py-1.5 rounded-full bg-bg-surface-elevated text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-surface-highlight transition-colors whitespace-nowrap disabled:opacity-50"
+            >
+              {chip}
+            </button>
+          ))}
         </div>
 
         {/* Conversazione (scroll interno, non taglia mai la pagina) */}
