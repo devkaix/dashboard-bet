@@ -17,8 +17,8 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
 const navItems = [
-  { to: '/', icon: PieChart, label: 'Executive Briefing' },
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/executive-briefing', icon: PieChart, label: 'Executive Briefing' },
   { to: '/network', icon: Network, label: 'Rete' },
   { to: '/players', icon: Users, label: 'Giocatori' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },

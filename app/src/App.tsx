@@ -15,7 +15,8 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route path="/" element={<ExecutiveBriefing />} />
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/executive-briefing" element={<ExecutiveBriefing />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/network" element={<NetworkPage />} />
         <Route path="/players" element={<PlayersPage />} />
