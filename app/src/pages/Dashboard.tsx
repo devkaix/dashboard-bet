@@ -149,6 +149,7 @@ export default function Dashboard() {
   const [chartSubtitle, setChartSubtitle] = useState('')
 
   const [alertFilter, setAlertFilter] = useState<'all' | 'high' | 'medium'>('all')
+  const [playerTab, setPlayerTab] = useState<'migliori' | 'peggiori'>('migliori')
 
   // Month selector
   const [availableMonths, setAvailableMonths] = useState<MonthAvailability[]>([])
@@ -368,6 +369,22 @@ export default function Dashboard() {
     if (!prevMonthLabel) return 'nessun periodo precedente';
     return `vs ${prevMonthLabel}`;
   }, [prevMonthLabel, prevMonthAggs]);
+
+  // Top 10: migliori (per rake) o peggiori (rake più negativo). I peggiori partono da -1.
+  const displayedPlayers = useMemo(() => {
+    if (playerTab === 'migliori') return topPlayers
+    return [...dataStore.players]
+      .sort((a, b) => a.total_rake - b.total_rake)
+      .slice(0, 10)
+      .map((p, i) => ({
+        rank: -(i + 1),
+        username: p.username,
+        pvr_id: p.pvr_id,
+        total_rake: p.total_rake,
+        total_bet: p.total_bet,
+        active_days: p.active_days,
+      }))
+  }, [playerTab, topPlayers])
 
   // Category-filtered values
   const categoryValues = useMemo(() => {
@@ -724,9 +741,24 @@ export default function Dashboard() {
             <div className="flex items-center gap-2">
               <Trophy size={16} className="text-warning" />
               <h2 className="text-[20px] font-semibold text-text-primary">Top 10 Giocatori</h2>
-              <InfoTooltip content="Classifica dei primi 10 giocatori per Rake totale. Fonte: file «giocato per giocatore» (daily_player_stats), aggregato per giocatore. Nota: il rake qui viene dai giocatori, non dalla rete — può differire dal KPI «Rake Totale»." />
+              <InfoTooltip content={playerTab === 'migliori' ? 'Classifica dei primi 10 giocatori per Rake totale. Fonte: daily_player_stats.' : 'I 10 giocatori con rake più negativo (quelli che fanno perdere la casa). La classifica parte da -1 (il peggiore). Fonte: daily_player_stats.'} />
             </div>
-            <span className="text-[13px] text-text-muted">Per Rake Totale</span>
+            <div className="flex items-center gap-1 bg-bg-surface-elevated rounded-lg p-0.5">
+              {(['migliori', 'peggiori'] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setPlayerTab(t)}
+                  className={cn(
+                    'px-3 py-1 rounded-md text-[12px] font-medium transition-colors',
+                    playerTab === t
+                      ? 'bg-accent-blue text-white'
+                      : 'text-text-secondary hover:text-text-primary',
+                  )}
+                >
+                  {t === 'migliori' ? 'Migliori' : 'Peggiori'}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -744,12 +776,14 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {topPlayers.map((player, i) => {
+                {displayedPlayers.map((player, i) => {
                   const rawStatus = playerStatus(player.active_days)
                   const statusLabel = rawStatus === 'active' ? 'Attivo' : rawStatus === 'warning' ? 'Warning' : 'Inattivo'
                   const statusColor = rawStatus === 'active' ? 'positive' : rawStatus === 'warning' ? 'warning' : 'negative'
                   const rankBg =
-                    i === 0 ? 'bg-yellow-500/10' : i === 1 ? 'bg-gray-400/10' : i === 2 ? 'bg-amber-600/10' : ''
+                    playerTab === 'migliori'
+                      ? i === 0 ? 'bg-yellow-500/10' : i === 1 ? 'bg-gray-400/10' : i === 2 ? 'bg-amber-600/10' : ''
+                      : i === 0 ? 'bg-red-500/10' : ''
 
                   return (
                     <motion.tr
@@ -769,7 +803,7 @@ export default function Dashboard() {
                       <td className="px-4 py-3 text-[13px] text-text-secondary">
                         {getPvrName(player.pvr_id)}
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-[14px] text-positive">
+                      <td className={cn('px-4 py-3 text-right font-mono text-[14px]', player.total_rake < 0 ? 'text-negative' : 'text-positive')}>
                         {formatCurrency(player.total_rake)}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-[13px] text-text-secondary">
