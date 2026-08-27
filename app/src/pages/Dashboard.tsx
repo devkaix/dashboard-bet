@@ -170,7 +170,7 @@ export default function Dashboard() {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([])
   const [providerDist, setProviderDist] = useState<{ name: string; rake: number }[]>([])
-  const [cohortData, setCohortData] = useState<{ day: string; nuovi: number; ritornanti: number }[]>([])
+  const [rakeContribution, setRakeContribution] = useState<{ segmento: string; giocatori: number; delta: number }[]>([])
 
   useEffect(() => {
     // Fetch available months and determine selected month
@@ -289,27 +289,74 @@ export default function Dashboard() {
           setProviderDist(Array.from(agg.entries()).map(([name, rake]) => ({ name, rake })).sort((a, b) => b.rake - a.rake).slice(0, 8))
         })().catch(() => setProviderDist([]))
 
-        // Load nuovi vs ritornanti per giorno
+        // Load contributo al rake per segmento (nuovi, riattivati, continuativi, persi)
         ;(async () => {
-          const range = analysisMonthToRange(month)
-          const { data } = await supabase
-            .from('daily_player_stats')
-            .select('player_id, date')
-            .gte('date', range.start)
-            .lte('date', range.end)
-            .order('date', { ascending: true })
-          const seen = new Set<string>()
-          const byDay = new Map<string, { nuovi: number; ritornanti: number }>()
-          for (const r of data || []) {
-            const d = String((r as Record<string, unknown>).date).slice(8, 10)
-            const pid = String((r as Record<string, unknown>).player_id)
-            const entry = byDay.get(d) || { nuovi: 0, ritornanti: 0 }
-            if (seen.has(pid)) entry.ritornanti++
-            else { entry.nuovi++; seen.add(pid) }
-            byDay.set(d, entry)
+          const [y, m] = month.split('-').map(Number)
+          const pm = m === 1 ? 12 : m - 1
+          const py = m === 1 ? y - 1 : y
+          const prevMonthStr = `${py}-${String(pm).padStart(2, '0')}`
+          const curRange = analysisMonthToRange(month)
+          const prevRange = analysisMonthToRange(prevMonthStr)
+
+          const rakeMap = async (range: { start: string; end: string }) => {
+            const { data } = await supabase
+              .from('daily_player_stats')
+              .select('player_id, rake')
+              .gte('date', range.start)
+              .lte('date', range.end)
+            const map = new Map<string, number>()
+            for (const r of data || []) {
+              const pid = String((r as Record<string, unknown>).player_id)
+              map.set(pid, (map.get(pid) || 0) + (Number((r as Record<string, unknown>).rake) || 0))
+            }
+            return map
           }
-          setCohortData(Array.from(byDay.entries()).map(([day, v]) => ({ day, ...v })))
-        })().catch(() => setCohortData([]))
+
+          const [cur, prev] = await Promise.all([rakeMap(curRange), rakeMap(prevRange)])
+          const curIds = new Set(cur.keys())
+          const prevIds = new Set(prev.keys())
+          const onlyCur = [...curIds].filter((id) => !prevIds.has(id))
+          const both = [...curIds].filter((id) => prevIds.has(id))
+          const onlyPrev = [...prevIds].filter((id) => !curIds.has(id))
+
+          // Distingue nuovi vs riattivati in base alla data di registrazione
+          const regDates = new Map<string, string>()
+          if (onlyCur.length > 0) {
+            const { data: pdata } = await supabase.from('players').select('id, registration_date').in('id', onlyCur)
+            for (const p of (pdata || []) as any[]) {
+              if (p.registration_date) regDates.set(String(p.id), String(p.registration_date).slice(0, 10))
+            }
+          }
+
+          let nuovi = 0, nuoviRake = 0
+          let riattivati = 0, riattivatiRake = 0
+          const prevStart = prevRange.start
+          for (const id of onlyCur) {
+            const reg = regDates.get(id)
+            const rake = cur.get(id) || 0
+            if (reg && reg < prevStart) { riattivati++; riattivatiRake += rake }
+            else { nuovi++; nuoviRake += rake }
+          }
+
+          let continuativi = 0, contDelta = 0
+          for (const id of both) {
+            continuativi++
+            contDelta += (cur.get(id) || 0) - (prev.get(id) || 0)
+          }
+
+          let persi = 0, persiRake = 0
+          for (const id of onlyPrev) {
+            persi++
+            persiRake += prev.get(id) || 0
+          }
+
+          setRakeContribution([
+            { segmento: 'Nuovi', giocatori: nuovi, delta: nuoviRake },
+            { segmento: 'Riattivati', giocatori: riattivati, delta: riattivatiRake },
+            { segmento: 'Continuativi', giocatori: continuativi, delta: contDelta },
+            { segmento: 'Persi', giocatori: persi, delta: -persiRake },
+          ])
+        })().catch(() => setRakeContribution([]))
 
         setLoading(false)
       })
@@ -1020,7 +1067,7 @@ export default function Dashboard() {
         <div className="flex items-center gap-2 mb-4">
           <BarChart3 size={16} className="text-accent-purple" />
           <h2 className="text-[20px] font-semibold text-text-primary">Approfondimenti</h2>
-          <InfoTooltip content="Mix Categorie: dove si genera il rake (fonte: riepilogo per tipologia). Rake per Provider: quali provider di gioco pesano di più (fonte: giocato per giocatore/gioco). Nuovi vs Ritornanti: quanti giocatori nuovi entrano ogni giorno rispetto a chi ritorna (fonte: giocato per giocatore)." />
+          <InfoTooltip content="Mix Categorie: dove si genera il rake. Rake per Provider: quali provider di gioco pesano di più. Contributo al Rake: quanto hanno inciso nuovi, riattivati, continuativi e persi sulla variazione del rake rispetto al mese precedente." />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           {/* Mix Categorie */}
@@ -1096,35 +1143,36 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Nuovi vs Ritornanti */}
+          {/* Contributo al Rake (vs mese precedente) */}
           <div>
-            <h3 className="text-[13px] font-semibold text-text-primary mb-2">Nuovi vs Ritornanti</h3>
+            <h3 className="text-[13px] font-semibold text-text-primary mb-2">Contributo al Rake</h3>
             <div className="h-[220px]">
-              {cohortData.length > 0 ? (
+              {rakeContribution.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={cohortData} barSize={8}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                    <XAxis dataKey="day" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} interval={4} />
-                    <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} />
+                  <BarChart data={rakeContribution} layout="vertical" barSize={18} margin={{ left: 10, right: 24 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                    <XAxis type="number" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+                    <YAxis dataKey="segmento" type="category" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} width={88} />
                     <Tooltip
-                      content={({ active, payload, label }: { active?: boolean; payload?: Array<{ name?: string; value?: number }>; label?: string }) => {
+                      content={({ active, payload }: { active?: boolean; payload?: Array<{ payload?: { segmento?: string; giocatori?: number; delta?: number } }> }) => {
                         if (!active || !payload?.length) return null
+                        const p = payload[0].payload
+                        const d = p?.delta || 0
                         return (
                           <div className="bg-bg-surface-elevated border border-border-subtle rounded-lg p-2 shadow-lg text-[11px]">
-                            <p className="text-text-primary font-medium">Giorno {label}</p>
-                            {payload.map((p) => (
-                              <p key={p.name} className="text-text-muted">
-                                {p.name === 'nuovi' ? 'Nuovi' : 'Ritornanti'}: {p.value}
-                              </p>
-                            ))}
-                            <p className="text-[10px] text-text-muted mt-1 border-t border-border-subtle pt-1">Nuovi = primo giorno di gioco nel mese · Ritornanti = già attivi nei giorni precedenti</p>
+                            <p className="text-text-primary font-medium">{p?.segmento}</p>
+                            <p className="text-text-muted">{p?.giocatori} giocatori</p>
+                            <p className={d >= 0 ? 'text-positive' : 'text-negative'}>{d >= 0 ? '+' : ''}{formatCurrency(d)} vs mese prec.</p>
+                            <p className="text-[10px] text-text-muted mt-1 border-t border-border-subtle pt-1">Contributo alla variazione del rake rispetto al mese precedente</p>
                           </div>
                         )
                       }}
                     />
-                    <Bar dataKey="ritornanti" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} name="Ritornanti" />
-                    <Bar dataKey="nuovi" stackId="a" fill="#10b981" radius={[4, 4, 0, 0]} name="Nuovi" />
-                    <Legend wrapperStyle={{ fontSize: 10 }} formatter={(value: string) => <span style={{ color: '#94a3b8' }}>{value === 'ritornanti' ? 'Ritornanti' : 'Nuovi'}</span>} />
+                    <Bar dataKey="delta" radius={[0, 4, 4, 0]}>
+                      {rakeContribution.map((s, idx) => (
+                        <Cell key={idx} fill={s.delta >= 0 ? '#10b981' : '#ef4444'} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
