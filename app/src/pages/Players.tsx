@@ -421,11 +421,14 @@ export default function PlayersPage() {
         const q = globalFilter.toLowerCase()
         const pvrName = pvrs.get(player.pvr_id ?? '') || ''
         const agentName = agents.get(player.agent_id ?? 0) || ''
+        const pvrNameFull = getPvrName(player.pvr_id) || ''
         if (
           !player.username.toLowerCase().includes(q) &&
           !(player.first_name || '').toLowerCase().includes(q) &&
           !(player.last_name || '').toLowerCase().includes(q) &&
+          !(player.pvr_ref_code || '').toLowerCase().includes(q) &&
           !pvrName.toLowerCase().includes(q) &&
+          !pvrNameFull.toLowerCase().includes(q) &&
           !agentName.toLowerCase().includes(q)
         )
           return false

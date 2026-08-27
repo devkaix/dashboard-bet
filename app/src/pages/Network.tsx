@@ -405,8 +405,7 @@ function TreeRow({
   const isLeaf = !hasChildren
 
   // Check if matches search
-  const name = getNodeName(node).toLowerCase()
-  const matchesSearch = searchQuery === '' || name.includes(searchQuery.toLowerCase())
+  const matchesSearch = searchQuery === '' || nodeMatchesQuery(node, searchQuery.toLowerCase())
   const isDimmed = searchQuery !== '' && !matchesSearch
 
   const handleRowClick = () => {
@@ -579,6 +578,29 @@ function getNodeName(node: TreeNode): string {
   if ('name' in d) return String(d.name)
   if ('username' in d) return String(d.username)
   return String(d.id || '')
+}
+
+/** Cerca per nome, username E codice (MW...) */
+function nodeMatchesQuery(node: TreeNode, q: string): boolean {
+  const d = node.data as unknown as Record<string, unknown>
+  if (String(d.name || '').toLowerCase().includes(q)) return true
+  if (String(d.username || '').toLowerCase().includes(q)) return true
+  if (String(d.code || '').toLowerCase().includes(q)) return true
+  return false
+}
+
+/** Filtra l'albero tenendo solo i rami che contengono corrispondenze */
+function filterTreeBySearch(nodes: TreeNode[], q: string): TreeNode[] {
+  if (!q) return nodes
+  return nodes
+    .map((n) => {
+      const children = filterTreeBySearch(n.children, q)
+      if (nodeMatchesQuery(n, q) || children.length > 0) {
+        return { ...n, children }
+      }
+      return null
+    })
+    .filter((n): n is TreeNode => n !== null)
 }
 
 function getNodeIcon(node: TreeNode, depth: number) {
@@ -770,6 +792,13 @@ export default function NetworkPage() {
     setExpanded(new Set())
   }, [])
 
+  // Auto-expand tutto durante la ricerca, così i risultati sono visibili
+  useEffect(() => {
+    if (searchQuery) {
+      expandAll()
+    }
+  }, [searchQuery, expandAll])
+
   const handleSelect = useCallback((node: TreeNode, breadcrumb: string[]) => {
     setSelected({ node, breadcrumb })
   }, [])
@@ -784,11 +813,17 @@ export default function NetworkPage() {
     return { regions, ams, pvrs, agents, players }
   }, [tree])
 
-  // Filter tree by region
+  // Filter tree by region and search
   const filteredTree = useMemo(() => {
-    if (regionFilter === 'all') return tree
-    return tree.filter((r) => getNodeName(r).toLowerCase() === regionFilter.toLowerCase())
-  }, [tree, regionFilter])
+    let base = tree
+    if (regionFilter !== 'all') {
+      base = tree.filter((r) => getNodeName(r).toLowerCase() === regionFilter.toLowerCase())
+    }
+    if (searchQuery) {
+      base = filterTreeBySearch(base, searchQuery.toLowerCase())
+    }
+    return base
+  }, [tree, regionFilter, searchQuery])
 
   // Unique region names for filter
   const regionNames = useMemo(() => tree.map((r) => getNodeName(r)), [tree])
