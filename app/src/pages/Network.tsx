@@ -164,7 +164,7 @@ function FidoBar({ used, total }: { used: number; total: number }) {
   const pct = Math.min(Math.max((used / total) * 100, 0), 100)
   const color = pct >= 95 ? 'bg-negative' : pct >= 85 ? 'bg-warning' : 'bg-positive'
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2" title={`Fido: ${pct.toFixed(0)}% utilizzato (${formatCurrency(used)} su ${formatCurrency(total)})`}>
       <div className="w-20 h-1.5 bg-bg-surface-highlight rounded-full overflow-hidden">
         <motion.div
           className={cn('h-full rounded-full', color)}

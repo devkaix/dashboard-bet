@@ -313,18 +313,18 @@ function PlayerSheet({
             className="grid grid-cols-3 gap-3"
           >
             {[
-              { label: 'Rake Totale', value: formatCurrency(player.total_rake) },
-              { label: 'Bet Totale', value: formatCurrency(player.total_bet) },
-              { label: 'Won', value: formatCurrency(player.total_won) },
-              { label: 'Giorni Attivi', value: String(player.active_days) },
-              { label: 'Payout Medio', value: formatPercent(player.avg_payout) },
-              { label: 'Buy In', value: formatCurrency(player.total_buy_in) },
+              { label: 'Rake Totale', value: formatCurrency(player.total_rake), help: 'Ricavo generato dal giocatore nel mese. Fonte: daily_player_stats (somma Rake).' },
+              { label: 'Bet Totale', value: formatCurrency(player.total_bet), help: 'Totale scommesso dal giocatore nel mese. Fonte: daily_player_stats (somma Bet).' },
+              { label: 'Won', value: formatCurrency(player.total_won), help: 'Totale vinto dal giocatore nel mese. Fonte: daily_player_stats (somma Won).' },
+              { label: 'Giorni Attivi', value: String(player.active_days), help: 'Giorni del mese con almeno una giocata. Fonte: daily_player_stats.' },
+              { label: 'Payout Medio', value: formatPercent(player.avg_payout), help: 'Won/Bet×100: percentuale restituita al giocatore. >100% il giocatore vince più di quanto gioca.' },
+              { label: 'Buy In', value: formatCurrency(player.total_buy_in), help: 'Somma dei buy-in (ricariche/entrate al tavolo). Fonte: daily_player_stats.' },
             ].map((kpi) => (
               <div
                 key={kpi.label}
                 className="bg-bg-surface-elevated rounded-lg p-3 border border-border-subtle"
               >
-                <p className="text-[11px] text-text-muted mb-1">{kpi.label}</p>
+                <p className="text-[11px] text-text-muted mb-1 flex items-center gap-1">{kpi.label} <InfoTooltip content={kpi.help} /></p>
                 <p className="text-[14px] font-mono font-semibold text-text-primary">{kpi.value}</p>
               </div>
             ))}

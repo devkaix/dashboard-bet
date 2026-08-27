@@ -68,6 +68,9 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
           </span>
         </div>
       ))}
+      <p className="text-[10px] text-text-muted mt-1 border-t border-border-subtle pt-1">
+        Rake = ricavo della casa nel giorno · Bet = totale scommesso nel giorno
+      </p>
     </div>
   )
 }
@@ -959,6 +962,7 @@ export default function Dashboard() {
                             {p?.cumulative !== undefined && (
                               <p className="text-text-muted">Cumulativo: {p.cumulative.toFixed(1)}%</p>
                             )}
+                            <p className="text-[10px] text-text-muted mt-1 border-t border-border-subtle pt-1">Rake = ricavo del giocatore nel mese · Cumulativo = quota % sul rake totale</p>
                           </div>
                         )
                       }}
@@ -992,6 +996,7 @@ export default function Dashboard() {
                           <div className="bg-bg-surface-elevated border border-border-subtle rounded-lg p-2 shadow-lg text-[11px]">
                             <p className="text-text-primary font-medium">{payload[0].name}</p>
                             <p className="text-text-muted">Rake: {formatCurrency(payload[0].value || 0)}</p>
+                            <p className="text-[10px] text-text-muted mt-1 border-t border-border-subtle pt-1">Rake = ricavo del PVR nel mese</p>
                           </div>
                         )
                       }}
@@ -1045,6 +1050,7 @@ export default function Dashboard() {
                           <div className="bg-bg-surface-elevated border border-border-subtle rounded-lg p-2 shadow-lg text-[11px]">
                             <p className="text-text-primary font-medium">{payload[0].name}</p>
                             <p className="text-text-muted">Rake: {formatCurrency(payload[0].value || 0)}</p>
+                            <p className="text-[10px] text-text-muted mt-1 border-t border-border-subtle pt-1">Rake = ricavo generato dalla categoria di gioco nel mese</p>
                           </div>
                         )
                       }}
@@ -1076,6 +1082,7 @@ export default function Dashboard() {
                           <div className="bg-bg-surface-elevated border border-border-subtle rounded-lg p-2 shadow-lg text-[11px]">
                             <p className="text-text-primary font-medium">{p?.name}</p>
                             <p className="text-text-muted">Rake: {formatCurrency(p?.rake || 0)}</p>
+                            <p className="text-[10px] text-text-muted mt-1 border-t border-border-subtle pt-1">Rake = ricavo generato dal provider di gioco nel mese</p>
                           </div>
                         )
                       }}
@@ -1110,6 +1117,7 @@ export default function Dashboard() {
                                 {p.name === 'nuovi' ? 'Nuovi' : 'Ritornanti'}: {p.value}
                               </p>
                             ))}
+                            <p className="text-[10px] text-text-muted mt-1 border-t border-border-subtle pt-1">Nuovi = primo giorno di gioco nel mese · Ritornanti = già attivi nei giorni precedenti</p>
                           </div>
                         )
                       }}
