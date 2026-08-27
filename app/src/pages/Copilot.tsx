@@ -685,10 +685,10 @@ function WelcomeMessage() {
             }}
           >
             <p className="text-[15px] leading-relaxed text-text-primary font-medium">
-              Ciao! Cerca tra i dati della rete usando parole chiave.
+              Ciao! Analisi veloce dei dati della rete.
             </p>
             <p className="text-[13px] leading-relaxed text-text-secondary mt-2">
-              Questa è una ricerca per parole chiave sui dati caricati. Digita termini come &quot;rake&quot;, &quot;players&quot;, &quot;PVR&quot;, &quot;alert&quot; per ottenere risultati rapidi.
+              Digita termini come &quot;rake&quot;, &quot;players&quot;, &quot;PVR&quot;, &quot;alert&quot; per ottenere analisi e consigli strategici rapidi.
             </p>
           </div>
           <span className="text-[11px] text-text-muted mt-1 ml-2">{format(Date.now(), 'HH:mm', { locale: it })}</span>
@@ -950,10 +950,10 @@ export default function CopilotPage() {
       >
         <div className="flex items-center gap-3">
           <h2 className="text-[28px] font-bold leading-tight tracking-[-0.01em]">
-            <span className="text-text-primary">Ricerca </span>
-            <span className="text-accent-purple">Dati</span>
+            <span className="text-text-primary">Analisi Veloce </span>
+            <span className="text-accent-purple">e Consigli Strategici</span>
           </h2>
-          <span className="text-[15px] text-text-secondary hidden sm:inline">Cerca tra i dati della rete</span>
+          <span className="text-[15px] text-text-secondary hidden sm:inline">Analisi rapida dei dati della rete</span>
         </div>
         {messages.length > 0 && (
           <motion.button

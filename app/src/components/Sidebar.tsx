@@ -24,7 +24,7 @@ const navItems = [
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/compare', icon: ArrowLeftRight, label: 'Confronto Mensile' },
   { to: '/upload', icon: Upload, label: 'Importa Dati' },
-  { to: '/copilot', icon: Search, label: 'Ricerca Dati' },
+  { to: '/copilot', icon: Search, label: 'Analisi Veloce' },
   { to: '/settings', icon: Settings, label: 'Impostazioni' },
 ]
 

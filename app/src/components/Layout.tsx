@@ -11,7 +11,7 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
   '/analytics': { title: 'Analytics', subtitle: 'Analisi trend e confronti periodo' },
   '/compare': { title: 'Confronto Mensile', subtitle: 'Analisi comparativa tra due periodi' },
   '/upload': { title: 'Importa Dati', subtitle: 'Caricamento Excel e validazioni' },
-  '/copilot': { title: 'Ricerca Dati', subtitle: 'Cerca tra i dati della rete' },
+  '/copilot': { title: 'Analisi Veloce e Consigli Strategici', subtitle: 'Analisi rapida dei dati della rete' },
   '/settings': { title: 'Impostazioni', subtitle: 'Soglie alert e riepilogo dati' },
 }
 
