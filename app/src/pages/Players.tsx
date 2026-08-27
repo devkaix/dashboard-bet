@@ -399,6 +399,13 @@ export default function PlayersPage() {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Legge il parametro ?search= (dalla barra di ricerca dell'header)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const q = params.get('search')
+    if (q) setGlobalFilter(q)
+  }, [])
+
   // Stats
   const stats = useMemo(() => {
     if (!data.length) return { total: 0, active: 0, inactive: 0, avgRake: 0, topPlayer: '' }

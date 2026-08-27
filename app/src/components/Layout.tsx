@@ -3,11 +3,13 @@ import Sidebar from './Sidebar'
 import TopBar from './TopBar'
 
 const pageMeta: Record<string, { title: string; subtitle: string }> = {
-  '/': { title: 'Executive Briefing', subtitle: 'Le cose più importanti da sapere oggi' },
+  '/': { title: 'Dashboard', subtitle: 'Panoramica rete' },
   '/dashboard': { title: 'Dashboard', subtitle: 'Panoramica rete' },
+  '/executive-briefing': { title: 'Executive Briefing', subtitle: 'Le cose più importanti da sapere oggi' },
   '/network': { title: 'Rete', subtitle: 'Gerarchia agenti → PVR → giocatori' },
   '/players': { title: 'Giocatori', subtitle: 'Elenco completo giocatori attivi' },
   '/analytics': { title: 'Analytics', subtitle: 'Analisi trend e confronti periodo' },
+  '/compare': { title: 'Confronto Mensile', subtitle: 'Analisi comparativa tra due periodi' },
   '/upload': { title: 'Importa Dati', subtitle: 'Caricamento Excel e validazioni' },
   '/copilot': { title: 'Ricerca Dati', subtitle: 'Cerca tra i dati della rete' },
   '/settings': { title: 'Impostazioni', subtitle: 'Soglie alert e riepilogo dati' },

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import { Search, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { dataStore } from '@/lib/data'
@@ -17,7 +18,16 @@ function formatPeriodLabel(meta: { period_end?: string; period_start?: string })
 
 export default function TopBar({ title, subtitle }: TopBarProps) {
   const [searchFocused, setSearchFocused] = useState(false)
+  const [searchValue, setSearchValue] = useState('')
+  const navigate = useNavigate()
   const [periodLabel, setPeriodLabel] = useState(() => formatPeriodLabel(dataStore.metadata))
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault()
+    const q = searchValue.trim()
+    if (!q) return
+    navigate(`/players?search=${encodeURIComponent(q)}`)
+  }
 
   // Poll dataStore until period becomes available, then stop
   useEffect(() => {
@@ -57,8 +67,9 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
         )}
       </div>
 
-      {/* Center: search */}
-      <div
+      {/* Center: search — cerca e porta alla pagina Giocatori */}
+      <form
+        onSubmit={handleSearch}
         className={cn(
           'flex items-center gap-2 rounded-full bg-bg-surface-elevated px-4 h-10 transition-all duration-150',
           searchFocused ? 'w-[500px] border border-border-focus' : 'w-[400px] border border-transparent',
@@ -67,12 +78,14 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
         <Search size={18} className="text-text-muted flex-shrink-0" />
         <input
           type="text"
+          value={searchValue}
+          onChange={(e) => setSearchValue(e.target.value)}
           placeholder="Cerca giocatori, PVR, agenti..."
           className="bg-transparent border-none outline-none text-[14px] text-text-primary placeholder:text-text-muted w-full"
           onFocus={() => setSearchFocused(true)}
           onBlur={() => setSearchFocused(false)}
         />
-      </div>
+      </form>
 
       {/* Right: period + avatar */}
       <div className="flex items-center gap-4">
