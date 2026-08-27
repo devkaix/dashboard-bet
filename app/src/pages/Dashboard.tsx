@@ -498,17 +498,17 @@ export default function Dashboard() {
         )}
         <div className="grid grid-cols-5 gap-4">
         <KpiCard
-          icon={Wallet}
-          iconColor="text-positive"
-          label={`Rake Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
-          value={formatCurrency(categoryValues.rake)}
-          delta={categoryFilter === 'all' ? deltas.rake : '—'}
-          deltaPositive={categoryFilter === 'all' ? deltas.rakePositive : true}
-          sparklineData={categoryFilter === 'all' ? sparkData.rakeData : []}
-          sparklineColor="#10b981"
-          sparklineFillColor="#10b981"
-          bottomNote={categoryFilter === 'all' ? comparisonLabel : ''}
-          helpText="Rake totale del mese. Fonte: colonna Rake del file Excel «giocato totale della rete» (tabella daily_network_stats), sommata su tutti i giorni del mese. Non è Bet−Won+Bonus: è la formula proprietaria di Exalogic che include buy-in, stack, bonus, jackpot, overlay e refund. Positivo = la casa guadagna, negativo = i giocatori vincono più di quanto giocano."
+          icon={Coins}
+          iconColor="text-warning"
+          label={`Won Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
+          value={formatCurrency(categoryValues.won)}
+          delta={categoryFilter === 'all' ? deltas.won : '—'}
+          deltaPositive={categoryFilter === 'all' ? deltas.wonPositive : true}
+          sparklineData={categoryFilter === 'all' ? sparkData.wonData : []}
+          sparklineColor="#f59e0b"
+          sparklineFillColor="#f59e0b"
+          bottomNote={categoryFilter === 'all' ? `Payout medio: ${formatPercent(avgPayout)}` : ''}
+          helpText="Importo totale vinto dai giocatori nel mese. Fonte: colonna Won del file «giocato totale della rete» (daily_network_stats). Il payout (Won/Bet×100) indica la percentuale restituita ai giocatori."
           index={0}
         />
         <KpiCard
@@ -526,17 +526,17 @@ export default function Dashboard() {
           index={1}
         />
         <KpiCard
-          icon={Coins}
-          iconColor="text-warning"
-          label={`Won Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
-          value={formatCurrency(categoryValues.won)}
-          delta={categoryFilter === 'all' ? deltas.won : '—'}
-          deltaPositive={categoryFilter === 'all' ? deltas.wonPositive : true}
-          sparklineData={categoryFilter === 'all' ? sparkData.wonData : []}
-          sparklineColor="#f59e0b"
-          sparklineFillColor="#f59e0b"
-          bottomNote={categoryFilter === 'all' ? `Payout medio: ${formatPercent(avgPayout)}` : ''}
-          helpText="Importo totale vinto dai giocatori nel mese. Fonte: colonna Won del file «giocato totale della rete» (daily_network_stats). Il payout (Won/Bet×100) indica la percentuale restituita ai giocatori."
+          icon={Wallet}
+          iconColor="text-positive"
+          label={`Rake Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
+          value={formatCurrency(categoryValues.rake)}
+          delta={categoryFilter === 'all' ? deltas.rake : '—'}
+          deltaPositive={categoryFilter === 'all' ? deltas.rakePositive : true}
+          sparklineData={categoryFilter === 'all' ? sparkData.rakeData : []}
+          sparklineColor="#10b981"
+          sparklineFillColor="#10b981"
+          bottomNote={categoryFilter === 'all' ? comparisonLabel : ''}
+          helpText="Rake totale del mese. Fonte: colonna Rake del file Excel «giocato totale della rete» (tabella daily_network_stats), sommata su tutti i giorni del mese. Non è Bet−Won+Bonus: è la formula proprietaria di Exalogic che include buy-in, stack, bonus, jackpot, overlay e refund. Positivo = la casa guadagna, negativo = i giocatori vincono più di quanto giocano."
           index={2}
         />
         <KpiCard
