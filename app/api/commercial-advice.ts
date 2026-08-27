@@ -54,7 +54,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     return
   }
 
-  let body: { facts?: string; pointers?: string; month?: string } = {}
+  let body: { facts?: string; pointers?: string; month?: string; question?: string } = {}
   try {
     body = JSON.parse(await readBody(req))
   } catch {
@@ -67,6 +67,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const facts = body.facts || 'Nessun dato fornito.'
   const pointers = body.pointers || DEFAULT_POINTERS
   const month = body.month || 'periodo corrente'
+  const question = body.question?.trim()
 
   const systemPrompt = `Sei un consulente commerciale senior per DAZN Bet, una rete di agenzie di scommesse fisiche (PVR). Sei molto operativo e concreto: il direttore commerciale deve poter eseguire i tuoi consigli subito.
 
@@ -76,17 +77,21 @@ ${pointers}
 Ecco i dati REALI del mese (${month}):
 ${facts}
 
-Genera al massimo 5 suggerimenti commerciali in italiano, ordinati per priorità. Per ciascuno usa ESATTAMENTE questo formato Markdown:
+Regole:
+- Cita solo PVR e giocatori presenti nei dati forniti (mai inventare).
+- Ogni azione deve essere eseguibile dal commerciale (bonus, contatto, limitazione, formazione, promozione).
+- Se un dato non c'è, non inventarlo.
+- Rispondi in italiano, concreto e operativo.`
+
+  const userMessage = question
+    ? question
+    : `Genera al massimo 5 suggerimenti commerciali, ordinati per priorità. Per ciascuno usa ESATTAMENTE questo formato Markdown:
 ### [TITOLO]
 - **Problema:** [cosa dicono i dati]
 - **Azione consigliata:** [cosa fare, concreto]
 - **Priorità:** Alta | Media | Bassa
 
-Regole:
-- Cita solo PVR e giocatori presenti nei dati forniti (mai inventare).
-- Ogni azione deve essere eseguibile dal commerciale (bonus, contatto, limitazione, formazione, promozione).
-- Se un dato non c'è, non inventarlo.
-- Massimo 5 suggerimenti, qualità sopra quantità.`
+Qualità sopra quantità.`
 
   try {
     const openaiResp = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -99,7 +104,7 @@ Regole:
         model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: 'Genera i suggerimenti commerciali per questo mese.' },
+          { role: 'user', content: userMessage },
         ],
         temperature: 0.6,
       }),

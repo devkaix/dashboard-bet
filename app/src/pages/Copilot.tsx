@@ -646,35 +646,114 @@ const PRIORITY_STYLE: Record<string, string> = {
   Bassa: 'bg-info/15 text-info border-info/30',
 }
 
+interface AdviceMessage {
+  id: string
+  role: 'user' | 'ai'
+  content: string
+  timestamp: number
+}
+
+function AdviceBubble({ message }: { message: AdviceMessage }) {
+  const isUser = message.role === 'user'
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[75%] rounded-2xl rounded-br-md bg-accent-purple text-white px-4 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap">
+          {message.content}
+        </div>
+      </div>
+    )
+  }
+  const blocks = parseAdviceBlocks(message.content)
+  return (
+    <div className="flex justify-start">
+      <div className="max-w-[88%] rounded-2xl rounded-bl-md border border-border-subtle bg-bg-surface-elevated px-4 py-3">
+        {blocks.length > 0 ? (
+          <div className="space-y-3">
+            {blocks.map((b, i) => (
+              <div key={i} className="rounded-xl border border-border-subtle bg-bg-surface p-3">
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <span className="text-[13px] font-semibold text-text-primary">{b.title}</span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${PRIORITY_STYLE[b.priorita] || PRIORITY_STYLE.Media}`}>
+                    {b.priorita}
+                  </span>
+                </div>
+                {b.problema && (
+                  <p className="text-[12px] text-text-secondary"><span className="text-text-muted font-medium">Problema:</span> {b.problema}</p>
+                )}
+                {b.azione && (
+                  <p className="text-[12px] text-text-primary mt-1"><span className="text-accent-blue font-medium">Azione consigliata:</span> {b.azione}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-text-primary">{message.content}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function CommercialAdvicePanel({ month }: { month: string }) {
+  const [messages, setMessages] = useState<AdviceMessage[]>([])
+  const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [text, setText] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [pointers, setPointers] = useState('')
+  const scrollRef = useRef<HTMLDivElement>(null)
 
-  const generate = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    setText('')
-    try {
-      const { gatherCommercialFacts } = await import('@/lib/quickAnalysis')
-      const facts = await gatherCommercialFacts(month)
-      const resp = await fetch('/api/commercial-advice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ facts, pointers: pointers.trim() || undefined, month }),
-      })
-      const data = (await resp.json()) as { suggestions?: string; error?: string }
-      if (!resp.ok || data.error) throw new Error(data.error || `Errore ${resp.status}`)
-      setText(data.suggestions || 'Nessun suggerimento generato.')
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Errore nella generazione dei suggerimenti')
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
-  }, [month, pointers])
+  }, [messages, loading])
 
-  const blocks = parseAdviceBlocks(text)
+  const ask = useCallback(
+    async (question: string) => {
+      const trimmed = question.trim()
+      if (!trimmed || loading) return
+      const userMsg: AdviceMessage = {
+        id: `adv-u-${Date.now()}`,
+        role: 'user',
+        content: trimmed,
+        timestamp: Date.now(),
+      }
+      setMessages((prev) => [...prev, userMsg])
+      setInput('')
+      setLoading(true)
+      setError(null)
+      try {
+        const { gatherCommercialFacts } = await import('@/lib/quickAnalysis')
+        const facts = await gatherCommercialFacts(month)
+        const resp = await fetch('/api/commercial-advice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ facts, question: trimmed, month }),
+        })
+        const data = (await resp.json()) as { suggestions?: string; error?: string }
+        if (!resp.ok || data.error) throw new Error(data.error || `Errore ${resp.status}`)
+        const aiMsg: AdviceMessage = {
+          id: `adv-a-${Date.now()}`,
+          role: 'ai',
+          content: data.suggestions || 'Nessuna risposta.',
+          timestamp: Date.now(),
+        }
+        setMessages((prev) => [...prev, aiMsg])
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Errore nella generazione della risposta')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [month, loading],
+  )
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      ask(input)
+    }
+  }
 
   return (
     <motion.div
@@ -689,62 +768,57 @@ function CommercialAdvicePanel({ month }: { month: string }) {
             <Lightbulb size={16} className="text-warning" />
             <span className="text-[14px] font-semibold text-text-primary">Suggerimenti Commerciali — {format(new Date(month + '-01'), 'MMMM yyyy', { locale: it })}</span>
           </div>
-          <button
-            onClick={generate}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-purple text-white text-[13px] font-medium hover:brightness-110 transition-all disabled:opacity-50"
-          >
-            <Sparkles size={14} />
-            {loading ? 'Analisi in corso...' : text ? 'Rigenera' : 'Genera suggerimenti'}
-          </button>
+          {messages.length > 0 && (
+            <button
+              onClick={() => setMessages([])}
+              disabled={loading}
+              className="text-[12px] text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
+            >
+              Svuota conversazione
+            </button>
+          )}
         </div>
 
-        {/* Accorgimenti personalizzati */}
-        <div>
-          <textarea
-            value={pointers}
-            onChange={(e) => setPointers(e.target.value)}
-            placeholder="Aggiungi i tuoi accorgimenti commerciali (opzionale). Es: 'Per i giocatori persi offrire sempre un bonus di rientro del 20%'..."
-            rows={2}
-            className="w-full bg-bg-surface-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted outline-none focus:border-border-focus resize-none"
-          />
+        {/* Conversazione (scroll interno, non taglia mai la pagina) */}
+        <div ref={scrollRef} className="max-h-[42vh] overflow-y-auto space-y-3 pr-1">
+          {messages.length === 0 ? (
+            <p className="text-[13px] text-text-secondary leading-relaxed">
+              Fai una domanda aperta sui dati del mese e ti rispondo usando i dati reali e le linee guida commerciali.
+              Es: <span className="text-text-primary">"Quali PVR vanno contattati e perché?"</span>,{' '}
+              <span className="text-text-primary">"Come recuperare i giocatori persi?"</span>.
+            </p>
+          ) : (
+            messages.map((m) => <AdviceBubble key={m.id} message={m} />)
+          )}
+          {loading && (
+            <div className="flex items-center gap-2 text-[13px] text-text-secondary">
+              <div className="w-2 h-2 rounded-full bg-accent-purple animate-pulse" />
+              Sto analizzando i dati del mese...
+            </div>
+          )}
         </div>
 
         {error && <p className="text-[13px] text-negative">⚠ {error}</p>}
 
-        {loading && (
-          <div className="flex items-center gap-2 text-[13px] text-text-secondary">
-            <div className="w-2 h-2 rounded-full bg-accent-purple animate-pulse" />
-            Sto analizzando i dati del mese e preparando i suggerimenti...
-          </div>
-        )}
-
-        {!loading && blocks.length > 0 && (
-          <div className="space-y-3">
-            {blocks.map((b, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className="rounded-xl border border-border-subtle bg-bg-surface-elevated p-4"
-              >
-                <div className="flex items-center justify-between gap-3 mb-2">
-                  <span className="text-[14px] font-semibold text-text-primary">{b.title}</span>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${PRIORITY_STYLE[b.priorita] || PRIORITY_STYLE.Media}`}>
-                    {b.priorita}
-                  </span>
-                </div>
-                {b.problema && (
-                  <p className="text-[13px] text-text-secondary"><span className="text-text-muted font-medium">Problema:</span> {b.problema}</p>
-                )}
-                {b.azione && (
-                  <p className="text-[13px] text-text-primary mt-1"><span className="text-accent-blue font-medium">Azione consigliata:</span> {b.azione}</p>
-                )}
-              </motion.div>
-            ))}
-          </div>
-        )}
+        {/* Input domanda aperta */}
+        <div className="flex items-center gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Fai una domanda aperta sui dati del mese..."
+            disabled={loading}
+            className="flex-1 bg-bg-surface-elevated border border-border-subtle rounded-lg px-3 py-2 text-[13px] text-text-primary placeholder:text-text-muted outline-none focus:border-border-focus disabled:opacity-50"
+          />
+          <button
+            onClick={() => ask(input)}
+            disabled={loading || !input.trim()}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent-purple text-white text-[13px] font-medium hover:brightness-110 transition-all disabled:opacity-50"
+          >
+            <Sparkles size={14} />
+            Chiedi
+          </button>
+        </div>
       </div>
     </motion.div>
   )
