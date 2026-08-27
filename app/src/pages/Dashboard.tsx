@@ -29,10 +29,12 @@ import {
   Pie,
   Cell,
   Legend,
+  BarChart,
 } from 'recharts'
 import KpiCard from '@/components/KpiCard'
 import GlassCard from '@/components/GlassCard'
 import InfoTooltip from '@/components/InfoTooltip'
+import { supabase } from '@/lib/supabase'
 import {
   loadData,
   dataStore,
@@ -164,6 +166,8 @@ export default function Dashboard() {
   // Category filter
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [categoryStats, setCategoryStats] = useState<CategoryStat[]>([])
+  const [providerDist, setProviderDist] = useState<{ name: string; rake: number }[]>([])
+  const [cohortData, setCohortData] = useState<{ day: string; nuovi: number; ritornanti: number }[]>([])
 
   useEffect(() => {
     // Fetch available months and determine selected month
@@ -265,6 +269,44 @@ export default function Dashboard() {
 
         // Load category stats
         fetchCategoryStats(month).then(setCategoryStats).catch(() => setCategoryStats([]))
+
+        // Load provider distribution (rake per provider)
+        ;(async () => {
+          const range = analysisMonthToRange(month)
+          const { data } = await supabase
+            .from('daily_player_game_stats')
+            .select('provider, rake')
+            .gte('date', range.start)
+            .lte('date', range.end)
+          const agg = new Map<string, number>()
+          for (const r of data || []) {
+            const p = String((r as Record<string, unknown>).provider)
+            agg.set(p, (agg.get(p) || 0) + (Number((r as Record<string, unknown>).rake) || 0))
+          }
+          setProviderDist(Array.from(agg.entries()).map(([name, rake]) => ({ name, rake })).sort((a, b) => b.rake - a.rake).slice(0, 8))
+        })().catch(() => setProviderDist([]))
+
+        // Load nuovi vs ritornanti per giorno
+        ;(async () => {
+          const range = analysisMonthToRange(month)
+          const { data } = await supabase
+            .from('daily_player_stats')
+            .select('player_id, date')
+            .gte('date', range.start)
+            .lte('date', range.end)
+            .order('date', { ascending: true })
+          const seen = new Set<string>()
+          const byDay = new Map<string, { nuovi: number; ritornanti: number }>()
+          for (const r of data || []) {
+            const d = String((r as Record<string, unknown>).date).slice(8, 10)
+            const pid = String((r as Record<string, unknown>).player_id)
+            const entry = byDay.get(d) || { nuovi: 0, ritornanti: 0 }
+            if (seen.has(pid)) entry.ritornanti++
+            else { entry.nuovi++; seen.add(pid) }
+            byDay.set(d, entry)
+          }
+          setCohortData(Array.from(byDay.entries()).map(([day, v]) => ({ day, ...v })))
+        })().catch(() => setCohortData([]))
 
         setLoading(false)
       })
@@ -974,6 +1016,128 @@ export default function Dashboard() {
           </div>
         </motion.div>
       </div>
+
+      {/* Approfondimenti: Mix Categorie, Provider, Nuovi vs Ritornanti */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, delay: 1 }}
+        className="bg-bg-surface rounded-xl border border-border-subtle p-5"
+      >
+        <div className="flex items-center gap-2 mb-4">
+          <BarChart3 size={16} className="text-accent-purple" />
+          <h2 className="text-[20px] font-semibold text-text-primary">Approfondimenti</h2>
+          <InfoTooltip content="Mix Categorie: dove si genera il rake (fonte: riepilogo per tipologia). Rake per Provider: quali provider di gioco pesano di più (fonte: giocato per giocatore/gioco). Nuovi vs Ritornanti: quanti giocatori nuovi entrano ogni giorno rispetto a chi ritorna (fonte: giocato per giocatore)." />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {/* Mix Categorie */}
+          <div>
+            <h3 className="text-[13px] font-semibold text-text-primary mb-2">Mix Categorie</h3>
+            <div className="h-[220px]">
+              {categoryStats.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={categoryStats.map((c) => ({ name: c.category, value: Math.round(c.rake) }))}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={45}
+                      outerRadius={80}
+                      paddingAngle={2}
+                      dataKey="value"
+                    >
+                      {categoryStats.map((_c, idx) => (
+                        <Cell key={`cell-${idx}`} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      content={({ active, payload }: { active?: boolean; payload?: Array<{ name?: string; value?: number }> }) => {
+                        if (!active || !payload?.length) return null
+                        return (
+                          <div className="bg-bg-surface-elevated border border-border-subtle rounded-lg p-2 shadow-lg text-[11px]">
+                            <p className="text-text-primary font-medium">{payload[0].name}</p>
+                            <p className="text-text-muted">Rake: {formatCurrency(payload[0].value || 0)}</p>
+                          </div>
+                        )
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 10 }} formatter={(value: string) => <span style={{ color: '#94a3b8' }}>{value}</span>} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-xs text-text-muted">Dati non disponibili</p>
+              )}
+            </div>
+          </div>
+
+          {/* Rake per Provider */}
+          <div>
+            <h3 className="text-[13px] font-semibold text-text-primary mb-2">Rake per Provider</h3>
+            <div className="h-[220px]">
+              {providerDist.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={providerDist} layout="vertical" barSize={12}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                    <XAxis type="number" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+                    <YAxis dataKey="name" type="category" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} width={80} />
+                    <Tooltip
+                      content={({ active, payload }: { active?: boolean; payload?: Array<{ payload?: { name?: string; rake?: number } }> }) => {
+                        if (!active || !payload?.length) return null
+                        const p = payload[0].payload
+                        return (
+                          <div className="bg-bg-surface-elevated border border-border-subtle rounded-lg p-2 shadow-lg text-[11px]">
+                            <p className="text-text-primary font-medium">{p?.name}</p>
+                            <p className="text-text-muted">Rake: {formatCurrency(p?.rake || 0)}</p>
+                          </div>
+                        )
+                      }}
+                    />
+                    <Bar dataKey="rake" fill="#8b5cf6" radius={[0, 4, 4, 0]} opacity={0.8} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-xs text-text-muted">Dati non disponibili</p>
+              )}
+            </div>
+          </div>
+
+          {/* Nuovi vs Ritornanti */}
+          <div>
+            <h3 className="text-[13px] font-semibold text-text-primary mb-2">Nuovi vs Ritornanti</h3>
+            <div className="h-[220px]">
+              {cohortData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={cohortData} barSize={8}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                    <XAxis dataKey="day" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} interval={4} />
+                    <YAxis tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      content={({ active, payload, label }: { active?: boolean; payload?: Array<{ name?: string; value?: number }>; label?: string }) => {
+                        if (!active || !payload?.length) return null
+                        return (
+                          <div className="bg-bg-surface-elevated border border-border-subtle rounded-lg p-2 shadow-lg text-[11px]">
+                            <p className="text-text-primary font-medium">Giorno {label}</p>
+                            {payload.map((p) => (
+                              <p key={p.name} className="text-text-muted">
+                                {p.name === 'nuovi' ? 'Nuovi' : 'Ritornanti'}: {p.value}
+                              </p>
+                            ))}
+                          </div>
+                        )
+                      }}
+                    />
+                    <Bar dataKey="ritornanti" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} name="Ritornanti" />
+                    <Bar dataKey="nuovi" stackId="a" fill="#10b981" radius={[4, 4, 0, 0]} name="Nuovi" />
+                    <Legend wrapperStyle={{ fontSize: 10 }} formatter={(value: string) => <span style={{ color: '#94a3b8' }}>{value === 'ritornanti' ? 'Ritornanti' : 'Nuovi'}</span>} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-xs text-text-muted">Dati non disponibili</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </motion.div>
     </div>
   )
 }
