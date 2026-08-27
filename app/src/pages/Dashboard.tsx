@@ -10,7 +10,7 @@ import {
   AlertTriangle,
   TrendingUp as TrendingUpIcon,
   Lightbulb,
-  Bell,
+}
   Trophy,
   ChevronDown,
 } from 'lucide-react'
@@ -23,10 +23,13 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
+  ComposedChart,
+  Bar,
+  Line,
+  BarChart,
 } from 'recharts'
 import KpiCard from '@/components/KpiCard'
 import GlassCard from '@/components/GlassCard'
-import AlertItem from '@/components/AlertItem'
 import InfoTooltip from '@/components/InfoTooltip'
 import {
   loadData,
@@ -42,7 +45,7 @@ import {
   type CategoryStat,
 } from '@/lib/data'
 import { analysisMonthToRange, normalizeAnalysisMonth, formatAnalysisMonth } from '@/lib/analysisMonth'
-import type { BriefingItem, DailyKPI, Alert as AlertType, RankingPlayer, MonthlyAggregates, Player } from '@/lib/data'
+import type { BriefingItem, DailyKPI, RankingPlayer, MonthlyAggregates, Player } from '@/lib/data'
 import { cn } from '@/lib/utils'
 
 // ─── Custom chart tooltip ───
@@ -134,7 +137,6 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [dailyKpis, setDailyKpis] = useState<DailyKPI[]>([])
-  const [alerts, setAlerts] = useState<AlertType[]>([])
   const [briefing, setBriefing] = useState<{ criticals: BriefingItem[]; opportunities: BriefingItem[]; suggestions: BriefingItem[] }>({ criticals: [], opportunities: [], suggestions: [] })
   const [topPlayers, setTopPlayers] = useState<RankingPlayer[]>([])
   const [totalRake, setTotalRake] = useState(0)
@@ -148,7 +150,6 @@ export default function Dashboard() {
   const [periodLabel, setPeriodLabel] = useState('')
   const [chartSubtitle, setChartSubtitle] = useState('')
 
-  const [alertFilter, setAlertFilter] = useState<'all' | 'high' | 'medium'>('all')
   const [playerTab, setPlayerTab] = useState<'migliori' | 'peggiori'>('migliori')
 
   // Month selector
@@ -208,7 +209,6 @@ export default function Dashboard() {
       .then(() => {
         const dk = dataStore.daily_kpis
         setDailyKpis(dk)
-        setAlerts(dataStore.alerts)
         setBriefing(dataStore.briefing)
         setTopPlayers(dataStore.rankings.top_players_by_rake.slice(0, 10))
         setTotalRake(dataStore.monthly_aggregates.rake)
@@ -328,13 +328,6 @@ export default function Dashboard() {
     return [...dailyKpis].sort((a, b) => a.total_rake - b.total_rake)[0]
   }, [dailyKpis])
 
-  const filteredAlerts = alerts.filter((a) => {
-    if (alertFilter === 'all') return true
-    if (alertFilter === 'high') return a.severity === 'high'
-    if (alertFilter === 'medium') return a.severity === 'medium' || a.severity === 'low'
-    return true
-  })
-
   // ─── Computed deltas: current vs previous month ───
   const deltas = useMemo(() => {
     const prev = prevMonthAggs
@@ -385,6 +378,35 @@ export default function Dashboard() {
         active_days: p.active_days,
       }))
   }, [playerTab, topPlayers])
+
+  // Pareto — rake per giocatore (top 20)
+  const paretoData = useMemo(() => {
+    const sorted = [...dataStore.players].sort((a, b) => b.total_rake - a.total_rake)
+    const total = sorted.reduce((s, p) => s + p.total_rake, 0)
+    let cum = 0
+    return sorted.slice(0, 20).map((p, i) => {
+      cum += p.total_rake
+      return {
+        rank: i + 1,
+        username: p.username,
+        rake: p.total_rake,
+        cumulative: total > 0 ? (cum / total) * 100 : 0,
+      }
+    })
+  }, [dailyKpis])
+
+  // Distribuzione per PVR (da daily_pvr_stats)
+  const pvrDist = useMemo(() => {
+    const totals = dataStore.pvr_totals
+    const pvrs = dataStore.pvrs
+    return Object.entries(totals)
+      .map(([pvrId, t]) => {
+        const pvr = pvrs.find((v) => v.id === pvrId)
+        return { name: pvr?.code || pvr?.name || `PVR ${pvrId}`, rake: t.rake, bet: t.bet }
+      })
+      .sort((a, b) => b.rake - a.rake)
+      .slice(0, 8)
+  }, [dailyKpis])
 
   // Category-filtered values
   const categoryValues = useMemo(() => {
@@ -843,41 +865,74 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
-        {/* Alert Feed */}
+        {/* Pareto Charts (ex Alert Feed) */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.9 }}
-          className="bg-bg-surface rounded-xl border border-border-subtle flex flex-col h-[420px]"
+          className="bg-bg-surface rounded-xl border border-border-subtle flex flex-col"
         >
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <Bell size={16} className="text-negative" />
-              <h2 className="text-[20px] font-semibold text-text-primary">Allerte</h2>
-              <InfoTooltip content="Avvisi automatici generati dal preprocessing (anomalie rake, cali, payout). Severità alta = critico, media/bassa = avviso. Fonte: segnali di decisione su dati di rete." />
-            </div>
-            <div className="flex items-center gap-1 bg-bg-surface-elevated rounded-lg p-0.5">
-              {(['all', 'high', 'medium'] as const).map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setAlertFilter(f)}
-                  className={cn(
-                    'px-3 py-1 rounded-md text-[12px] font-medium transition-colors',
-                    alertFilter === f
-                      ? 'bg-accent-blue text-white'
-                      : 'text-text-secondary hover:text-text-primary',
-                  )}
-                >
-                  {f === 'all' ? 'Tutte' : f === 'high' ? 'Critiche' : 'Avvisi'}
-                </button>
-              ))}
-            </div>
+          <div className="flex items-center gap-2 px-5 py-4 border-b border-border-subtle flex-shrink-0">
+            <BarChart3 size={16} className="text-accent-blue" />
+            <h2 className="text-[20px] font-semibold text-text-primary">Distribuzione</h2>
+            <InfoTooltip content="Pareto: barre = rake dei primi 20 giocatori, linea = quota cumulativa sul totale. Rake per PVR: distribuzione del rake tra i PVR principali. Fonte: daily_player_stats e daily_pvr_stats." />
           </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
-            {filteredAlerts.map((alert, i) => (
-              <AlertItem key={alert.id} alert={alert} index={i} />
-            ))}
+          <div className="p-4 space-y-4 flex-1 min-h-0">
+            <div>
+              <h3 className="text-[13px] font-semibold text-text-primary mb-2">Pareto — Rake per Giocatore</h3>
+              <div className="h-[150px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={paretoData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                    <XAxis dataKey="rank" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `#${v}`} />
+                    <YAxis yAxisId="left" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+                    <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}%`} />
+                    <Tooltip
+                      content={({ active, payload }: { active?: boolean; payload?: Array<{ payload?: { username?: string; rake?: number; cumulative?: number } }> }) => {
+                        if (!active || !payload?.length) return null
+                        const p = payload[0].payload
+                        return (
+                          <div className="bg-bg-surface-elevated border border-border-subtle rounded-lg p-2 shadow-lg text-[11px]">
+                            <p className="text-text-primary font-medium">{p?.username}</p>
+                            <p className="text-text-muted">Rake: {formatCurrency(p?.rake || 0)}</p>
+                            {p?.cumulative !== undefined && (
+                              <p className="text-text-muted">Cumulativo: {p.cumulative.toFixed(1)}%</p>
+                            )}
+                          </div>
+                        )
+                      }}
+                    />
+                    <Bar dataKey="rake" fill="#3b82f6" radius={[4, 4, 0, 0]} opacity={0.7} name="Rake" yAxisId="left" />
+                    <Line type="monotone" dataKey="cumulative" stroke="#8b5cf6" strokeWidth={2} dot={false} name="Cumulativo %" yAxisId="right" />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div>
+              <h3 className="text-[13px] font-semibold text-text-primary mb-2">Rake per PVR</h3>
+              <div className="h-[150px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={pvrDist} layout="vertical" barSize={10}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                    <XAxis type="number" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} />
+                    <YAxis dataKey="name" type="category" tick={{ fill: '#64748b', fontSize: 9 }} axisLine={false} tickLine={false} width={70} />
+                    <Tooltip
+                      content={({ active, payload }: { active?: boolean; payload?: Array<{ payload?: { name?: string; rake?: number } }> }) => {
+                        if (!active || !payload?.length) return null
+                        const p = payload[0].payload
+                        return (
+                          <div className="bg-bg-surface-elevated border border-border-subtle rounded-lg p-2 shadow-lg text-[11px]">
+                            <p className="text-text-primary font-medium">{p?.name}</p>
+                            <p className="text-text-muted">Rake: {formatCurrency(p?.rake || 0)}</p>
+                          </div>
+                        )
+                      }}
+                    />
+                    <Bar dataKey="rake" fill="#10b981" radius={[0, 4, 4, 0]} opacity={0.7} name="Rake" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           </div>
         </motion.div>
       </div>
