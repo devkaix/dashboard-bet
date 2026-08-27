@@ -197,6 +197,23 @@ async function fetchConcentration(monthA: string, monthB: string): Promise<Conce
   }
 }
 
+async function loadPvrLabels(): Promise<Map<string, string>> {
+  const [{ data: pvrs }, { data: refs }] = await Promise.all([
+    (supabase.from('pvrs').select('id, name, exalogic_id') as any).neq('tipo', 'agent'),
+    (supabase.from('pvr_reference_map').select('pvr_id, pvr_ref_code') as any),
+  ])
+  const codeByPvrId = new Map<string, string>()
+  for (const r of (refs || []) as any[]) {
+    if (r.pvr_id && r.pvr_ref_code) codeByPvrId.set(String(r.pvr_id), String(r.pvr_ref_code))
+  }
+  const labels = new Map<string, string>()
+  for (const p of (pvrs || []) as any[]) {
+    const id = String(p.id)
+    labels.set(id, codeByPvrId.get(id) || String(p.name || p.exalogic_id || 'PVR'))
+  }
+  return labels
+}
+
 async function fetchPvrRanking(monthA: string, monthB: string): Promise<{ salite: PvrRankMove[]; discese: PvrRankMove[] }> {
   const rangeA = analysisMonthToRange(monthA)
   const rangeB = analysisMonthToRange(monthB)
@@ -211,10 +228,7 @@ async function fetchPvrRanking(monthA: string, monthB: string): Promise<{ salite
     return map
   }
 
-  // Get names separately
-  const { data: pvrsData } = await (supabase.from('pvrs').select('id, name') as any).neq('tipo', 'agent')
-  const pvrNames = new Map<string, string>()
-  for (const p of (pvrsData || []) as any[]) pvrNames.set(p.id, p.name as string)
+  const pvrNames = await loadPvrLabels()
 
   const [rankA, rankB] = await Promise.all([rank(rangeA), rank(rangeB)])
   const moves: PvrRankMove[] = []
@@ -222,7 +236,7 @@ async function fetchPvrRanking(monthA: string, monthB: string): Promise<{ salite
     const ra = rankA.get(id)
     if (ra) {
       moves.push({
-        pvrId: id, pvrName: pvrNames.get(id) || id.slice(0, 8),
+        pvrId: id, pvrName: pvrNames.get(id) || 'PVR',
         rankA: ra.rank, rankB: rb.rank, rakeA: ra.rake, rakeB: rb.rake,
       })
     }
@@ -315,16 +329,13 @@ async function fetchPvrEfficiency(month: string): Promise<PvrEfficiency[]> {
   const pvrPlayers = new Map<string, number>()
   for (const r of playerCounts || []) pvrPlayers.set(r.pvr_id as string, (pvrPlayers.get(r.pvr_id as string) || 0) + 1)
 
-  const allIds = Array.from(new Set([...pvrRake.keys(), ...pvrPlayers.keys()]))
-  const { data: pvrsData } = await supabase.from('pvrs').select('id, name').in('id', allIds.length > 0 ? allIds : ['none'])
-  const nameMap = new Map<string, string>()
-  for (const p of pvrsData || []) nameMap.set(p.id, p.name as string)
+  const nameMap = await loadPvrLabels()
 
   return Array.from(pvrRake.entries())
     .filter(([, rake]) => rake > 0)
     .map(([id, rake]) => {
       const players = pvrPlayers.get(id) || 1
-      return { pvrId: id, pvrName: nameMap.get(id) || id.slice(0, 8), players, rake, efficiency: rake / players }
+      return { pvrId: id, pvrName: nameMap.get(id) || 'PVR', players, rake, efficiency: rake / players }
     })
     .sort((a, b) => b.efficiency - a.efficiency)
     .slice(0, 10)
