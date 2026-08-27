@@ -4,6 +4,51 @@
 
 @layer base {
   :root {
+    /* Light theme — shadcn tokens */
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 222 47% 11%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 222 47% 11%;
+    --radius: 0.625rem;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 224 76% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 40% 96%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 214 32% 91%;
+    --sidebar-ring: 224 76% 48%;
+
+    /* Light theme — app tokens (RGB triplets) */
+    --app-bg-base: 248 250 252;
+    --app-bg-surface: 255 255 255;
+    --app-bg-surface-elevated: 241 245 249;
+    --app-bg-surface-highlight: 226 232 240;
+    --app-border-subtle: 226 232 240;
+    --app-border-default: 203 213 225;
+    --app-text-primary: 15 23 42;
+    --app-text-secondary: 71 85 105;
+    --app-text-muted: 100 116 139;
+    --app-text-inverse: 248 250 252;
+  }
+
+  .dark {
+    /* Dark theme — shadcn tokens */
     --background: 222 47% 9%;
     --foreground: 210 40% 96%;
     --card: 222 47% 9%;
@@ -32,6 +77,18 @@
     --sidebar-accent-foreground: 210 40% 96%;
     --sidebar-border: 217 33% 17%;
     --sidebar-ring: 217 91% 60%;
+
+    /* Dark theme — app tokens (RGB triplets) */
+    --app-bg-base: 11 17 32;
+    --app-bg-surface: 17 24 39;
+    --app-bg-surface-elevated: 26 35 50;
+    --app-bg-surface-highlight: 30 42 59;
+    --app-border-subtle: 30 41 59;
+    --app-border-default: 51 65 85;
+    --app-text-primary: 241 245 249;
+    --app-text-secondary: 148 163 184;
+    --app-text-muted: 100 116 139;
+    --app-text-inverse: 15 23 42;
   }
 
   body {
@@ -44,18 +101,18 @@
     @apply border-border-subtle;
   }
 
-  /* Dark scrollbar styling */
+  /* Scrollbar styling (theme-aware) */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
 
   ::-webkit-scrollbar-track {
-    background: #111827;
+    background: rgb(var(--app-bg-surface));
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #334155;
+    background: rgb(var(--app-border-default));
     border-radius: 3px;
   }
 

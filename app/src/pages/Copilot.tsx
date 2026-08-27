@@ -395,7 +395,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           <div
             className="relative px-4 py-3 rounded-2xl rounded-tl-sm border border-[rgba(139,92,246,0.15)]"
             style={{
-              background: 'rgba(17, 24, 39, 0.7)',
+              background: 'rgb(var(--app-bg-surface) / 0.7)',
               backdropFilter: 'blur(12px)',
             }}
           >
@@ -433,7 +433,7 @@ function WelcomeMessage() {
           <div
             className="relative px-5 py-4 rounded-2xl rounded-tl-sm border border-[rgba(139,92,246,0.15)]"
             style={{
-              background: 'rgba(17, 24, 39, 0.7)',
+              background: 'rgb(var(--app-bg-surface) / 0.7)',
               backdropFilter: 'blur(12px)',
             }}
           >

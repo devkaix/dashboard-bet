@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { Search, ChevronDown } from 'lucide-react'
+import { Search, ChevronDown, Sun, Moon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { dataStore } from '@/lib/data'
 
@@ -21,6 +21,18 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
   const [searchValue, setSearchValue] = useState('')
   const navigate = useNavigate()
   const [periodLabel, setPeriodLabel] = useState(() => formatPeriodLabel(dataStore.metadata))
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'))
+
+  const toggleTheme = () => {
+    const next = !isDark
+    setIsDark(next)
+    document.documentElement.classList.toggle('dark', next)
+    try {
+      localStorage.setItem('theme', next ? 'dark' : 'light')
+    } catch {
+      /* ignore */
+    }
+  }
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -87,8 +99,17 @@ export default function TopBar({ title, subtitle }: TopBarProps) {
         />
       </form>
 
-      {/* Right: period + avatar */}
+      {/* Right: theme + period + avatar */}
       <div className="flex items-center gap-4">
+        <button
+          onClick={toggleTheme}
+          aria-label={isDark ? 'Passa al tema chiaro' : 'Passa al tema scuro'}
+          title={isDark ? 'Tema chiaro' : 'Tema scuro'}
+          className="w-9 h-9 rounded-lg bg-bg-surface-elevated text-text-primary hover:bg-bg-surface-highlight transition-colors flex items-center justify-center"
+        >
+          {isDark ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+
         <button className="flex items-center gap-2 h-9 px-3 rounded-lg bg-bg-surface-elevated text-[14px] text-text-primary hover:bg-bg-surface-highlight transition-colors">
           <span>{periodLabel}</span>
           <ChevronDown size={14} className="text-text-muted" />

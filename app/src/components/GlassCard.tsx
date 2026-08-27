@@ -17,7 +17,7 @@ export default function GlassCard({ children, className, glowColor = 'purple' }:
   return (
     <div
       className={cn(
-        'rounded-xl bg-[rgba(17,24,39,0.7)] backdrop-blur-[12px] border',
+        'rounded-xl bg-bg-surface/70 backdrop-blur-[12px] border',
         glowMap[glowColor],
         className,
       )}
