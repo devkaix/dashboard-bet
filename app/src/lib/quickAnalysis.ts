@@ -15,9 +15,18 @@ export type QuickComponent =
   | { type: 'trend'; data: { label: string; value: number }[] }
   | { type: 'alert'; severity: 'critical' | 'warning' | 'info'; count: number; message: string }
 
+export interface Reference {
+  table: string
+  columns: string[]
+  formula: string
+  period: string
+}
+
 export interface QuickAnswer {
   content: string
   component?: QuickComponent
+  reasoning?: string[]
+  references?: Reference[]
 }
 
 // ─── Helpers ───
@@ -33,6 +42,10 @@ function prevMonth(month: string): string {
   const pm = m === 1 ? 12 : m - 1
   const py = m === 1 ? y - 1 : y
   return `${py}-${String(pm).padStart(2, '0')}`
+}
+
+function ref(table: string, columns: string[], formula: string, period: string): Reference {
+  return { table, columns, formula, period }
 }
 
 async function playerRakeByMonth(month: string): Promise<Map<string, { rake: number; bet: number }>> {
@@ -100,6 +113,11 @@ async function rakeAnalysis(month: string): Promise<QuickAnswer> {
   return {
     content,
     component: { type: 'kpi', value: cur.rake, delta: deltaPct ?? 0, label: 'Rake', vsLabel: `vs ${prevLabel}` },
+    reasoning: [
+      `Somma del rake di tutti i giorni del mese (daily_network_stats).`,
+      `Confronto col mese precedente: (rake_corrente − rake_precedente) / |rake_precedente| × 100.`,
+    ],
+    references: [ref('daily_network_stats', ['rake', 'bet', 'won'], 'SUM(rake), SUM(bet), SUM(won) nel periodo', label)],
   }
 }
 
@@ -120,6 +138,11 @@ async function trendAnalysis(month: string): Promise<QuickAnswer> {
   return {
     content: `Nel ${formatAnalysisMonth(month)} ci sono ${negative} giorni con rake negativo su ${points.length} totali. Il giorno migliore è stato il ${best.label} con ${formatCurrency(best.value)}. Consiglio: concentra promozioni nei giorni storicamente deboli.`,
     component: { type: 'trend', data: points },
+    reasoning: [
+      'Estratta la serie giornaliera del rake (daily_network_stats).',
+      'Conteggiati i giorni con rake < 0 e individuato il giorno con rake massimo.',
+    ],
+    references: [ref('daily_network_stats', ['date', 'rake'], 'Serie giornaliera; COUNT(rake<0); MAX(rake)', formatAnalysisMonth(month))],
   }
 }
 
@@ -141,12 +164,30 @@ async function topPlayers(month: string, worst = false): Promise<QuickAnswer> {
     return {
       content: `I 5 giocatori che fanno perdere di più in ${formatAnalysisMonth(month)}: insieme pesano ${share.toFixed(1)}% del rake lordo positivo. Consiglio: verifica questi conti, potrebbero avere strategie di scommessa a rischio o bonus abusati.`,
       component: { type: 'table', headers: ['Rank', 'Giocatore', 'Rake', 'Bet'], rows },
+      reasoning: [
+        'Aggregato il rake per giocatore (SUM su daily_player_stats).',
+        'Ordinati per rake crescente e presi i 5 peggiori.',
+        'Calcolata la quota sul rake lordo positivo.',
+      ],
+      references: [
+        ref('daily_player_stats', ['player_id', 'rake', 'bet'], 'SUM(rake) per player_id, ORDER BY rake ASC', formatAnalysisMonth(month)),
+        ref('players', ['id', 'username'], 'Username giocatore', formatAnalysisMonth(month)),
+      ],
     }
   }
   const top1 = sorted[0]
   return {
     content: `Il giocatore top in ${formatAnalysisMonth(month)} è ${top1 ? names.get(top1[0]) || '—' : '—'} con ${formatCurrency(top1 ? top1[1].rake : 0)} di rake. Il top 5 insieme genera il ${share.toFixed(1)}% del rake lordo. Consiglio: sono i clienti da proteggere a ogni costo (bonus fedeltà, contatto diretto).`,
     component: { type: 'table', headers: ['Rank', 'Giocatore', 'Rake', 'Bet'], rows },
+    reasoning: [
+      'Aggregato il rake per giocatore (SUM su daily_player_stats).',
+      'Ordinati per rake decrescente e presi i primi 5.',
+      'Calcolata la quota sul rake lordo positivo.',
+    ],
+    references: [
+      ref('daily_player_stats', ['player_id', 'rake', 'bet'], 'SUM(rake) per player_id, ORDER BY rake DESC', formatAnalysisMonth(month)),
+      ref('players', ['id', 'username'], 'Username giocatore', formatAnalysisMonth(month)),
+    ],
   }
 }
 
@@ -175,6 +216,15 @@ async function topPvrs(month: string): Promise<QuickAnswer> {
   return {
     content: `Il PVR più forte in ${formatAnalysisMonth(month)} è ${top1 ? nameMap.get(top1[0]) || '—' : '—'} con ${formatCurrency(top1 ? top1[1].rake : 0)} di rake. Consiglio: studia il modello di questo PVR e applicalo a quelli sotto la media.`,
     component: { type: 'table', headers: ['Rank', 'PVR', 'Rake', 'Bet'], rows },
+    reasoning: [
+      'Aggregato il rake per PVR (SUM su daily_pvr_stats).',
+      'Ordinati per rake decrescente e presi i primi 5.',
+      'Risolti i nomi dei PVR da pvrs.',
+    ],
+    references: [
+      ref('daily_pvr_stats', ['pvr_id', 'rake', 'bet'], 'SUM(rake) per pvr_id, ORDER BY rake DESC', formatAnalysisMonth(month)),
+      ref('pvrs', ['id', 'name'], 'Nome PVR', formatAnalysisMonth(month)),
+    ],
   }
 }
 
@@ -210,6 +260,12 @@ async function retentionAnalysis(month: string): Promise<QuickAnswer> {
         ['Persi', persi, formatCurrency(persiRake)],
       ],
     },
+    reasoning: [
+      'Confrontati i player_id attivi del mese corrente con quelli del mese precedente.',
+      'Classificati in fidelizzati, nuovi e persi.',
+      'Ordinati i persi per rake per individuare i più impattanti.',
+    ],
+    references: [ref('daily_player_stats', ['player_id', 'date', 'rake'], 'Differenza insiemistica player_id tra mesi; SUM(rake) per segmento', `${formatAnalysisMonth(pm)} vs ${formatAnalysisMonth(month)}`)],
   }
 }
 
@@ -223,6 +279,11 @@ async function categoryAnalysis(month: string): Promise<QuickAnswer> {
   return {
     content: `In ${formatAnalysisMonth(month)} la categoria che genera più rake è ${String((topCat as any)?.category || '—')} con ${formatCurrency(toNum((topCat as any)?.rake || 0))} (${share.toFixed(1)}% del totale). Consiglio: se SCOMMESSE cresce, investi lì; se CASINO domina, diversifica con offerte sportive.`,
     component: { type: 'table', headers: ['Categoria', 'Rake'], rows },
+    reasoning: [
+      'Letto il rake per categoria da category_stats.',
+      'Calcolata la quota della categoria top sul totale.',
+    ],
+    references: [ref('category_stats', ['analysis_month', 'category', 'rake'], 'SUM(rake) per category, ORDER BY rake DESC', formatAnalysisMonth(month))],
   }
 }
 
@@ -244,6 +305,11 @@ async function negativeDaysAnalysis(month: string): Promise<QuickAnswer> {
       count: neg.length,
       message: `${neg.length} giorni con rake negativo`,
     },
+    reasoning: [
+      'Estratta la serie giornaliera del rake (daily_network_stats).',
+      'Filtrati i giorni con rake < 0 e individuato il peggiore.',
+    ],
+    references: [ref('daily_network_stats', ['date', 'rake'], 'COUNT(date) WHERE rake<0; MIN(rake)', formatAnalysisMonth(month))],
   }
 }
 

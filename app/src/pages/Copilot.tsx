@@ -12,11 +12,13 @@ import {
   ChevronUp,
   ChevronDown,
   Sparkles,
+  Info,
+  Database,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
-import { answerQuestion, type QuickComponent } from '@/lib/quickAnalysis'
+import { answerQuestion, gatherCommercialFacts, type QuickComponent, type Reference } from '@/lib/quickAnalysis'
 import MonthSelector from '@/components/upload/MonthSelector'
 import { analysisMonthToRange, normalizeAnalysisMonth } from '@/lib/analysisMonth'
 import {
@@ -45,6 +47,9 @@ interface ChatMessage {
   content: string
   timestamp: number
   dataComponent?: QuickComponent
+  reasoning?: string[]
+  references?: Reference[]
+  followUps?: string[]
 }
 
 interface QuestionCategory {
@@ -354,9 +359,133 @@ function DataComponentRenderer({ dc }: { dc: QuickComponent }) {
   }
 }
 
+/* ─── Markdown renderer ─── */
+
+function inlineMarkdown(text: string): React.ReactNode[] {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean)
+  return parts.map((p, i) => {
+    if (p.startsWith('**') && p.endsWith('**')) {
+      return <strong key={i} className="font-semibold">{p.slice(2, -2)}</strong>
+    }
+    if (p.startsWith('`') && p.endsWith('`')) {
+      return <code key={i} className="font-mono text-[13px] bg-bg-surface-elevated px-1 py-0.5 rounded">{p.slice(1, -1)}</code>
+    }
+    return <span key={i}>{p}</span>
+  })
+}
+
+function MarkdownText({ content }: { content: string }) {
+  const lines = content.split('\n')
+  const blocks: React.ReactNode[] = []
+  let list: { ordered: boolean; items: string[] } | null = null
+  let key = 0
+
+  const flushList = () => {
+    if (list && list.items.length > 0) {
+      const items = list.items
+      blocks.push(
+        list.ordered
+          ? <ol key={key++} className="list-decimal list-inside space-y-1">{items.map((it, i) => <li key={i} className="text-[14px] text-text-primary">{inlineMarkdown(it)}</li>)}</ol>
+          : <ul key={key++} className="list-disc list-inside space-y-1">{items.map((it, i) => <li key={i} className="text-[14px] text-text-primary">{inlineMarkdown(it)}</li>)}</ul>,
+      )
+    }
+    list = null
+  }
+
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line) { flushList(); continue }
+    if (line.startsWith('### ')) { flushList(); blocks.push(<h4 key={key++} className="text-[14px] font-semibold text-text-primary mt-2 mb-1">{inlineMarkdown(line.slice(4))}</h4>); continue }
+    if (line.startsWith('## ')) { flushList(); blocks.push(<h3 key={key++} className="text-[15px] font-semibold text-text-primary mt-2 mb-1">{inlineMarkdown(line.slice(3))}</h3>); continue }
+    if (line.startsWith('# ')) { flushList(); blocks.push(<h3 key={key++} className="text-[16px] font-semibold text-text-primary mt-2 mb-1">{inlineMarkdown(line.slice(2))}</h3>); continue }
+    if (/^[-*] /.test(line)) { if (!list || list.ordered) { flushList(); list = { ordered: false, items: [] } } list.items.push(line.slice(2)); continue }
+    if (/^\d+\. /.test(line)) { if (!list || !list.ordered) { flushList(); list = { ordered: true, items: [] } } list.items.push(line.replace(/^\d+\. /, '')); continue }
+    flushList()
+    blocks.push(<p key={key++} className="text-[14px] leading-relaxed text-text-primary">{inlineMarkdown(line)}</p>)
+  }
+  flushList()
+
+  return <div className="space-y-1.5">{blocks}</div>
+}
+
+/* ─── Reasoning / References Modal ─── */
+
+function ReasoningModal({ message, onClose }: { message: ChatMessage; onClose: () => void }) {
+  return (
+    <motion.div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 10 }}
+        className="relative w-full max-w-xl max-h-[80vh] overflow-y-auto rounded-2xl border border-border-subtle bg-bg-surface shadow-2xl"
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle">
+          <h3 className="text-[16px] font-semibold text-text-primary">Perché e riferimenti</h3>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-text-secondary hover:bg-bg-surface-elevated hover:text-text-primary transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="px-6 py-5 space-y-5">
+          <section>
+            <h4 className="text-[12px] font-semibold uppercase tracking-wider text-text-muted mb-2">Perché questa risposta</h4>
+            {message.reasoning && message.reasoning.length > 0 ? (
+              <ol className="space-y-2">
+                {message.reasoning.map((r, i) => (
+                  <li key={i} className="flex gap-2 text-[13px] text-text-primary">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-accent-purple/15 text-accent-purple text-[11px] font-semibold flex items-center justify-center">{i + 1}</span>
+                    <span>{r}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="text-[13px] text-text-muted">Nessun dettaglio di ragionamento disponibile.</p>
+            )}
+          </section>
+          <section>
+            <h4 className="text-[12px] font-semibold uppercase tracking-wider text-text-muted mb-2">Riferimenti dati</h4>
+            {message.references && message.references.length > 0 ? (
+              <div className="space-y-2">
+                {message.references.map((r, i) => (
+                  <div key={i} className="rounded-lg border border-border-subtle bg-bg-surface-elevated px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <Database size={14} className="text-accent-blue flex-shrink-0" />
+                      <span className="font-mono text-[13px] font-medium text-text-primary">{r.table}</span>
+                      <span className="text-[12px] text-text-muted ml-auto">{r.period}</span>
+                    </div>
+                    <div className="mt-1.5 text-[12px] text-text-secondary">
+                      <span className="text-text-muted">Colonne:</span> {r.columns.join(', ')}
+                    </div>
+                    <div className="text-[12px] text-text-secondary">
+                      <span className="text-text-muted">Formula:</span> {r.formula}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[13px] text-text-muted">Nessun riferimento disponibile.</p>
+            )}
+          </section>
+        </div>
+      </motion.div>
+    </motion.div>
+  )
+}
+
 /* ─── Message Bubble ─── */
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  onShowReasoning,
+  onFollowUp,
+}: {
+  message: ChatMessage
+  onShowReasoning?: (m: ChatMessage) => void
+  onFollowUp?: (text: string) => void
+}) {
   const isUser = message.role === 'user'
   const timestamp = format(message.timestamp, 'HH:mm', { locale: it })
 
@@ -369,7 +498,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         className="flex justify-end mb-4"
       >
         <div className="flex flex-col items-end max-w-[85%]">
-          <div className="px-4 py-3 rounded-2xl rounded-tr-sm bg-accent-blue text-white text-[14px] leading-relaxed">
+          <div className="px-4 py-3 rounded-2xl rounded-tr-sm bg-accent-blue text-white text-[14px] leading-relaxed whitespace-pre-wrap">
             {message.content}
           </div>
           <span className="text-[11px] text-text-muted mt-1 mr-2">{timestamp}</span>
@@ -399,15 +528,35 @@ function MessageBubble({ message }: { message: ChatMessage }) {
               backdropFilter: 'blur(12px)',
             }}
           >
-            <p className="text-[14px] leading-relaxed text-text-primary">
-              {message.content}
-            </p>
+            <MarkdownText content={message.content} />
             {message.dataComponent && (
-              <div className="pl-2">
+              <div className="pl-2 mt-2">
                 <DataComponentRenderer dc={message.dataComponent} />
               </div>
             )}
+            {(message.reasoning?.length || message.references?.length) && (
+              <button
+                onClick={() => onShowReasoning?.(message)}
+                className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-bg-surface-elevated border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-surface-highlight transition-colors"
+              >
+                <Info size={13} />
+                Perché e riferimenti
+              </button>
+            )}
           </div>
+          {message.followUps && message.followUps.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-2 ml-2">
+              {message.followUps.map((f, i) => (
+                <button
+                  key={i}
+                  onClick={() => onFollowUp?.(f)}
+                  className="px-3 py-1.5 rounded-full bg-bg-surface-elevated border border-border-subtle text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-surface-highlight transition-colors"
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          )}
           <span className="text-[11px] text-text-muted mt-1 ml-2">{timestamp}</span>
         </div>
       </div>
@@ -868,6 +1017,7 @@ export default function CopilotPage() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   })
   const [adviceOpen, setAdviceOpen] = useState(false)
+  const [modalMessage, setModalMessage] = useState<ChatMessage | null>(null)
 
   const scrollToBottom = useCallback(() => {
     if (chatContainerRef.current) {
@@ -903,14 +1053,49 @@ export default function CopilotPage() {
 
       ;(async () => {
         try {
-          const answer = await answerQuestion(text, month)
-          const aiMsg: ChatMessage = {
-            id: `ai-${Date.now()}`,
-            role: 'ai',
-            content: answer.content,
-            timestamp: Date.now(),
-            dataComponent: answer.component,
+          const history = messages
+            .slice(-10)
+            .map((m) => ({ role: m.role === 'user' ? ('user' as const) : ('assistant' as const), content: m.content }))
+
+          let aiMsg: ChatMessage
+          try {
+            const facts = await gatherCommercialFacts(month)
+            const resp = await fetch('/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ question: text, history, month, facts }),
+            })
+            const data = (await resp.json()) as {
+              content?: string
+              error?: string
+              reasoning?: string[]
+              references?: Reference[]
+              followUps?: string[]
+            }
+            if (!resp.ok || data.error) throw new Error(data.error || `Errore ${resp.status}`)
+            aiMsg = {
+              id: `ai-${Date.now()}`,
+              role: 'ai',
+              content: data.content || 'Nessuna risposta.',
+              timestamp: Date.now(),
+              reasoning: data.reasoning,
+              references: data.references,
+              followUps: data.followUps,
+            }
+          } catch {
+            // Fallback al motore locale deterministico (senza LLM)
+            const answer = await answerQuestion(text, month)
+            aiMsg = {
+              id: `ai-${Date.now()}`,
+              role: 'ai',
+              content: answer.content,
+              timestamp: Date.now(),
+              dataComponent: answer.component,
+              reasoning: answer.reasoning,
+              references: answer.references,
+            }
           }
+
           setIsTyping(false)
           setMessages((prev) => [...prev, aiMsg])
         } catch (err) {
@@ -925,7 +1110,7 @@ export default function CopilotPage() {
         }
       })()
     },
-    [month],
+    [month, messages],
   )
 
   const handleClearChat = useCallback(() => {
@@ -1002,7 +1187,11 @@ export default function CopilotPage() {
                     exit={{ opacity: 0, y: -12 }}
                     transition={{ duration: 0.25, delay: index * 0.05, ease: easeDefault }}
                   >
-                    <MessageBubble message={msg} />
+                    <MessageBubble
+                      message={msg}
+                      onShowReasoning={setModalMessage}
+                      onFollowUp={handleSendMessage}
+                    />
                   </motion.div>
                 ))}
               </AnimatePresence>
@@ -1015,6 +1204,10 @@ export default function CopilotPage() {
           <ChatInputBar onSend={handleSendMessage} disabled={isTyping} />
         </div>
       </div>
+
+      <AnimatePresence>
+        {modalMessage && <ReasoningModal message={modalMessage} onClose={() => setModalMessage(null)} />}
+      </AnimatePresence>
     </div>
   )
 }
