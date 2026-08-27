@@ -167,9 +167,9 @@ async function topPvrs(month: string): Promise<QuickAnswer> {
   }
   const top = Array.from(agg.entries()).sort((a, b) => b[1].rake - a[1].rake).slice(0, 5)
   const allIds = top.map(([id]) => id)
-  const { data: pvrsData } = await (supabase.from('pvrs').select('id, code, name') as any).in('id', allIds.length ? allIds : ['none'])
+  const { data: pvrsData } = await (supabase.from('pvrs').select('id, name') as any).in('id', allIds.length ? allIds : ['none'])
   const nameMap = new Map<string, string>()
-  for (const p of (pvrsData || []) as any[]) nameMap.set(String(p.id), String(p.code || p.name || p.id))
+  for (const p of (pvrsData || []) as any[]) nameMap.set(String(p.id), String(p.name || p.id))
   const rows = top.map(([id, e], i) => [`#${i + 1}`, nameMap.get(id) || id.slice(0, 8), formatCurrency(e.rake), formatCurrency(e.bet)])
   const top1 = top[0]
   return {
@@ -317,9 +317,9 @@ export async function gatherCommercialFacts(month: string): Promise<string> {
     for (const r of data || []) agg.set(String((r as Record<string, unknown>).pvr_id), (agg.get(String((r as Record<string, unknown>).pvr_id)) || 0) + toNum((r as Record<string, unknown>).rake))
     const sorted = Array.from(agg.entries()).sort((a, b) => b[1] - a[1])
     const ids = sorted.slice(0, 2).concat(sorted.slice(-2)).map(([id]) => id)
-    const { data: pvrsData } = await (supabase.from('pvrs').select('id, code, name') as any).in('id', ids.length ? ids : ['none'])
+    const { data: pvrsData } = await (supabase.from('pvrs').select('id, name') as any).in('id', ids.length ? ids : ['none'])
     const nameMap = new Map<string, string>()
-    for (const p of (pvrsData || []) as any[]) nameMap.set(String(p.id), String(p.code || p.name || p.id))
+    for (const p of (pvrsData || []) as any[]) nameMap.set(String(p.id), String(p.name || p.id))
     if (sorted.length) lines.push(`TOP PVR: ${sorted.slice(0, 3).map(([id, r]) => `${nameMap.get(id) || id.slice(0, 8)} (${formatCurrency(r)})`).join(', ')}`)
     const worst = sorted.slice(-2).reverse()
     if (worst.length && worst[0][1] < 0) lines.push(`PVR IN PERDITA: ${worst.map(([id, r]) => `${nameMap.get(id) || id.slice(0, 8)} (${formatCurrency(r)})`).join(', ')}`)
