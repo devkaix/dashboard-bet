@@ -306,8 +306,11 @@ function DetailPanel({
           </button>
         </div>
         <h2 className="text-[20px] font-semibold text-text-primary leading-tight">
-          {nodeName}
+          {node.type === 'pvr' && (node.data as PVR).code ? (node.data as PVR).code : nodeName}
         </h2>
+        {node.type === 'pvr' && (node.data as PVR).name && (
+          <p className="text-[13px] text-text-secondary mt-0.5">{getNodeName(node)}</p>
+        )}
         {breadcrumb.length > 0 && (
           <p className="text-[12px] text-text-muted mt-1.5">{breadcrumb.join(' > ')}</p>
         )}
@@ -465,7 +468,7 @@ function TreeRow({
                 depth >= 3 && 'text-[13px] text-text-primary',
               )}
             >
-              {getNodeName(node)}
+              {node.type === 'pvr' && (node.data as PVR).code ? (node.data as PVR).code : getNodeName(node)}
             </span>
           </div>
           {node.type === 'area_manager' && (
@@ -474,8 +477,8 @@ function TreeRow({
             </p>
           )}
           {node.type === 'pvr' && (
-            <p className="text-[11px] text-text-muted">
-              {(node.data as PVR).code} &middot; {(node.data as PVR).city}
+            <p className="text-[11px] text-text-muted truncate">
+              {getNodeName(node)}{(node.data as PVR).city ? ` &middot; ${(node.data as PVR).city}` : ''}
             </p>
           )}
           {node.type === 'agent' && (
