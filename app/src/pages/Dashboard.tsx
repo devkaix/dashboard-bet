@@ -5,7 +5,7 @@ import {
   TrendingUp,
   Coins,
   Users,
-  Activity,
+  Gift,
   BarChart3,
   AlertTriangle,
   TrendingUp as TrendingUpIcon,
@@ -365,14 +365,6 @@ export default function Dashboard() {
     [dailyKpis, chartMonthLabel],
   )
 
-  // totalWon is read from state (real 'won' column)
-  const negativeDays = dailyKpis.filter((d) => d.total_rake < 0).length
-
-  const worstDay = useMemo(() => {
-    if (dailyKpis.length === 0) return null
-    return [...dailyKpis].sort((a, b) => a.total_rake - b.total_rake)[0]
-  }, [dailyKpis])
-
   // ─── Computed deltas: current vs previous month ───
   const deltas = useMemo(() => {
     const prev = prevMonthAggs
@@ -593,20 +585,6 @@ export default function Dashboard() {
         )}
         <div className="grid grid-cols-5 gap-4">
         <KpiCard
-          icon={Coins}
-          iconColor="text-warning"
-          label={`Won Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
-          value={formatCurrency(categoryValues.won)}
-          delta={categoryFilter === 'all' ? deltas.won : '—'}
-          deltaPositive={categoryFilter === 'all' ? deltas.wonPositive : true}
-          sparklineData={categoryFilter === 'all' ? sparkData.wonData : []}
-          sparklineColor="#f59e0b"
-          sparklineFillColor="#f59e0b"
-          bottomNote={categoryFilter === 'all' ? `Payout medio: ${formatPercent(avgPayout)}` : ''}
-          helpText="Importo totale vinto dai giocatori nel mese. Fonte: colonna Won del file «giocato totale della rete» (daily_network_stats). Il payout (Won/Bet×100) indica la percentuale restituita ai giocatori."
-          index={0}
-        />
-        <KpiCard
           icon={TrendingUp}
           iconColor="text-accent-blue"
           label={`Bet Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
@@ -618,6 +596,20 @@ export default function Dashboard() {
           sparklineFillColor="#3b82f6"
           bottomNote={categoryFilter === 'all' ? comparisonLabel : ''}
           helpText="Importo totale giocato (scommesso) dai clienti nel mese. Fonte: colonna Bet del file «giocato totale della rete» (daily_network_stats). Non include i bonus. Confronta con Won per capire il payout."
+          index={0}
+        />
+        <KpiCard
+          icon={Coins}
+          iconColor="text-warning"
+          label={`Won Totale${categoryFilter !== 'all' ? ' ' + categoryFilter : ''}`}
+          value={formatCurrency(categoryValues.won)}
+          delta={categoryFilter === 'all' ? deltas.won : '—'}
+          deltaPositive={categoryFilter === 'all' ? deltas.wonPositive : true}
+          sparklineData={categoryFilter === 'all' ? sparkData.wonData : []}
+          sparklineColor="#f59e0b"
+          sparklineFillColor="#f59e0b"
+          bottomNote={categoryFilter === 'all' ? `Payout medio: ${formatPercent(avgPayout)}` : ''}
+          helpText="Importo totale vinto dai giocatori nel mese. Fonte: colonna Won del file «giocato totale della rete» (daily_network_stats). Il payout (Won/Bet×100) indica la percentuale restituita ai giocatori."
           index={1}
         />
         <KpiCard
@@ -649,22 +641,18 @@ export default function Dashboard() {
           index={3}
         />
         <KpiCard
-          icon={Activity}
+          icon={Gift}
           iconColor="text-accent-purple"
-          label="Rake Medio Giorno"
-          value={formatCurrency(avgRake)}
-          delta={`${negativeDays} giorni negativi`}
+          label="Bonus Totali"
+          value={formatCurrency(dataStore.monthly_aggregates.bonus_erogati)}
+          delta="Erogati"
           deltaPositive={false}
           deltaWarning={true}
-          sparklineData={sparkData.rakeData}
+          sparklineData={[]}
           sparklineColor="#8b5cf6"
           sparklineFillColor="#8b5cf6"
-          bottomNote={
-            worstDay
-              ? `Peggior giorno: ${new Date(worstDay.date + 'T00:00:00').toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })} (${formatCurrency(worstDay.total_rake)})`
-              : ''
-          }
-          helpText="Media del rake giornaliero: Rake totale del mese diviso per i giorni con dati. Fonte: daily_network_stats. I giorni negativi sono quelli in cui i giocatori hanno vinto più di quanto hanno giocato. Il peggior giorno è il minimo di rake del mese."
+          bottomNote={`Utilizzati: ${formatCurrency(dataStore.monthly_aggregates.bonus_utilizzati)}`}
+          helpText="Bonus totali del mese. «Erogati» è il valore complessivo dei bonus assegnati ai giocatori (colonna Buy-in Bonus di daily_network_stats). «Utilizzati» è il valore dei bonus effettivamente giocati (colonna Bet Bonus). La differenza indica i bonus non ancora sfruttati."
           index={4}
         />
         </div>

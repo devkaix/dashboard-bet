@@ -200,6 +200,8 @@ export interface MonthlyAggregates {
   bet: number
   won: number
   active_players: number
+  bonus_erogati: number
+  bonus_utilizzati: number
 }
 
 export interface Rankings {
@@ -825,17 +827,19 @@ async function fetchDailyKpis(range?: DateRange): Promise<DailyKPI[]> {
 }
 
 async function fetchMonthlyAggregates(range?: DateRange): Promise<MonthlyAggregates> {
-  let q = supabase.from("daily_network_stats").select("bet, rake, won");
+  let q = supabase.from("daily_network_stats").select("bet, rake, won, buy_in_bonus, bet_bonus") as any;
   if (range?.start) q = q.gte("date", range.start);
   if (range?.end) q = q.lte("date", range.end);
   const { data, error } = await q;
   if (error) throw error;
 
-  if (!data || data.length === 0) return { rake: 0, bet: 0, won: 0, active_players: 0 };
+  if (!data || data.length === 0) return { rake: 0, bet: 0, won: 0, active_players: 0, bonus_erogati: 0, bonus_utilizzati: 0 };
 
   const totalBet = data.reduce((sum, d) => sum + toNumber(d.bet), 0);
   const totalRake = data.reduce((sum, d) => sum + toNumber(d.rake), 0);
   const totalWon = data.reduce((sum, d) => sum + toNumber(d.won), 0);
+  const totalBonusErogati = data.reduce((sum, d) => sum + toNumber(d.buy_in_bonus), 0);
+  const totalBonusUtilizzati = data.reduce((sum, d) => sum + toNumber(d.bet_bonus), 0);
 
   let activeQ = supabase
     .from("daily_player_stats")
@@ -855,7 +859,7 @@ async function fetchMonthlyAggregates(range?: DateRange): Promise<MonthlyAggrega
     ? Array.from(activeMap.values()).reduce((sum, s) => sum + s.size, 0) / activeMap.size
     : 0;
 
-  return { rake: totalRake, bet: totalBet, won: totalWon, active_players: avgActive };
+  return { rake: totalRake, bet: totalBet, won: totalWon, active_players: avgActive, bonus_erogati: totalBonusErogati, bonus_utilizzati: totalBonusUtilizzati };
 }
 
 export async function fetchPreviousMonthAggregates(range: DateRange): Promise<MonthlyAggregates | null> {
@@ -1310,7 +1314,7 @@ export const dataStore = {
   get daily_kpis() { return cachedData?.daily_kpis ?? []; },
   get daily_stats() { return cachedData?.daily_stats ?? []; },
   get monthly_aggregates() {
-    return cachedData?.monthly_aggregates ?? { rake: 0, bet: 0, won: 0, active_players: 0 };
+    return cachedData?.monthly_aggregates ?? { rake: 0, bet: 0, won: 0, active_players: 0, bonus_erogati: 0, bonus_utilizzati: 0 };
   },
   get rankings() {
     return cachedData?.rankings ?? { top_players_by_rake: [], top_players_by_bet: [], top_pvrs: [] };
