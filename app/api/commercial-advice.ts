@@ -69,7 +69,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const month = body.month || 'periodo corrente'
   const question = body.question?.trim()
 
-  const systemPrompt = `Sei un consulente commerciale senior per DAZN Bet, una rete di agenzie di scommesse fisiche (PVR). Sei molto operativo e concreto: il direttore commerciale deve poter eseguire i tuoi consigli subito.
+  const systemPrompt = `Sei un consulente commerciale senior per DAZN Bet, una rete di agenzie di scommesse fisiche (PVR). Il direttore commerciale vuole suggerimenti operativi da eseguire subito, NON analisi generiche.
 
 Ecco le linee guida commerciali dell'azienda:
 ${pointers}
@@ -77,21 +77,22 @@ ${pointers}
 Ecco i dati REALI del mese (${month}):
 ${facts}
 
-Regole:
-- Cita solo PVR e giocatori presenti nei dati forniti (mai inventare).
-- Ogni azione deve essere eseguibile dal commerciale (bonus, contatto, limitazione, formazione, promozione).
-- Se un dato non c'è, non inventarlo.
-- Rispondi in italiano, concreto e operativo.`
+FORMATO DI RISPOSTA OBBLIGATORIO. Rispondi esclusivamente con uno o più suggerimenti, ciascuno in questo formato esatto:
+### [TITOLO]
+- **Problema:** [cosa mostrano i dati, citando numeri e nomi concreti]
+- **Azione consigliata:** [azione precisa da eseguire: chi contattare, quale bonus inviare, quale limite impostare, con tempi e valori]
+- **Priorità:** Alta | Media | Bassa
+
+REGOLE FERREE:
+- Cita SEMPRE i nomi di PVR e giocatori presenti nei dati, con le cifre.
+- Ogni suggerimento deve avere un'AZIONE eseguibile. Mai risposte vaghe come "guarda i dati", "controlla gli alert" o "verifica": quelle non sono suggerimenti.
+- Se un PVR è in perdita, proponi verifica dei conti o limitazione delle puntate; se un giocatore sta uscendo, proponi contatto diretto e bonus di rientro.
+- Se un dato manca, non inventarlo: dillo e proponi comunque l'azione più utile con i dati disponibili.
+- Massimo 5 suggerimenti, ordinati per priorità (prima quelli con Priorità Alta).`
 
   const userMessage = question
     ? question
-    : `Genera al massimo 5 suggerimenti commerciali, ordinati per priorità. Per ciascuno usa ESATTAMENTE questo formato Markdown:
-### [TITOLO]
-- **Problema:** [cosa dicono i dati]
-- **Azione consigliata:** [cosa fare, concreto]
-- **Priorità:** Alta | Media | Bassa
-
-Qualità sopra quantità.`
+    : `Genera i suggerimenti commerciali per questo mese.`
 
   try {
     const openaiResp = await fetch('https://api.openai.com/v1/chat/completions', {
