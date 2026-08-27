@@ -160,7 +160,10 @@ function PlayerSheet({
               <h2 className="text-[18px] font-semibold text-text-primary">{player.username}</h2>
               <div className="flex items-center gap-2 mt-1">
                 <StatusBadge status={player.status || 'unknown'} />
-                <span className="text-[12px] text-text-muted">PVR: {getPvrName(player.pvr_id)}</span>
+                <span className="text-[12px] font-medium text-text-primary">PVR: {player.pvr_ref_code || '—'}</span>
+                {getPvrName(player.pvr_id) && getPvrName(player.pvr_id) !== player.pvr_ref_code && (
+                  <span className="text-[12px] text-text-muted">({getPvrName(player.pvr_id)})</span>
+                )}
               </div>
               <p className="text-[12px] text-text-muted mt-1">
                 {player.kyc_status && `KYC: ${player.kyc_status}`}
@@ -353,7 +356,7 @@ export default function PlayersPage() {
         setAgents(agentMap)
 
         const pvrMap = new Map<string, string>()
-        ds.pvrs.forEach((p) => pvrMap.set(p.id, p.name))
+        ds.pvrs.forEach((p) => pvrMap.set(p.id, p.code || p.name))
         setPvrs(pvrMap)
 
         const statsMap = new Map<string, { date: string; buy_in: number; bet: number; won: number; rake: number; payout: number }[]>()
@@ -461,11 +464,22 @@ export default function PlayersPage() {
       columnHelper.display({
         id: 'pvr',
         header: 'PVR',
-        cell: (info) => (
-          <span className="text-[12px] text-text-secondary">
-            {getPvrName(info.row.original.pvr_id)}
-          </span>
-        ),
+        cell: (info) => {
+          const p = info.row.original
+          const pvrName = getPvrName(p.pvr_id)
+          return (
+            <div className="min-w-0">
+              <span className="text-[12px] font-medium text-text-primary block truncate max-w-[140px]">
+                {p.pvr_ref_code || '—'}
+              </span>
+              {pvrName && pvrName !== p.pvr_ref_code && (
+                <span className="text-[10px] text-text-muted block truncate max-w-[140px]">
+                  {pvrName}
+                </span>
+              )}
+            </div>
+          )
+        },
       }),
       columnHelper.accessor('total_rake', {
         header: 'Rake Totale',
