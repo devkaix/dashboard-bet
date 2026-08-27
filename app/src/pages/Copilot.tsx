@@ -9,15 +9,15 @@ import {
   Network,
   AlertTriangle,
   X,
-  Star,
-  Shield,
-  Zap,
   ChevronUp,
   ChevronDown,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
+import { answerQuestion, type QuickComponent } from '@/lib/quickAnalysis'
+import MonthSelector from '@/components/upload/MonthSelector'
+import { analysisMonthToRange, normalizeAnalysisMonth } from '@/lib/analysisMonth'
 import {
   ResponsiveContainer,
   BarChart,
@@ -27,10 +27,8 @@ import {
 } from 'recharts'
 import {
   formatCurrency,
-  getDailyKpis,
   getRankings,
   getAlerts,
-  getBriefing,
   getPvrs,
   formatPercent,
   loadData,
@@ -45,15 +43,8 @@ interface ChatMessage {
   role: 'user' | 'ai'
   content: string
   timestamp: number
-  dataComponent?: DataComponent
+  dataComponent?: QuickComponent
 }
-
-type DataComponent =
-  | { type: 'kpi'; value: number; delta: number; label: string; vsLabel: string }
-  | { type: 'table'; headers: string[]; rows: (string | number)[][] }
-  | { type: 'trend'; data: { label: string; value: number }[] }
-  | { type: 'alert'; severity: 'critical' | 'warning' | 'info'; count: number; message: string }
-  | { type: 'briefing'; criticals: string[]; opportunities: string[]; suggestions: string[] }
 
 interface QuestionCategory {
   key: string
@@ -67,13 +58,14 @@ interface QuestionCategory {
 
 const QUESTION_CATEGORIES: QuestionCategory[] = [
   {
-    key: 'trend',
-    label: 'Trend',
+    key: 'rake',
+    label: 'Rake',
     icon: TrendingUp,
     color: '#06b6d4',
     questions: [
-      "Perche' l'ultimo mese e' andato peggio del precedente?",
-      "Qual e' il trend del rake?",
+      'Quanto rake c\'è stato questo mese?',
+      'Qual è il trend del rake?',
+      'Confronta questo mese con il precedente',
     ],
   },
   {
@@ -82,18 +74,19 @@ const QUESTION_CATEGORIES: QuestionCategory[] = [
     icon: Trophy,
     color: '#f59e0b',
     questions: [
-      "Quali sono i 5 PVR migliori?",
-      "Chi sono i giocatori top?",
+      'Chi sono i 5 giocatori top?',
+      'Chi sono i peggiori?',
+      'Quali sono i 5 PVR migliori?',
     ],
   },
   {
-    key: 'network',
-    label: 'Network',
+    key: 'business',
+    label: 'Business',
     icon: Network,
     color: '#3b82f6',
     questions: [
-      "Quali PVR stanno crescendo?",
-      "Quali agenti perdono giocatori?",
+      'Quanti giocatori ho perso e quanti sono nuovi?',
+      'Dove si guadagna di più per categoria?',
     ],
   },
   {
@@ -102,19 +95,20 @@ const QUESTION_CATEGORIES: QuestionCategory[] = [
     icon: AlertTriangle,
     color: '#ef4444',
     questions: [
-      "Ci sono anomalie questo mese?",
-      "Giorni con rake negativo?",
+      'Ci sono giorni con rake negativo?',
+      'Ci sono anomalie questo mese?',
     ],
   },
 ]
 
 const QUICK_CHIPS = [
-  "Rake di oggi",
-  "Top giocatori",
-  "Allerte",
-  "Confronta periodi",
-  "Trend",
-  "Fai un briefing",
+  'Quanto rake c\'è stato questo mese?',
+  'Chi sono i 5 giocatori top?',
+  'Chi sono i peggiori?',
+  'Quanti giocatori ho perso?',
+  'Dove si guadagna di più?',
+  'Ci sono giorni con rake negativo?',
+  'Confronta con il mese precedente',
 ]
 
 /* ─── Period helpers ─── */
@@ -143,173 +137,6 @@ function getLatestPeriodLabel(): string {
     // fall through
   }
   return 'periodo corrente'
-}
-
-/* ─── Pre-built analytical responses ─── */
-
-function getAnalyticalResponse(userText: string): { content: string; dataComponent?: DataComponent } {
-  const lower = userText.toLowerCase()
-
-  // Response 1: Ultimo mese vs precedente / trend negativo
-  if (lower.includes("peggio") || lower.includes("maggio") || lower.includes("giugno") || lower.includes("ultimo mese")) {
-    const dailyKpis = getDailyKpis()
-    const monthly = dataStore.monthly_aggregates
-    const negativeDays = dailyKpis.filter((d) => d.total_rake < 0)
-    const worstDay = negativeDays.length > 0
-      ? negativeDays.reduce((a, b) => (a.total_rake < b.total_rake ? a : b))
-      : null
-    const avgPayout = dailyKpis.length > 0 ? dailyKpis.reduce((s, d) => s + d.avg_payout, 0) / dailyKpis.length : 0
-    const avgPlayers = dailyKpis.length > 0 ? dailyKpis.reduce((s, d) => s + d.active_players, 0) / dailyKpis.length : 0
-    const totalRake = monthly.rake
-    const totalWon = monthly.won
-    const periodLabel = getLatestPeriodLabel()
-
-    return {
-      content: `Nel periodo ${periodLabel} il rake totale e' stato di ${formatCurrency(totalRake)} e le vincite totali ${formatCurrency(totalWon)}. Ci sono stati ${negativeDays.length} giorni con rake negativo${worstDay ? `, il peggiore il ${format(new Date(worstDay.date), 'dd MMMM', { locale: it })} con ${formatCurrency(worstDay.total_rake)}` : ''}. Il payout medio e' del ${formatPercent(avgPayout)} e i giocatori attivi sono stati in media ${avgPlayers.toFixed(1)} al giorno.`,
-      dataComponent: {
-        type: 'trend' as const,
-        data: dailyKpis.map((d) => ({
-          label: format(new Date(d.date), 'dd', { locale: it }),
-          value: Math.round(d.total_rake),
-        })),
-      },
-    }
-  }
-
-  // Response 2: 5 PVR migliori
-  if (lower.includes("pvr") || lower.includes("migliori")) {
-    const rankings = getRankings()
-    const top5 = rankings.top_pvrs.slice(0, 5)
-    const pvrs = getPvrs()
-    const periodLabel = getLatestPeriodLabel()
-    return {
-      content: `Ecco i 5 PVR migliori per performance di rake nel periodo ${periodLabel}:`,
-      dataComponent: {
-        type: 'table' as const,
-        headers: ['PVR', 'Rake', 'Bet', 'Giocatori Attivi', 'Health Score'],
-        rows: top5.map((p) => {
-          const pvr = pvrs.find((pv) => pv.id === p.pvr_id)
-          return [
-            pvr ? pvr.name : p.pvr_name,
-            formatCurrency(p.total_rake),
-            formatCurrency(p.total_bet),
-            p.active_players,
-            p.health_score ?? '-',
-          ]
-        }),
-      },
-    }
-  }
-
-  // Response 3: Giocatori top
-  if (lower.includes("giocatori") || lower.includes("giocatore") || lower.includes("top") || lower.includes("performando")) {
-    const rankings = getRankings()
-    const top5 = rankings.top_players_by_rake.slice(0, 5)
-    const top1 = top5[0]
-    const top2 = top5[1]
-    const top3 = top5[2]
-
-    return {
-      content: `Il giocatore top e' ${top1?.username ?? 'N/A'} con ${formatCurrency(top1?.total_rake ?? 0)} di rake, seguito da ${top2?.username ?? 'N/A'} (${formatCurrency(top2?.total_rake ?? 0)}) e ${top3?.username ?? 'N/A'} (${formatCurrency(top3?.total_rake ?? 0)}).`,
-      dataComponent: {
-        type: 'table' as const,
-        headers: ['Rank', 'Giocatore', 'Rake', 'Bet', 'Giorni Attivi'],
-        rows: top5.map((p, i) => [
-          `#${i + 1}`,
-          p.username,
-          formatCurrency(p.total_rake),
-          formatCurrency(p.total_bet),
-          p.active_days,
-        ]),
-      },
-    }
-  }
-
-  // Response 4: Anomalie
-  if (lower.includes("anomalie") || lower.includes("anomal")) {
-    const dailyKpis = getDailyKpis()
-    const negativeDays = dailyKpis.filter((d) => d.total_rake < 0)
-    const worstDay = negativeDays.length > 0
-      ? negativeDays.reduce((a, b) => (a.total_rake < b.total_rake ? a : b))
-      : null
-    const alerts = getAlerts()
-    const periodLabel = getLatestPeriodLabel()
-
-    return {
-      content: `Ho rilevato ${negativeDays.length} giorni con rake negativo nel periodo ${periodLabel}. L'anomalia piu' critica e' il ${worstDay ? format(new Date(worstDay.date), 'dd/MM', { locale: it }) : 'N/A'} con ${formatCurrency(worstDay?.total_rake ?? 0)}. Sono presenti ${alerts.length} allerte attive in totale.`,
-      dataComponent: {
-        type: 'alert' as const,
-        severity: 'critical',
-        count: negativeDays.length,
-        message: `${negativeDays.length} giorni con rake negativo, ${alerts.length} allerte attive`,
-      },
-    }
-  }
-
-  // Response 5: Briefing
-  if (lower.includes("briefing") || lower.includes("riassunto")) {
-    const briefing = getBriefing()
-    const criticals = briefing.criticals.slice(0, 3).map((c) => c.title)
-    const opportunities = briefing.opportunities.slice(0, 3).map((o) => o.title)
-    const suggestions = briefing.suggestions.slice(0, 4).map((s) => s.title)
-    const periodLabel = getLatestPeriodLabel()
-
-    return {
-      content: `Ecco il briefing completo basato sull'analisi dei dati del periodo ${periodLabel}:`,
-      dataComponent: {
-        type: 'briefing' as const,
-        criticals,
-        opportunities,
-        suggestions,
-      },
-    }
-  }
-
-  // Response 6: Trend del rake
-  if (lower.includes("trend") && lower.includes("rake")) {
-    const dailyKpis = getDailyKpis()
-    const monthly = dataStore.monthly_aggregates
-    const totalRake = monthly.rake
-    const negativeDays = dailyKpis.filter((d) => d.total_rake < 0)
-    const periodLabel = getLatestPeriodLabel()
-    return {
-      content: `Il trend del rake nel periodo ${periodLabel} mostra un totale di ${formatCurrency(totalRake)} con ${negativeDays.length} giorni negativi su ${dailyKpis.length} giorni totali. La media giornaliera e' di ${formatCurrency(dailyKpis.length ? totalRake / dailyKpis.length : 0)}.`,
-      dataComponent: {
-        type: 'trend' as const,
-        data: dailyKpis.map((d) => ({
-          label: format(new Date(d.date), 'dd', { locale: it }),
-          value: Math.round(d.total_rake),
-        })),
-      },
-    }
-  }
-
-  // Response 7: Giorni con rake negativo
-  if (lower.includes("negativo") || lower.includes("giorni")) {
-    const dailyKpis = getDailyKpis()
-    const negativeDays = dailyKpis.filter((d) => d.total_rake < 0)
-    const worstDay = negativeDays.length > 0
-      ? negativeDays.reduce((a, b) => (a.total_rake < b.total_rake ? a : b))
-      : null
-    const periodLabel = getLatestPeriodLabel()
-
-    return {
-      content: `Nel periodo ${periodLabel} ci sono stati ${negativeDays.length} giorni con rake negativo. Il giorno peggiore e' stato il ${worstDay ? format(new Date(worstDay.date), 'dd/MM', { locale: it }) : 'N/A'} con ${formatCurrency(worstDay?.total_rake ?? 0)}.`,
-      dataComponent: {
-        type: 'trend' as const,
-        data: dailyKpis.map((d) => ({
-          label: format(new Date(d.date), 'dd', { locale: it }),
-          value: Math.round(d.total_rake),
-        })),
-      },
-    }
-  }
-
-  // Default response
-  const periodLabel = getLatestPeriodLabel()
-  return {
-    content: `Non ho informazioni specifiche su questa domanda. Prova a chiedermi qualcosa sui dati del periodo ${periodLabel}, come il rake totale, le vincite, i giocatori top, i PVR migliori o le anomalie.`,
-  }
 }
 
 /* ─── Animation variants ─── */
@@ -511,80 +338,7 @@ function AlertCards({ severity, count, message }: { severity: string; count: num
   )
 }
 
-function BriefingView({
-  criticals,
-  opportunities,
-  suggestions,
-}: {
-  criticals: string[]
-  opportunities: string[]
-  suggestions: string[]
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.1, duration: 0.25 }}
-      className="mt-3 space-y-3"
-    >
-      {/* Criticals */}
-      {criticals.length > 0 && (
-        <div className="rounded-xl bg-negative/5 border border-negative/20 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Shield size={14} className="text-negative" />
-            <span className="text-[13px] font-semibold text-negative">Criticità</span>
-          </div>
-          <ul className="space-y-1.5">
-            {criticals.map((c, i) => (
-              <li key={i} className="flex items-start gap-2 text-[13px] text-text-secondary">
-                <span className="text-negative mt-0.5">{i + 1}.</span>
-                <span>{c}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Opportunities */}
-      {opportunities.length > 0 && (
-        <div className="rounded-xl bg-positive/5 border border-positive/20 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Zap size={14} className="text-positive" />
-            <span className="text-[13px] font-semibold text-positive">Opportunità</span>
-          </div>
-          <ul className="space-y-1.5">
-            {opportunities.map((o, i) => (
-              <li key={i} className="flex items-start gap-2 text-[13px] text-text-secondary">
-                <span className="text-positive mt-0.5">{i + 1}.</span>
-                <span>{o}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Suggestions */}
-      {suggestions.length > 0 && (
-        <div className="rounded-xl bg-accent-blue/5 border border-accent-blue/20 p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Star size={14} className="text-accent-blue" />
-            <span className="text-[13px] font-semibold text-accent-blue">Suggerimenti</span>
-          </div>
-          <ul className="space-y-1.5">
-            {suggestions.map((s, i) => (
-              <li key={i} className="flex items-start gap-2 text-[13px] text-text-secondary">
-                <span className="text-accent-blue mt-0.5">{i + 1}.</span>
-                <span>{s}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </motion.div>
-  )
-}
-
-function DataComponentRenderer({ dc }: { dc: DataComponent }) {
+function DataComponentRenderer({ dc }: { dc: QuickComponent }) {
   switch (dc.type) {
     case 'kpi':
       return <MiniKPICard value={dc.value} delta={dc.delta} label={dc.label} vsLabel={dc.vsLabel} />
@@ -594,8 +348,6 @@ function DataComponentRenderer({ dc }: { dc: DataComponent }) {
       return <MiniTrendChart data={dc.data} />
     case 'alert':
       return <AlertCards severity={dc.severity} count={dc.count} message={dc.message} />
-    case 'briefing':
-      return <BriefingView criticals={dc.criticals} opportunities={dc.opportunities} suggestions={dc.suggestions} />
     default:
       return null
   }
@@ -859,12 +611,8 @@ function ChatInputBar({
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => {
-              if (chip === 'Fai un briefing') {
-                onSend('Fai un briefing')
-              } else {
-                setText(chip)
-                inputRef.current?.focus()
-              }
+              setText(chip)
+              inputRef.current?.focus()
             }}
             className="px-3 py-1.5 rounded-full bg-bg-surface-elevated text-[12px] text-text-secondary hover:text-text-primary hover:bg-bg-surface-highlight transition-colors whitespace-nowrap"
           >
@@ -882,6 +630,19 @@ export default function CopilotPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isTyping, setIsTyping] = useState(false)
   const chatContainerRef = useRef<HTMLDivElement>(null)
+  const [month, setMonth] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search)
+    const urlMonth = params.get('month')
+    if (urlMonth) {
+      try { return normalizeAnalysisMonth(urlMonth) } catch { /* ignore */ }
+    }
+    const stored = localStorage.getItem('analysisMonth')
+    if (stored) {
+      try { return normalizeAnalysisMonth(stored) } catch { /* ignore */ }
+    }
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  })
 
   const scrollToBottom = useCallback(() => {
     if (chatContainerRef.current) {
@@ -893,10 +654,15 @@ export default function CopilotPage() {
     scrollToBottom()
   }, [messages, isTyping, scrollToBottom])
 
-  const [ready, setReady] = useState(false)
-
+  // Carica i dati del mese selezionato all'apertura e al cambio mese
   useEffect(() => {
-    loadData().then(() => setReady(true)).catch(() => setReady(true))
+    loadData(analysisMonthToRange(month))
+      .catch(() => { /* lascia i dati precedenti */ })
+  }, [month])
+
+  const handleMonthChange = useCallback((m: string) => {
+    setMonth(m)
+    localStorage.setItem('analysisMonth', m)
   }, [])
 
   const handleSendMessage = useCallback(
@@ -910,29 +676,31 @@ export default function CopilotPage() {
       setMessages((prev) => [...prev, userMsg])
       setIsTyping(true)
 
-      try {
-        const response = getAnalyticalResponse(text)
-        const aiMsg: ChatMessage = {
-          id: `ai-${Date.now()}`,
-          role: 'ai',
-          content: response.content,
-          timestamp: Date.now(),
-          dataComponent: response.dataComponent,
+      ;(async () => {
+        try {
+          const answer = await answerQuestion(text, month)
+          const aiMsg: ChatMessage = {
+            id: `ai-${Date.now()}`,
+            role: 'ai',
+            content: answer.content,
+            timestamp: Date.now(),
+            dataComponent: answer.component,
+          }
+          setIsTyping(false)
+          setMessages((prev) => [...prev, aiMsg])
+        } catch (err) {
+          const aiMsg: ChatMessage = {
+            id: `ai-${Date.now()}`,
+            role: 'ai',
+            content: err instanceof Error ? err.message : 'Errore nel caricamento dei dati. Riprova.',
+            timestamp: Date.now(),
+          }
+          setIsTyping(false)
+          setMessages((prev) => [...prev, aiMsg])
         }
-        setIsTyping(false)
-        setMessages((prev) => [...prev, aiMsg])
-      } catch (err) {
-        const aiMsg: ChatMessage = {
-          id: `ai-${Date.now()}`,
-          role: 'ai',
-          content: err instanceof Error ? err.message : 'Errore nel caricamento dei dati. Riprova.',
-          timestamp: Date.now(),
-        }
-        setIsTyping(false)
-        setMessages((prev) => [...prev, aiMsg])
-      }
+      })()
     },
-    [],
+    [month],
   )
 
   const handleClearChat = useCallback(() => {
@@ -955,19 +723,22 @@ export default function CopilotPage() {
           </h2>
           <span className="text-[15px] text-text-secondary hidden sm:inline">Analisi rapida dei dati della rete</span>
         </div>
-        {messages.length > 0 && (
-          <motion.button
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={handleClearChat}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] text-text-secondary hover:text-text-primary hover:bg-bg-surface-elevated transition-colors"
-          >
-            <X size={14} />
-            Cancella chat
-          </motion.button>
-        )}
+        <div className="flex items-center gap-3">
+          <MonthSelector selectedMonth={month} onMonthChange={handleMonthChange} />
+          {messages.length > 0 && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleClearChat}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-[13px] text-text-secondary hover:text-text-primary hover:bg-bg-surface-elevated transition-colors"
+            >
+              <X size={14} />
+              Cancella chat
+            </motion.button>
+          )}
+        </div>
       </motion.div>
 
       {/* Main content area */}
