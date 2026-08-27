@@ -10,7 +10,6 @@ import {
   AlertTriangle,
   TrendingUp as TrendingUpIcon,
   Lightbulb,
-}
   Trophy,
   ChevronDown,
 } from 'lucide-react'
