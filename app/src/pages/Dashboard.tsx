@@ -40,7 +40,7 @@ import {
   dataStore,
   formatCurrency,
   formatPercent,
-  getPvrName,
+  getPvrCode,
   playerStatus,
   fetchPreviousMonthAggregates,
   fetchAvailableMonths,
@@ -867,7 +867,7 @@ export default function Dashboard() {
                         {player.username}
                       </td>
                       <td className="px-4 py-3 text-[13px] text-text-secondary">
-                        {getPvrName(player.pvr_id)}
+                        {getPvrCode(player.pvr_id)}
                       </td>
                       <td className={cn('px-4 py-3 text-right font-mono text-[14px]', player.total_rake < 0 ? 'text-negative' : 'text-positive')}>
                         {formatCurrency(player.total_rake)}

@@ -1263,6 +1263,12 @@ export function getPvrName(pvrId: string | null): string {
   return pvr ? pvr.name : `PVR ${pvrId}`;
 }
 
+export function getPvrCode(pvrId: string | null): string {
+  if (!pvrId) return "N/A";
+  const pvr = getData().pvrs.find((p) => p.id === pvrId);
+  return pvr ? (pvr.code || pvr.name) : `PVR ${pvrId}`;
+}
+
 export interface CategoryStat {
   category: string;
   bet: number;
