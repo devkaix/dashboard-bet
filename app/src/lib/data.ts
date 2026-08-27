@@ -549,7 +549,7 @@ async function fetchNetworkHierarchy(range?: DateRange): Promise<{
       city: null,
       cap: null,
       fido: (p.fido as number) ?? null,
-      fido_used: (p.disponibile as number) ?? null,
+      fido_used: ((p.fido as number) ?? null) !== null ? Math.max((p.fido as number) - ((p.disponibile as number) ?? 0), 0) : null,
       saldo: (p.saldo as number) ?? null,
       status: (p.status as string) || "active",
       health_score: null,

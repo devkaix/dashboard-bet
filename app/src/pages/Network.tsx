@@ -160,7 +160,8 @@ function StatusBadge({ status }: { status: string | null }) {
 
 /* ─── Fido Usage Bar ─── */
 function FidoBar({ used, total }: { used: number; total: number }) {
-  const pct = Math.min((used / total) * 100, 100)
+  if (total <= 0) return null
+  const pct = Math.min(Math.max((used / total) * 100, 0), 100)
   const color = pct >= 95 ? 'bg-negative' : pct >= 85 ? 'bg-warning' : 'bg-positive'
   return (
     <div className="flex items-center gap-2">
@@ -514,10 +515,10 @@ function TreeRow({
                 <span className="text-text-primary font-mono">
                   {formatCurrency(getPvrTotalRake(node))}
                 </span>
-                {(node.data as PVR).fido != null && (
+                {(node.data as PVR).fido != null && num(node.data, 'fido') > 0 && (
                   <FidoBar
                     used={num(node.data, 'fido_used')}
-                    total={Math.max(num(node.data, 'fido'), 1)}
+                    total={num(node.data, 'fido')}
                   />
                 )}
               </>
